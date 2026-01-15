@@ -93,8 +93,11 @@ class MemoryService:
     def search_memory(self, payload: dict[str, Any]) -> dict[str, Any]:
         query = payload.get("query", "")
         limit = payload.get("limit", 10)
+        source = payload.get("source")
         keywords = [word for word in query.split() if word]
         memories_query = self.db.query(Memory)
+        if source and source != "all":
+            memories_query = memories_query.filter(Memory.source == source)
         for keyword in keywords:
             memories_query = memories_query.filter(Memory.content.ilike(f"%{keyword}%"))
         memories = (
@@ -111,10 +114,13 @@ class MemoryService:
         ]
         return {"query": query, "results": results}
 
-    def get_recent_memories(self, limit: int = 10) -> dict[str, Any]:
-        memories = (
-            self.db.query(Memory).order_by(Memory.created_at.desc()).limit(limit).all()
-        )
+    def get_recent_memories(self, payload: dict[str, Any]) -> dict[str, Any]:
+        limit = payload.get("limit", 10)
+        source = payload.get("source")
+        memories_query = self.db.query(Memory)
+        if source and source != "all":
+            memories_query = memories_query.filter(Memory.source == source)
+        memories = memories_query.order_by(Memory.created_at.desc()).limit(limit).all()
         results = [
             {
                 "id": memory.id,
@@ -211,8 +217,7 @@ class ChatService:
         if tool_name == "search_memory":
             return self.memory_service.search_memory(tool_call.arguments)
         if tool_name == "get_recent_memories":
-            limit = tool_call.arguments.get("limit", 10)
-            return self.memory_service.get_recent_memories(limit)
+            return self.memory_service.get_recent_memories(tool_call.arguments)
         if tool_name == "web_search":
             return {"status": "not_implemented", "payload": tool_call.arguments}
         return {"status": "unknown_tool", "payload": tool_call.arguments}
@@ -306,6 +311,10 @@ class ChatService:
                         "properties": {
                             "query": {"type": "string"},
                             "limit": {"type": "integer"},
+                            "source": {
+                                "type": "string",
+                                "description": "可选，指定只搜索某个来源的记忆（如 '阿怀'），传 'all' 或不传则搜索全部",
+                            },
                         },
                     },
                 },
@@ -317,7 +326,13 @@ class ChatService:
                     "description": "Get the most recent memories.",
                     "parameters": {
                         "type": "object",
-                        "properties": {"limit": {"type": "integer"}},
+                        "properties": {
+                            "limit": {"type": "integer"},
+                            "source": {
+                                "type": "string",
+                                "description": "可选，指定只搜索某个来源的记忆（如 '阿怀'），传 'all' 或不传则搜索全部",
+                            },
+                        },
                     },
                 },
             },
