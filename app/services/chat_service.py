@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import datetime, timezone, timedelta
+from fastapi import BackgroundTasks
 from typing import Any
 
 from openai import OpenAI
 import requests
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
-from app.models.models import ApiProvider, Assistant, Diary, Memory, Message, ModelPreset
+from app.models.models import ApiProvider, Assistant, ChatSession, Diary, Memory, Message, ModelPreset, SessionSummary, UserProfile
+from app.services.embedding_service import EmbeddingService
+from app.services.summary_service import SummaryService
+from app.database import SessionLocal
 
 logger = logging.getLogger(__name__)
+
+TZ_EAST8 = timezone(timedelta(hours=8))
 
 
 @dataclass
@@ -25,12 +34,16 @@ class ToolCall:
 class MemoryService:
     def __init__(self, db: Session) -> None:
         self.db = db
+        self.embedding_service = EmbeddingService()
 
     def save_memory(self, payload: dict[str, Any]) -> dict[str, Any]:
+        content = payload.get("content", "")
+        embedding = self.embedding_service.get_embedding(content)
         memory = Memory(
-            content=payload.get("content", ""),
+            content=content,
             tags=payload.get("tags", {}),
             source=payload.get("source", "unknown"),
+            embedding=embedding,
         )
         self.db.add(memory)
         self.db.commit()
@@ -95,23 +108,65 @@ class MemoryService:
         limit = payload.get("limit", 10)
         source = payload.get("source")
         keywords = [word for word in query.split() if word]
+        query_vector = self.embedding_service.get_embedding(query)
+
+        vector_where = "WHERE embedding IS NOT NULL"
+        vector_params = {"query_embedding": str(query_vector), "limit": limit}
+        if source and source != "all":
+            vector_where += " AND source = :source"
+            vector_params["source"] = source
+
+        vector_sql = text(
+            """
+    SELECT id, content, tags, source, category, weight, created_at,
+           1 - (embedding <=> :query_embedding) AS similarity
+    FROM memories
+    {vector_where}
+    ORDER BY embedding <=> :query_embedding
+    LIMIT :limit
+""".format(vector_where=vector_where)
+        )
+        vector_rows = self.db.execute(vector_sql, vector_params).all()
+
         memories_query = self.db.query(Memory)
         if source and source != "all":
             memories_query = memories_query.filter(Memory.source == source)
         for keyword in keywords:
             memories_query = memories_query.filter(Memory.content.ilike(f"%{keyword}%"))
-        memories = (
+        keyword_memories = (
             memories_query.order_by(Memory.created_at.desc()).limit(limit).all()
         )
-        results = [
-            {
-                "id": memory.id,
-                "content": memory.content,
-                "tags": memory.tags,
-                "source": memory.source,
-            }
-            for memory in memories
-        ]
+
+        results = []
+        seen_ids = set()
+        for row in vector_rows:
+            memory_id = row.id
+            if memory_id in seen_ids:
+                continue
+            seen_ids.add(memory_id)
+            results.append(
+                {
+                    "id": row.id,
+                    "content": row.content,
+                    "tags": row.tags,
+                    "source": row.source,
+                    "created_at": row.created_at.replace(tzinfo=timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M"),
+                }
+            )
+
+        for memory in keyword_memories:
+            if memory.id in seen_ids:
+                continue
+            seen_ids.add(memory.id)
+            results.append(
+                {
+                    "id": memory.id,
+                    "content": memory.content,
+                    "tags": memory.tags,
+                    "source": memory.source,
+                    "created_at": memory.created_at.replace(tzinfo=timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M"),
+                }
+            )
         return {"query": query, "results": results}
 
     def get_recent_memories(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -127,10 +182,40 @@ class MemoryService:
                 "content": memory.content,
                 "tags": memory.tags,
                 "source": memory.source,
+                "created_at": memory.created_at.replace(tzinfo=timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M"),
             }
             for memory in memories
         ]
         return {"results": results}
+
+    def fast_recall(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Vector search for related memories to inject into context."""
+        query_vector = self.embedding_service.get_embedding(query)
+        vector_sql = text(
+            """
+    SELECT id, content, tags, source, category, weight, created_at,
+           1 - (embedding <=> :query_embedding) AS similarity
+    FROM memories
+    WHERE embedding IS NOT NULL
+    ORDER BY embedding <=> :query_embedding
+    LIMIT :limit
+"""
+        )
+        rows = self.db.execute(
+            vector_sql, {"query_embedding": str(query_vector), "limit": limit}
+        ).all()
+        results = []
+        for row in rows:
+            results.append(
+                {
+                    "id": row.id,
+                    "content": row.content,
+                    "tags": row.tags,
+                    "source": row.source,
+                    "created_at": row.created_at.replace(tzinfo=timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M"),
+                }
+            )
+        return results
 
 
 class ChatService:
@@ -161,6 +246,7 @@ class ChatService:
         messages: list[dict[str, Any]],
         tool_calls: Iterable[ToolCall],
         event_callback: Callable[[dict[str, Any]], None] | None = None,
+        background_tasks: BackgroundTasks | None = None,
     ) -> list[dict[str, Any]]:
         if messages:
             last_message = messages[-1]
@@ -199,6 +285,19 @@ class ChatService:
             )
             self._persist_tool_result(session_id, tool_name, tool_result)
             pending_tool_calls = list(self._fetch_next_tool_calls(messages, session_id))
+        session = self.db.get(ChatSession, session_id)
+        if session:
+            session.round_count += 1
+            self.db.commit()
+            if session.round_count % 15 == 0 and background_tasks:
+                start_round = session.round_count - 14
+                end_round = session.round_count
+                background_tasks.add_task(
+                    SummaryService(SessionLocal).generate_summary,
+                    session_id,
+                    start_round,
+                    end_round,
+                )
         return messages
 
     def _execute_tool(self, tool_call: ToolCall) -> dict[str, Any]:
@@ -225,6 +324,9 @@ class ChatService:
     def _fetch_next_tool_calls(
         self, messages: list[dict[str, Any]], session_id: int
     ) -> Iterable[ToolCall]:
+        user_profile = self.db.query(UserProfile).first()
+        user_name = user_profile.nickname if user_profile else "??"
+        user_info = user_profile.basic_info if user_profile else ""
         assistant = self.db.query(Assistant).first()
         if not assistant:
             return []
@@ -234,16 +336,56 @@ class ChatService:
         api_provider = self.db.get(ApiProvider, model_preset.api_provider_id)
         if not api_provider:
             return []
+        full_system_prompt = assistant.system_prompt
+        if user_info:
+            full_system_prompt = (
+                f"User info - Name: {user_name}, Details: {user_info}\n\n"
+                + assistant.system_prompt
+            )
+
+        # Only inject summaries when context is short (< 10 messages)
+        user_assistant_messages = [
+            m for m in messages if m.get("role") in ("user", "assistant")
+        ]
+        if len(user_assistant_messages) < 10:
+            summaries = (
+                self.db.query(SessionSummary)
+                .filter(SessionSummary.session_id == session_id)
+                .order_by(SessionSummary.created_at.desc())
+                .limit(2)
+                .all()
+            )
+            if summaries:
+                summary_text = "[Historical summaries for reference]\n"
+                for summary in reversed(summaries):
+                    summary_text += f"- {summary.summary_content}\n"
+                full_system_prompt = summary_text + "\n" + full_system_prompt
+
+        latest_user_message = next(
+            (m.get("content") for m in reversed(messages) if m.get("role") == "user"),
+            None,
+        )
+        if latest_user_message:
+            recall_results = self.memory_service.fast_recall(latest_user_message, limit=5)
+            if recall_results:
+                recall_text = "\n\n[Related memories - for reference only, check timestamps, do not treat as current state]\n"
+                for mem in recall_results:
+                    source = mem.get("source", "unknown")
+                    recall_text += f"- [{mem['created_at']}] {mem['content']} (source: {source})\n"
+                full_system_prompt += recall_text
+        save_memory_description = (
+            f"Record important events, emotional changes, or relationship milestones. "
+            f"Format: '[YYYY.MM.DD HH:MM] Name: content', use first person. "
+            f"Example: '[2026.01.15 23:30] {assistant.name}: {user_name} praised me today, I am happy'. "
+            f"Use '{user_name}' instead of 'user' in memories. "
+            f"Do not record casual chat or already recorded content."
+        )
         tools = [
             {
                 "type": "function",
                 "function": {
                     "name": "save_memory",
-                    "description": (
-                        "Use this to remember important events, preferences, AND the emotional "
-                        "context associated with them (The AI's Long-term Memory). NOT for exchange "
-                        "diary."
-                    ),
+                    "description": save_memory_description,
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -305,7 +447,11 @@ class ChatService:
                 "type": "function",
                 "function": {
                     "name": "search_memory",
-                    "description": "Search past memories.",
+                    "description": (
+                        "Search past memories. Results may come from different time points. "
+                        "Check the created_at field and timestamp at the beginning of each memory. "
+                        "Do not treat past events as current state. When you reference a memory in your reply, add [[used:id]] at the end of your message (e.g. [[used:5]]). This helps the system learn which memories are useful."
+                    ),
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -323,7 +469,11 @@ class ChatService:
                 "type": "function",
                 "function": {
                     "name": "get_recent_memories",
-                    "description": "Get the most recent memories.",
+                    "description": (
+                        "Get recent memories in reverse chronological order. Check the created_at "
+                        "field and timestamp at the beginning of each memory to distinguish past "
+                        "from present. When you reference a memory in your reply, add [[used:id]] at the end of your message (e.g. [[used:5]]). This helps the system learn which memories are useful."
+                    ),
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -348,9 +498,24 @@ class ChatService:
         )
         api_messages = []
         for message in messages:
+            role = message.get("role")
+            content = message.get("content")
+            if role == "system" and user_info:
+                content = full_system_prompt
+            elif role == "user" and content is not None:
+                msg_time = message.get("created_at")
+                if msg_time:
+                    timestamp = (
+                        msg_time
+                        if isinstance(msg_time, str)
+                        else msg_time.strftime("%Y.%m.%d %H:%M")
+                    )
+                else:
+                    timestamp = datetime.now().strftime("%Y.%m.%d %H:%M")
+                content = f"[{timestamp}] {content}"
             api_message = {
-                "role": message.get("role"),
-                "content": message.get("content"),
+                "role": role,
+                "content": content,
             }
             if "name" in message:
                 api_message["name"] = message["name"]
@@ -410,8 +575,16 @@ class ChatService:
             )
             return tool_calls
         if choice.content is not None and choice.content != "":
-            messages.append({"role": "assistant", "content": choice.content})
-            self._persist_message(session_id, "assistant", choice.content, {})
+            used_ids = re.findall(r'\[\[used:(\d+)\]\]', choice.content)
+            for memory_id in used_ids:
+                memory = self.db.get(Memory, int(memory_id))
+                if memory:
+                    memory.weight += 0.1
+            if used_ids:
+                self.db.commit()
+            clean_content = re.sub(r'\[\[used:\d+\]\]', '', choice.content).strip()
+            messages.append({"role": "assistant", "content": clean_content})
+            self._persist_message(session_id, "assistant", clean_content, {})
         else:
             fallback_content = "（未在记忆库中检索到相关信息，以下基于系统设定回复）"
             messages.append({"role": "assistant", "content": fallback_content})

@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column
+from pgvector.sqlalchemy import Vector
 
 Base = declarative_base()
 
@@ -21,11 +22,16 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
-class Session(Base):
+class ChatSession(Base):
     __tablename__ = "sessions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    assistant_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("assistants.id"))
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    round_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    type: Mapped[str] = mapped_column(String(32), nullable=False, default="chat")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class SessionSummary(Base):
@@ -34,6 +40,7 @@ class SessionSummary(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(Integer, ForeignKey("sessions.id"), index=True)
     summary_content: Mapped[str] = mapped_column(Text, nullable=False)
+    perspective: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -43,6 +50,9 @@ class Memory(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     tags: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(768), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
@@ -88,3 +98,15 @@ class Assistant(Base):
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     model_preset_id: Mapped[int] = mapped_column(Integer, ForeignKey("model_presets.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profile"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    basic_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nickname: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    background_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    theme: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

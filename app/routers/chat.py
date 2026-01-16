@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -30,11 +30,15 @@ class ChatCompletionResponse(BaseModel):
 
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(
-    payload: ChatCompletionRequest, db: Session = Depends(get_db)
+    payload: ChatCompletionRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
 ) -> ChatCompletionResponse:
     assistant = db.query(Assistant).first()
     assistant_name = assistant.name if assistant else "unknown"
     chat_service = ChatService(db, assistant_name)
     tool_calls = [ToolCall(name=call.name, arguments=call.arguments) for call in payload.tool_calls]
-    messages = chat_service.chat_completion(payload.session_id, payload.messages, tool_calls)
+    messages = chat_service.chat_completion(
+        payload.session_id, payload.messages, tool_calls, background_tasks=background_tasks
+    )
     return ChatCompletionResponse(messages=messages)
