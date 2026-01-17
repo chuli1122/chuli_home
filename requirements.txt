@@ -1,1 +1,8 @@
 python-dotenv
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+pgvector
+openai
+httpx
