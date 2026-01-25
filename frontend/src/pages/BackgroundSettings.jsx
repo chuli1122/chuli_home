@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Plus, Image as ImageIcon, Check, Trash2 } from "lucide-react";
+import ConfirmModal from "../components/ConfirmModal";
 
 export default function BackgroundSettings() {
   const navigate = useNavigate();
@@ -12,6 +13,7 @@ export default function BackgroundSettings() {
   const [isEditing, setIsEditing] = useState(false);
   const [deleteSelection, setDeleteSelection] = useState(new Set());
   const [applyScope, setApplyScope] = useState('all'); // 'all' | 'home'
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // Load wallpapers from localStorage on mount
   useEffect(() => {
@@ -73,8 +75,38 @@ export default function BackgroundSettings() {
       setSelectedId(updated.length > 0 ? updated[0].id : null);
     }
     
-    setIsEditing(false);
+    // Check if we are deleting the active wallpaper
+    try {
+      const activeJson = localStorage.getItem("active-wallpaper");
+      if (activeJson) {
+        const active = JSON.parse(activeJson);
+        // Find if the active wallpaper is in the deletion set
+        // We need to look up the URLs of the deleted items or check IDs
+        // Here we can check if the wallpaper with the active URL is being deleted
+        const activeWallpaperInList = wallpapers.find(w => w.url === active.url);
+        
+        if (activeWallpaperInList && deleteSelection.has(activeWallpaperInList.id)) {
+          // It's being deleted, clear active settings
+          localStorage.removeItem("active-wallpaper");
+          // Dispatch events to notify other components immediately
+          window.dispatchEvent(new Event("storage"));
+          window.dispatchEvent(new Event("component-style-updated"));
+        }
+      }
+    } catch (e) {
+      console.error("Failed to check active wallpaper deletion", e);
+    }
+
+    // Don't exit edit mode
     setDeleteSelection(new Set());
+    setIsDeleteModalOpen(false);
+  };
+
+  const [toast, setToast] = useState({ show: false, message: '' });
+
+  const showToast = (message) => {
+    setToast({ show: true, message });
+    setTimeout(() => setToast({ ...toast, show: false }), 2000);
   };
 
   const handleSave = () => {
@@ -88,7 +120,13 @@ export default function BackgroundSettings() {
         url: selectedWallpaper.url,
         scope: applyScope
       }));
-      navigate(-1);
+      
+      const message = applyScope === 'home' ? '已应用到主屏幕' : '已应用到全部';
+      showToast(message);
+      
+      setTimeout(() => {
+        navigate(-1);
+      }, 1000); // Slight delay to show toast
     }
   };
 
@@ -99,7 +137,7 @@ export default function BackgroundSettings() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 pb-4 pt-[calc(1.5rem+env(safe-area-inset-top))]">
         <button 
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/theme", { replace: true })}
           className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm active:scale-95 transition"
         >
           <ChevronLeft size={24} />
@@ -120,7 +158,7 @@ export default function BackgroundSettings() {
         
         {/* Preview Area (Top) */}
         <div className="flex-1 flex items-center justify-center p-6 min-h-0">
-          <div className="relative aspect-[9/19.5] h-full max-h-[400px] overflow-hidden rounded-[24px] border-[4px] border-black bg-white shadow-2xl">
+          <div className="relative aspect-[9/19.5] h-full overflow-hidden rounded-[24px] border-[4px] border-black bg-white shadow-2xl">
             {selectedWallpaper ? (
               <img 
                 src={selectedWallpaper.url} 
@@ -232,7 +270,7 @@ export default function BackgroundSettings() {
           <div className="px-6">
             {isEditing ? (
               <button
-                onClick={handleDelete}
+                onClick={() => setIsDeleteModalOpen(true)}
                 disabled={deleteSelection.size === 0}
                 className="w-full rounded-full bg-red-500 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-red-500/20 transition active:scale-95 disabled:opacity-50 disabled:active:scale-100"
               >
@@ -244,12 +282,31 @@ export default function BackgroundSettings() {
                 disabled={!selectedId}
                 className="w-full rounded-full bg-black py-3.5 text-[15px] font-bold text-white shadow-lg shadow-black/20 transition active:scale-95 disabled:opacity-50 disabled:active:scale-100"
               >
-                保存
+                保存并应用
               </button>
             )}
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleDelete}
+        title="删除壁纸"
+        message={`确定要删除选中的 ${deleteSelection.size} 张壁纸吗？`}
+        confirmText="删除"
+        type="danger"
+      />
+
+      {/* Toast */}
+      {toast.show && (
+        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[200] animate-in fade-in zoom-in duration-200">
+          <div className="bg-black/80 backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-lg font-medium text-sm">
+            {toast.message}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

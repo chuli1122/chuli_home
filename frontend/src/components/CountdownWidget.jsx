@@ -63,14 +63,14 @@ const CountdownWidget = ({ style }) => {
   };
 
   const handleClick = () => {
-    navigate("/countdown");
+    navigate("/countdown", { replace: true });
   };
 
   if (events.length === 0) {
     return (
       <div 
         onClick={handleClick}
-        className="relative flex h-full w-full flex-col items-center justify-center rounded-[24px] overflow-hidden cursor-pointer active:scale-95 transition"
+        className="relative flex h-full w-full flex-col items-center justify-center rounded-[24px] overflow-hidden cursor-pointer active:scale-[0.98] transition"
       >
         {/* Background Layer */}
         <div 
@@ -126,7 +126,7 @@ const CountdownWidget = ({ style }) => {
   return (
     <div 
       onClick={handleClick}
-      className="relative flex h-full w-full flex-col rounded-[24px] overflow-hidden cursor-pointer active:scale-95 transition"
+      className="relative flex h-full w-full flex-col rounded-[24px] overflow-hidden cursor-pointer active:scale-[0.98] transition"
     >
       {/* Background Layer */}
       <div 
@@ -156,17 +156,17 @@ const CountdownWidget = ({ style }) => {
       <div className="relative z-10 flex flex-col w-full h-full">
         {/* Big Event (Top) */}
         <div className="relative flex flex-1 flex-col items-center justify-center p-4">
-        <span className="text-xs font-medium text-gray-700 mb-1">{bigEvent.title}</span>
+        <span className="font-medium text-black mb-1" style={{ fontSize: '12px', lineHeight: '1.2' }}>{bigEvent.title}</span>
         <div className="flex items-baseline gap-1">
-          {!isBigPast && <span className="text-xs font-medium text-gray-700 mr-0.5">还有</span>}
-          <span className="text-4xl font-bold text-gray-700">
+          {!isBigPast && <span className="font-medium text-black mr-0.5" style={{ fontSize: '12px', lineHeight: '1.2' }}>还有</span>}
+          <span className="font-bold text-black" style={{ fontSize: '36px', lineHeight: '1' }}>
             {Math.abs(bigDays)}
           </span>
-          <span className="text-xs font-medium text-gray-700">
+          <span className="font-medium text-black" style={{ fontSize: '12px', lineHeight: '1.2' }}>
             {isBigPast ? '天前' : '天'}
           </span>
         </div>
-        <span className="text-[10px] text-gray-700 mt-1">{bigEvent.date}</span>
+        <span className="text-black mt-1" style={{ fontSize: '10px', lineHeight: '1.2' }}>{bigEvent.date}</span>
       </div>
 
         {/* Small Events (Bottom) */}
@@ -182,13 +182,13 @@ const CountdownWidget = ({ style }) => {
                     index === 0 && smallEvents.length > 1 ? 'border-r border-dashed border-black/10' : ''
                   }`}
                 >
-                  <span className="truncate text-[10px] font-medium text-gray-700">{event.title}</span>
+                  <span className="truncate font-medium text-black" style={{ fontSize: '10px', lineHeight: '1.2' }}>{event.title}</span>
                 <div className="flex items-end gap-0.5 mb-1">
-                  {!isPast && <span className="text-[9px] text-gray-700 whitespace-nowrap">还有</span>}
-                  <span className="text-lg font-bold text-gray-700 leading-none">
+                  {!isPast && <span className="text-black whitespace-nowrap" style={{ fontSize: '9px', lineHeight: '1.2' }}>还有</span>}
+                  <span className="font-bold text-black leading-none" style={{ fontSize: '18px', lineHeight: '1' }}>
                     {Math.abs(days)}
                   </span>
-                  <span className="text-[9px] text-gray-700 whitespace-nowrap">
+                  <span className="text-black whitespace-nowrap" style={{ fontSize: '9px', lineHeight: '1.2' }}>
                     {isPast ? '天前' : '天'}
                   </span>
                 </div>

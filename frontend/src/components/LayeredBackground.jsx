@@ -7,7 +7,7 @@ const LayeredBackground = ({ style, rounded = "rounded-[24px]", borderOpacity = 
     <>
       {/* Background Layer - Controlled by Opacity */}
       <div 
-        className={`absolute inset-0 bg-cover bg-center shadow-sm transition-all duration-300 ${rounded}`}
+        className={`absolute inset-0 pointer-events-none bg-cover bg-center shadow-sm transition-all duration-300 ${rounded}`}
         style={{ 
           backgroundColor: style.backgroundImage ? 'transparent' : style.color,
           backgroundImage: style.backgroundImage ? `url(${style.backgroundImage})` : 'none',

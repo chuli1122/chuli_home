@@ -1,14 +1,130 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Plus, Trash2, Calendar as CalendarIcon, Pin, PinOff, GripVertical, Edit2 } from "lucide-react";
-import { Reorder } from "framer-motion";
+import { Reorder, useDragControls } from "framer-motion";
+import ConfirmModal from "../components/ConfirmModal";
+
+const CatPinIcon = ({ size = 24, className = "" }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 1304 1024" 
+    fill="none" 
+    className={className} 
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path d="M82.59529938 450.3801144a150.60833431 128.0248712 90 1 0 256.0497433 4e-8 150.60833431 128.0248712 90 1 0-256.0497433-4e-8Z" fill="#2c2c2c" />
+    <path d="M1074.58733465 734.21008403a123.50817892 150.6083343 12.07 1 0 62.98638385-294.55762892 123.50817892 150.6083343 12.07 1 0-62.98638385 294.55762892Z" fill="#2c2c2c" />
+    <path d="M393.39047088 225.47997485a168.1299859 131.60707559 90 1 0 263.21415207 2e-8 168.1299859 131.60707559 90 1 0-263.21415207-2e-8Z" fill="#2c2c2c" />
+    <path d="M864.14609382 436.84087636a131.60707559 168.1299859 6.71 1 0 39.28998639-333.95668374 131.60707559 168.1299859 6.71 1 0-39.28998639 333.95668373Z" fill="#2c2c2c" />
+    <path d="M929.47515147 749.26056245c-9.42275492 142.66518562-147.18187788 219.21533615-310.17217958 208.39084944s-289.53556667-104.6626682-280.34643328-247.40572826 152.55518447-233.23265776 312.19690332-238.91746033c165.09289985 33.1743283 287.74446448 135.18927998 278.32170954 277.93233915z" fill="#2c2c2c" />
+  </svg>
+);
+
+const CountdownItem = ({ event, handlePin, openEditModal, handleDelete }) => {
+  const dragControls = useDragControls();
+
+  const getDaysLeft = (dateString, repeatType = 'none') => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    let target = new Date(dateString);
+    target.setHours(0, 0, 0, 0);
+
+    if (repeatType === 'monthly') {
+      target.setFullYear(today.getFullYear());
+      target.setMonth(today.getMonth());
+      if (target < today) {
+        target.setMonth(target.getMonth() + 1);
+      }
+    } else if (repeatType === 'yearly') {
+      target.setFullYear(today.getFullYear());
+      if (target < today) {
+        target.setFullYear(target.getFullYear() + 1);
+      }
+    }
+    
+    const diff = target.getTime() - today.getTime();
+    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  };
+
+  const days = getDaysLeft(event.date, event.repeatType);
+  const isPast = days < 0;
+
+  return (
+    <Reorder.Item 
+      value={event}
+      dragListener={false}
+      dragControls={dragControls}
+      className="relative flex items-center justify-between overflow-hidden rounded-[24px] bg-white p-6 shadow-sm active:shadow-md touch-manipulation"
+      whileDrag={{ scale: 1.02, zIndex: 10 }}
+    >
+      {event.isPinned && (
+        <div className="absolute left-3 top-0 z-20">
+          <CatPinIcon size={48} className="text-black -rotate-12" />
+        </div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <div 
+          className="touch-none cursor-grab active:cursor-grabbing p-2 -ml-2"
+          onPointerDown={(e) => dragControls.start(e)}
+        >
+          <GripVertical className="text-gray-300" size={20} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[15px] font-medium text-black">
+              {event.title}
+            </span>
+          </div>
+          <span className="text-xs text-black">{event.date}</span>
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-4">
+        <div className="flex items-end gap-1">
+          {!isPast && <span className="text-xs font-medium text-black mr-0.5 mb-1">还有</span>}
+          <span className="text-3xl font-bold text-black leading-none">
+            {Math.abs(days)}
+          </span>
+          <span className="text-xs font-medium text-black mb-1">
+            {isPast ? '天前' : '天'}
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <button
+            onClick={(e) => handlePin(event.id, e)}
+            className={`p-2 transition-colors active:scale-90 ${event.isPinned ? 'text-black' : 'text-gray-300'}`}
+          >
+            {event.isPinned ? <PinOff size={16} /> : <Pin size={16} />}
+          </button>
+          <button
+            onClick={(e) => openEditModal(event, e)}
+            className="p-2 text-gray-300 active:text-black transition-colors active:scale-90"
+          >
+            <Edit2 size={16} />
+          </button>
+          <button
+            onClick={(e) => handleDelete(event.id, e)}
+            className="p-2 text-gray-300 active:text-red-500 transition-colors active:scale-90"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+    </Reorder.Item>
+  );
+};
 
 const CountdownPage = () => {
   const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
-  const [eventForm, setEventForm] = useState({ title: "", date: "", repeatType: "none" }); // repeatType: 'none' | 'monthly' | 'yearly'
+  const [eventForm, setEventForm] = useState({ title: "", date: "", repeatType: "none" });
+  const [deleteState, setDeleteState] = useState({ isOpen: false, event: null });
 
   useEffect(() => {
     const savedEvents = JSON.parse(localStorage.getItem("countdown-events") || "[]");
@@ -30,11 +146,22 @@ const CountdownPage = () => {
     localStorage.setItem("countdown-events", JSON.stringify(newEvents));
   };
 
+  const handleReorderPinned = (newPinned) => {
+    const unpinned = events.filter(e => !e.isPinned);
+    const newEvents = [...newPinned, ...unpinned];
+    saveEvents(newEvents);
+  };
+
+  const handleReorderUnpinned = (newUnpinned) => {
+    const pinned = events.filter(e => e.isPinned);
+    const newEvents = [...pinned, ...newUnpinned];
+    saveEvents(newEvents);
+  };
+
   const handleSave = () => {
     if (!eventForm.title || !eventForm.date) return;
     
     if (editingEvent) {
-      // Edit existing
       const updatedEvents = events.map(ev => 
         ev.id === editingEvent.id 
           ? { ...ev, ...eventForm }
@@ -42,7 +169,6 @@ const CountdownPage = () => {
       );
       saveEvents(updatedEvents);
     } else {
-      // Add new
       const event = {
         id: Date.now(),
         title: eventForm.title,
@@ -50,7 +176,6 @@ const CountdownPage = () => {
         repeatType: eventForm.repeatType,
         isPinned: false
       };
-      // Add to beginning
       const updatedEvents = [event, ...events];
       saveEvents(updatedEvents);
     }
@@ -83,8 +208,16 @@ const CountdownPage = () => {
 
   const handleDelete = (id, e) => {
     e.stopPropagation();
-    const updatedEvents = events.filter(ev => ev.id !== id);
-    saveEvents(updatedEvents);
+    const event = events.find(ev => ev.id === id);
+    setDeleteState({ isOpen: true, event });
+  };
+
+  const confirmDelete = () => {
+    if (deleteState.event) {
+      const updatedEvents = events.filter(ev => ev.id !== deleteState.event.id);
+      saveEvents(updatedEvents);
+      setDeleteState({ isOpen: false, event: null });
+    }
   };
 
   const handlePin = (id, e) => {
@@ -96,15 +229,12 @@ const CountdownPage = () => {
     const isPinned = !event.isPinned;
     
     let newEvents = [...events];
-    newEvents.splice(eventIndex, 1); // Remove from current position
+    newEvents.splice(eventIndex, 1); 
     
     if (isPinned) {
-      // Find last pinned index
       const lastPinnedIndex = newEvents.findLastIndex(e => e.isPinned);
-      // Insert after last pinned (or at 0 if none)
       newEvents.splice(lastPinnedIndex + 1, 0, { ...event, isPinned: true });
     } else {
-      // Unpin: insert after all pinned events
       const lastPinnedIndex = newEvents.findLastIndex(e => e.isPinned);
       newEvents.splice(lastPinnedIndex + 1, 0, { ...event, isPinned: false });
     }
@@ -112,42 +242,12 @@ const CountdownPage = () => {
     saveEvents(newEvents);
   };
 
-  const getDaysLeft = (dateString, repeatType = 'none') => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    let target = new Date(dateString);
-    target.setHours(0, 0, 0, 0);
-
-    if (repeatType === 'monthly') {
-      // Set to current month
-      target.setFullYear(today.getFullYear());
-      target.setMonth(today.getMonth());
-      
-      // If day has passed in current month, move to next month
-      if (target < today) {
-        target.setMonth(target.getMonth() + 1);
-      }
-    } else if (repeatType === 'yearly') {
-      // Set to current year
-      target.setFullYear(today.getFullYear());
-      
-      // If date has passed in current year, move to next year
-      if (target < today) {
-        target.setFullYear(target.getFullYear() + 1);
-      }
-    }
-    
-    const diff = target.getTime() - today.getTime();
-    return Math.ceil(diff / (1000 * 60 * 60 * 24));
-  };
-
   return (
     <div className="flex h-full flex-col bg-[#F5F5F7] text-black">
       {/* Header */}
       <div className="flex items-center justify-between px-6 pb-4 pt-[calc(1.5rem+env(safe-area-inset-top))]">
         <button 
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/", { replace: true })}
           className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm active:scale-95 transition"
         >
           <ChevronLeft size={24} />
@@ -170,67 +270,45 @@ const CountdownPage = () => {
             <p className="text-sm">点击右上角添加</p>
           </div>
         ) : (
-          <Reorder.Group axis="y" values={events} onReorder={saveEvents} className="flex flex-col gap-4">
-            {events.map((event) => {
-              const days = getDaysLeft(event.date, event.repeatType);
-              const isPast = days < 0;
-              
-              return (
-                <Reorder.Item 
-                  key={event.id} 
-                  value={event}
-                  className="relative flex items-center justify-between overflow-hidden rounded-[24px] bg-white p-6 shadow-sm active:shadow-md"
-                  whileDrag={{ scale: 1.02, zIndex: 10 }}
-                >
-                  <div className="flex items-center gap-3">
-                    <GripVertical className="text-gray-300 cursor-grab active:cursor-grabbing" size={20} />
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[15px] font-medium text-gray-700">
-                          {event.title}
-                        </span>
-                        {event.isPinned && <Pin size={12} className="text-blue-500 fill-blue-500" />}
-                      </div>
-                      <span className="text-xs text-gray-700">{event.date}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-end gap-1">
-                      {!isPast && <span className="text-xs font-medium text-gray-700 mr-0.5 mb-1">还有</span>}
-                      <span className="text-3xl font-bold text-gray-700 leading-none">
-                        {Math.abs(days)}
-                      </span>
-                      <span className="text-xs font-medium text-gray-700 mb-1">
-                        {isPast ? '天前' : '天'}
-                      </span>
-                    </div>
+          <div className="flex flex-col gap-4">
+            {/* Pinned Group */}
+            {events.some(e => e.isPinned) && (
+              <Reorder.Group 
+                axis="y" 
+                values={events.filter(e => e.isPinned)} 
+                onReorder={handleReorderPinned} 
+                className="flex flex-col gap-4"
+              >
+                {events.filter(e => e.isPinned).map((event) => (
+                  <CountdownItem 
+                    key={event.id} 
+                    event={event} 
+                    handlePin={handlePin}
+                    openEditModal={openEditModal}
+                    handleDelete={handleDelete}
+                  />
+                ))}
+              </Reorder.Group>
+            )}
 
-                    <div className="flex flex-col gap-1">
-                      <button
-                        onClick={(e) => handlePin(event.id, e)}
-                        className={`p-2 transition-colors ${event.isPinned ? 'text-blue-500' : 'text-gray-300 hover:text-blue-500'}`}
-                      >
-                        {event.isPinned ? <PinOff size={16} /> : <Pin size={16} />}
-                      </button>
-                      <button
-                        onClick={(e) => openEditModal(event, e)}
-                        className="p-2 text-gray-300 hover:text-blue-500 transition-colors"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={(e) => handleDelete(event.id, e)}
-                        className="p-2 text-gray-300 hover:text-red-500 transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                </Reorder.Item>
-              );
-            })}
-          </Reorder.Group>
+            {/* Unpinned Group */}
+            <Reorder.Group 
+              axis="y" 
+              values={events.filter(e => !e.isPinned)} 
+              onReorder={handleReorderUnpinned} 
+              className="flex flex-col gap-4"
+            >
+              {events.filter(e => !e.isPinned).map((event) => (
+                <CountdownItem 
+                  key={event.id} 
+                  event={event} 
+                  handlePin={handlePin}
+                  openEditModal={openEditModal}
+                  handleDelete={handleDelete}
+                />
+              ))}
+            </Reorder.Group>
+          </div>
         )}
       </div>
 
@@ -306,6 +384,15 @@ const CountdownPage = () => {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deleteState.isOpen}
+        onClose={() => setDeleteState({ isOpen: false, event: null })}
+        onConfirm={confirmDelete}
+        title="删除提醒"
+        message={deleteState.event ? `确定要删除“${deleteState.event.title}”吗？` : ""}
+      />
     </div>
   );
 };

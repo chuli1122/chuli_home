@@ -4,6 +4,17 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .text-xs { font-size: calc(0.75rem * var(--app-font-size-scale, 1)); line-height: calc(1rem * var(--app-font-size-scale, 1)); }
+  .text-sm { font-size: calc(0.875rem * var(--app-font-size-scale, 1)); line-height: calc(1.25rem * var(--app-font-size-scale, 1)); }
+  .text-base { font-size: calc(1rem * var(--app-font-size-scale, 1)); line-height: calc(1.5rem * var(--app-font-size-scale, 1)); }
+  .text-lg { font-size: calc(1.125rem * var(--app-font-size-scale, 1)); line-height: calc(1.75rem * var(--app-font-size-scale, 1)); }
+  .text-xl { font-size: calc(1.25rem * var(--app-font-size-scale, 1)); line-height: calc(1.75rem * var(--app-font-size-scale, 1)); }
+  .text-2xl { font-size: calc(1.5rem * var(--app-font-size-scale, 1)); line-height: calc(2rem * var(--app-font-size-scale, 1)); }
+  .text-3xl { font-size: calc(1.875rem * var(--app-font-size-scale, 1)); line-height: calc(2.25rem * var(--app-font-size-scale, 1)); }
+  .text-4xl { font-size: calc(2.25rem * var(--app-font-size-scale, 1)); line-height: calc(2.5rem * var(--app-font-size-scale, 1)); }
+}
+
 :root {
   --app-bg: #f5f5f7;
   --card-bg: 255 255 255;
@@ -13,7 +24,7 @@
   --text-main: #111111;
   --text-muted: #6b7280;
   --accent: #111827;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-sans: var(--app-font-family, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif);
   --font-display: "Fraunces", "Times New Roman", serif;
   --shadow-soft: 0 8px 30px rgba(15, 23, 42, 0.08);
 }
@@ -29,8 +40,15 @@ body,
 }
 
 html, body {
+  /* 允许iOS弹性滚动效果 */
+  -webkit-overflow-scrolling: touch;
+  /* 禁用浏览器级别的导航手势和弹性效果 */
   overscroll-behavior: none;
-  -webkit-overflow-scrolling: auto;
+}
+
+html {
+  overflow: hidden;
+  height: 100%;
 }
 
 body {

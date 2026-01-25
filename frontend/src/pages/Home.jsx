@@ -19,7 +19,7 @@ import {
   MoreHorizontal,
   Dices,
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import VinylWidget from "../components/VinylWidget";
 import CountdownWidget from "../components/CountdownWidget";
 import LayeredBackground from "../components/LayeredBackground";
@@ -435,6 +435,8 @@ const HeartWidget = () => {
   );
 };
 
+import Modal from "../components/Modal";
+
 const EditModal = ({ isOpen, onClose, onSave, title, initialValue, placeholder, multiline = false, maxLength }) => {
   const [value, setValue] = useState(initialValue);
 
@@ -444,73 +446,70 @@ const EditModal = ({ isOpen, onClose, onSave, title, initialValue, placeholder, 
     }
   }, [isOpen, initialValue]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-8" onClick={onClose}>
-      <div 
-        className="w-full max-w-[320px] rounded-[24px] bg-white p-6 shadow-2xl animate-in fade-in zoom-in duration-200"
-        onClick={e => e.stopPropagation()}
-      >
-        <h3 className="mb-6 text-center text-[17px] font-bold text-black">{title}</h3>
-        <div className="relative">
-          {multiline ? (
-            <textarea
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder={placeholder}
-              maxLength={maxLength}
-              className={`w-full rounded-xl bg-[#F5F5F5] px-4 py-3 text-[15px] text-black outline-none focus:ring-0 min-h-[48px] resize-none placeholder:text-gray-400 ${maxLength ? 'pb-8' : ''}`}
-            />
-          ) : (
-            <input
-              type="text"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder={placeholder}
-              maxLength={maxLength}
-              className={`w-full rounded-xl bg-[#F5F5F5] px-4 py-3 text-left text-[15px] text-black outline-none focus:ring-0 placeholder:text-gray-400 ${maxLength ? 'pb-8' : ''}`}
-            />
-          )}
-          {maxLength && (
-            <div className="absolute bottom-2 right-4 text-xs text-gray-400 font-medium">
-              ({value.length}/{maxLength})
-            </div>
-          )}
-        </div>
-        <div className="mt-6 flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 rounded-full bg-[#F5F5F5] py-3 text-[15px] font-bold text-gray-500 transition active:scale-95"
-          >
-            取消
-          </button>
-          <button
-            onClick={() => {
-              onSave(value);
-              onClose();
-            }}
-            className="flex-1 rounded-full bg-black py-3 text-[15px] font-bold text-white shadow-lg shadow-black/20 transition active:scale-95"
-          >
-            确定
-          </button>
-        </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={title}
+      onConfirm={() => {
+        onSave(value);
+        onClose();
+      }}
+      isConfirmDisabled={!value?.trim()}
+    >
+      <div className="relative">
+        {multiline ? (
+          <textarea
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={placeholder}
+            maxLength={maxLength}
+            className={`w-full rounded-xl bg-[#F5F5F5] px-4 py-3 text-[15px] text-black outline-none focus:ring-0 min-h-[48px] resize-none placeholder:text-gray-400 ${maxLength ? 'pb-8' : ''}`}
+          />
+        ) : (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={placeholder}
+            maxLength={maxLength}
+            className={`w-full rounded-xl bg-[#F5F5F5] px-4 py-3 text-left text-[15px] text-black outline-none focus:ring-0 placeholder:text-gray-400 ${maxLength ? 'pb-8' : ''}`}
+          />
+        )}
+        {maxLength && (
+          <div className="absolute bottom-2 right-4 text-xs text-gray-400 font-medium">
+            ({value.length}/{maxLength})
+          </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 };
 
-const SmallWidget = ({ icon: Icon, label, style }) => (
-  <div className="flex aspect-square w-full flex-col items-center justify-center gap-1 transition active:scale-95">
-    <div className="relative flex h-14 w-14 items-center justify-center rounded-[18px] shadow-lg shadow-black/5">
-      <div className="absolute inset-0 rounded-[18px] overflow-hidden">
-        <LayeredBackground style={style} rounded="rounded-[18px]" />
+const SmallWidget = ({ icon: Icon, label, style, iconId, customIcons }) => {
+  const customUrl = customIcons?.[iconId];
+  
+  return (
+    <div className="flex aspect-square w-full flex-col items-center justify-center gap-1 transition active:scale-95">
+      <div className="relative flex h-14 w-14 items-center justify-center rounded-[18px] shadow-lg shadow-black/5">
+        <div className="absolute inset-0 rounded-[18px] overflow-hidden">
+          <LayeredBackground style={style} rounded="rounded-[18px]" />
+        </div>
+        {customUrl ? (
+          <img 
+            src={customUrl} 
+            alt={label} 
+            className="relative z-10 h-full w-full object-cover rounded-[18px]" 
+            style={{ opacity: (style.opacity ?? 100) / 100 }}
+          />
+        ) : (
+          <Icon size={28} className="relative z-10 text-black" />
+        )}
       </div>
-      <Icon size={28} className="relative z-10 text-black" />
+      <span className="text-[11px] font-medium text-text" style={{ fontSize: `calc(11px * var(--app-font-size-scale, 1))` }}>{label}</span>
     </div>
-    <span className="text-[11px] font-medium text-text">{label}</span>
-  </div>
-);
+  );
+};
 
 const CloudWidget = () => {
   const [isRaining, setIsRaining] = useState(false);
@@ -627,7 +626,7 @@ const CloudWidget = () => {
                       opacity: 1,
                     }}
                   >
-                    <item.icon size={20} className="text-gray-700" />
+                    <item.icon size={20} className="text-black" />
                   </button>
                 );
               })}
@@ -803,7 +802,7 @@ const DailyQuoteWidget = () => {
         className="relative flex flex-1 flex-col justify-center rounded-[20px] px-4 py-2 overflow-hidden cursor-pointer active:scale-[0.98] transition-transform"
         onClick={() => setIsModalOpen(true)}
       >
-        <p className={`relative z-10 text-[13px] font-medium text-text/80 italic leading-relaxed line-clamp-3 break-words whitespace-pre-wrap -mt-2 ${quote ? 'underline decoration-dashed decoration-black/20 underline-offset-4' : ''}`}>
+        <p className={`relative z-10 text-sm font-medium text-text/80 italic leading-relaxed line-clamp-3 break-words whitespace-pre-wrap -mt-2 ${quote ? 'underline decoration-dashed decoration-black/20 underline-offset-4' : ''}`}>
           {quote || "点击编辑文字..."}
         </p>
       </div>
@@ -824,14 +823,55 @@ const DailyQuoteWidget = () => {
 export default function Home() {
   const [activePage, setActivePage] = useState(0);
   const [wallpaper, setWallpaper] = useState(null);
+  const totalPages = 2;
   
-  // Component Styles State
-  const [styles, setStyles] = useState({
-    profile: { opacity: 40, material: 'glass', color: '#ffffff', backgroundImage: null },
-    widget: { opacity: 40, material: 'glass', color: '#ffffff', backgroundImage: null },
-    icon: { opacity: 40, material: 'glass', color: '#ffffff', backgroundImage: null },
-    dock: { opacity: 30, material: 'glass', color: '#ffffff', backgroundImage: null },
+  const containerRef = useRef(null);
+  
+  // Component Styles State - Lazy initialization to prevent flicker
+  const [styles, setStyles] = useState(() => {
+    try {
+      const savedStyles = JSON.parse(localStorage.getItem("component-styles"));
+      if (savedStyles) {
+        let hasChanges = false;
+        
+        // Ensure icon style exists (migration)
+        if (!savedStyles.icon) {
+          savedStyles.icon = savedStyles.widget ? { ...savedStyles.widget } : { opacity: 40, material: 'glass', color: '#ffffff', backgroundImage: null };
+          hasChanges = true;
+        }
+        
+        // Apply auto-fixes synchronously during initialization
+        const fixOpacity = (key, defaultOp) => {
+          if (savedStyles[key]?.opacity === 80 && !savedStyles[key]?.backgroundImage) {
+            savedStyles[key].opacity = defaultOp;
+            hasChanges = true;
+          }
+        };
+
+        fixOpacity('widget', 40);
+        fixOpacity('icon', 40);
+        fixOpacity('dock', 30);
+        fixOpacity('profile', 40);
+
+        if (hasChanges) {
+          localStorage.setItem("component-styles", JSON.stringify(savedStyles));
+        }
+        
+        return savedStyles;
+      }
+    } catch (e) {
+      console.error("Failed to load initial component styles", e);
+    }
+    
+    return {
+      profile: { opacity: 40, material: 'glass', color: '#ffffff', backgroundImage: null },
+      widget: { opacity: 40, material: 'glass', color: '#ffffff', backgroundImage: null },
+      icon: { opacity: 40, material: 'glass', color: '#ffffff', backgroundImage: null },
+      dock: { opacity: 30, material: 'glass', color: '#ffffff', backgroundImage: null },
+    };
   });
+
+  const [customIcons, setCustomIcons] = useState({});
 
   useEffect(() => {
     const loadSettings = () => {
@@ -847,56 +887,32 @@ export default function Home() {
         console.error("Failed to load wallpaper", e);
       }
 
-      // Load Component Styles
+      // Load Component Styles (for subsequent updates)
       try {
         const savedStyles = JSON.parse(localStorage.getItem("component-styles"));
         if (savedStyles) {
-          let hasChanges = false;
-          
-          // Ensure icon style exists (migration)
-          if (!savedStyles.icon) {
-            savedStyles.icon = savedStyles.widget ? { ...savedStyles.widget } : { opacity: 40, material: 'glass', color: '#ffffff', backgroundImage: null };
-            hasChanges = true;
-          }
-
-          // Auto-fix: If widget opacity is 80% (legacy/bugged value) and no background image, reset to default 40%
-          if (savedStyles.widget?.opacity === 80 && !savedStyles.widget?.backgroundImage) {
-            savedStyles.widget.opacity = 40;
-            hasChanges = true;
-          }
-
-          // Auto-fix: If icon opacity is 80% (legacy/bugged value) and no background image, reset to default 40%
-          if (savedStyles.icon?.opacity === 80 && !savedStyles.icon?.backgroundImage) {
-            savedStyles.icon.opacity = 40;
-            hasChanges = true;
-          }
-          
-          // Auto-fix: If dock opacity is 80% (legacy/bugged value) and no background image, reset to default 30%
-          if (savedStyles.dock?.opacity === 80 && !savedStyles.dock?.backgroundImage) {
-            savedStyles.dock.opacity = 30;
-            hasChanges = true;
-          }
-
-          // Auto-fix: If profile opacity is 80% (legacy/bugged value) and no background image, reset to default 40%
-          if (savedStyles.profile?.opacity === 80 && !savedStyles.profile?.backgroundImage) {
-            savedStyles.profile.opacity = 40;
-            hasChanges = true;
-          }
-
-          if (hasChanges) {
-            localStorage.setItem("component-styles", JSON.stringify(savedStyles));
-          }
-          
+          // Logic duplicated from init just in case of external updates
+          // We can just set it here as initialization already handled migration logic
           setStyles(savedStyles);
         }
       } catch (e) {
         console.error("Failed to load component styles", e);
       }
+      
+      try {
+        const savedIcons = JSON.parse(localStorage.getItem("custom-icons") || "{}");
+        setCustomIcons(savedIcons);
+      } catch (e) {
+        console.error("Failed to load custom icons", e);
+      }
     };
 
+    // Initial load for wallpaper (since it's not in state initializer)
     loadSettings();
+    
     window.addEventListener('storage', loadSettings);
     window.addEventListener('component-style-updated', loadSettings);
+    window.addEventListener('custom-icons-updated', loadSettings);
     
     const handleVisibilityChange = () => {
       if (!document.hidden) loadSettings();
@@ -906,6 +922,7 @@ export default function Home() {
     return () => {
       window.removeEventListener('storage', loadSettings);
       window.removeEventListener('component-style-updated', loadSettings);
+      window.removeEventListener('custom-icons-updated', loadSettings);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
@@ -918,7 +935,7 @@ export default function Home() {
   };
 
   return (
-    <div className="-mx-5 flex h-full flex-col overflow-hidden relative">
+    <div className="flex h-full flex-col relative w-full">
       {/* Home Specific Wallpaper */}
       {wallpaper && (
         <div 
@@ -929,11 +946,13 @@ export default function Home() {
 
       {/* Swipeable Area */}
       <div
-        className="no-scrollbar relative z-10 flex h-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden"
+        ref={containerRef}
+        className="swipe-container no-scrollbar relative z-10 flex h-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden"
+        style={{ overscrollBehaviorX: 'contain' }}
         onScroll={handleScroll}
       >
         {/* Page 1 */}
-        <section className="no-scrollbar flex h-full w-full flex-shrink-0 snap-center flex-col overflow-hidden px-8 pt-4">
+        <section className="no-scrollbar flex h-full w-full flex-shrink-0 snap-center flex-col px-5 pt-4">
           <ProfileCard style={styles.profile} />
           
           {/* Spacer below ProfileCard */}
@@ -951,8 +970,8 @@ export default function Home() {
               <div className="relative h-full">
                 <div className="absolute inset-0 flex flex-col gap-4">
                   <div className="grid grid-cols-2 gap-4 shrink-0">
-                    <SmallWidget icon={Heart} label="情侣空间" style={styles.icon} />
-                    <SmallWidget icon={Globe} label="世界书" style={styles.icon} />
+                    <SmallWidget icon={Heart} label="情侣空间" style={styles.icon} iconId="widget_love" customIcons={customIcons} />
+                    <SmallWidget icon={Globe} label="世界书" style={styles.icon} iconId="widget_world" customIcons={customIcons} />
                   </div>
                   
                   {/* Editable Text Area - Fills remaining height */}
@@ -964,10 +983,10 @@ export default function Home() {
             {/* Bottom Section: Left Small Widgets, Right Big */}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid grid-cols-2 gap-4 content-start">
-                <SmallWidget icon={Book} label="日记" style={styles.icon} />
-                <SmallWidget icon={Clapperboard} label="小剧场" style={styles.icon} />
-                <SmallWidget icon={Plus} label="待定" style={styles.icon} />
-                <SmallWidget icon={Plus} label="待定" style={styles.icon} />
+                <SmallWidget icon={Book} label="日记" style={styles.icon} iconId="widget_diary" customIcons={customIcons} />
+                <SmallWidget icon={Clapperboard} label="小剧场" style={styles.icon} iconId="widget_theater" customIcons={customIcons} />
+                <SmallWidget icon={Plus} label="待定1" style={styles.icon} iconId="widget_tbd1" customIcons={customIcons} />
+                <SmallWidget icon={Plus} label="待定2" style={styles.icon} iconId="widget_tbd2" customIcons={customIcons} />
               </div>
               
               <div className="aspect-square w-full">
@@ -981,7 +1000,7 @@ export default function Home() {
         </section>
 
         {/* Page 2 */}
-        <section className="no-scrollbar flex h-full w-full flex-shrink-0 snap-center flex-col overflow-hidden px-8 pt-2">
+        <section className="no-scrollbar flex h-full w-full flex-shrink-0 snap-center flex-col px-5 pt-2">
           <div className="h-6" />
           
           <div className="grid grid-cols-2 gap-4">
