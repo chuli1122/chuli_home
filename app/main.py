@@ -1,10 +1,38 @@
-from fastapi import FastAPI
-from app.routers import chat
+from fastapi import Depends, FastAPI
+from app.routers import (
+    assistants,
+    auth,
+    chat,
+    core_blocks,
+    diary,
+    maintenance,
+    memories,
+    messages,
+    settings,
+    sessions,
+    theater,
+    user_profile,
+    world_books,
+)
+from app.routers.auth import require_auth_token
 
 app = FastAPI(title="Chuli Home Backend")
 
-# 引入聊天路由
-app.include_router(chat.router, prefix="/api")
+# Register API routers
+auth_deps = [Depends(require_auth_token)]
+app.include_router(chat.router, prefix="/api", tags=["chat"], dependencies=auth_deps)
+app.include_router(messages.router, prefix="/api", tags=["messages"], dependencies=auth_deps)
+app.include_router(sessions.router, prefix="/api", tags=["sessions"], dependencies=auth_deps)
+app.include_router(assistants.router, prefix="/api", tags=["assistants"], dependencies=auth_deps)
+app.include_router(user_profile.router, prefix="/api", tags=["user_profile"], dependencies=auth_deps)
+app.include_router(memories.router, prefix="/api", tags=["memories"], dependencies=auth_deps)
+app.include_router(core_blocks.router, prefix="/api", tags=["core_blocks"], dependencies=auth_deps)
+app.include_router(world_books.router, prefix="/api", tags=["world_books"], dependencies=auth_deps)
+app.include_router(diary.router, prefix="/api", tags=["diary"], dependencies=auth_deps)
+app.include_router(maintenance.router, prefix="/api", tags=["maintenance"], dependencies=auth_deps)
+app.include_router(settings.router, prefix="/api", tags=["settings"], dependencies=auth_deps)
+app.include_router(theater.router, prefix="/api", tags=["theater"], dependencies=auth_deps)
+app.include_router(auth.router, prefix="/api", tags=["auth"])
 
 @app.get("/")
 async def root():

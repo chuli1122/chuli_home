@@ -1,0 +1,229 @@
+from __future__ import annotations
+
+import logging
+import math
+from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.models import Memory
+from app.utils import format_datetime
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+
+class MemoryItem(BaseModel):
+    id: int
+    content: str
+    tags: dict[str, Any]
+    source: str
+    klass: str
+    importance: float
+    manual_boost: float
+    hits: int
+    last_access_ts: str | None
+    created_at: str | None
+    decayed_score: float
+
+
+class MemoriesResponse(BaseModel):
+    memories: list[MemoryItem]
+    total: int
+
+
+class MemoryUpdateRequest(BaseModel):
+    content: str | None = None
+    manual_boost: float | None = None
+
+
+class MemoryDeleteResponse(BaseModel):
+    status: str
+    id: int
+
+
+class TrashMemoryItem(BaseModel):
+    id: int
+    content: str
+    source: str
+    klass: str
+    deleted_at: str | None
+    created_at: str | None
+
+
+class TrashMemoriesResponse(BaseModel):
+    memories: list[TrashMemoryItem]
+    total: int
+
+
+def _to_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _compute_decayed_score(memory: Memory) -> float:
+    now_utc = datetime.now(timezone.utc)
+    created_at = _to_utc(memory.created_at)
+    last_access_ts = _to_utc(memory.last_access_ts)
+    if created_at is None:
+        age_days = 0.0
+    else:
+        age_base = last_access_ts or created_at
+        age_days = max(0.0, (now_utc - age_base).total_seconds() / 86400.0)
+    base = min(max((memory.importance or 0.5) + (memory.manual_boost or 0.0), 0.0), 1.0)
+    halflife = memory.halflife_days or 60.0
+    boost = 1 + 0.35 * math.log(1 + (memory.hits or 0))
+    return base * math.exp(-math.log(2) / halflife * age_days) * boost
+
+
+@router.get("/memories", response_model=MemoriesResponse)
+def list_memories(
+    klass: str | None = Query(None),
+    source: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> MemoriesResponse:
+    query = db.query(Memory).filter(Memory.deleted_at.is_(None))
+    if klass:
+        query = query.filter(Memory.klass == klass)
+    if source:
+        query = query.filter(Memory.source == source)
+
+    total = query.count()
+    rows = (
+        query.order_by(Memory.created_at.desc(), Memory.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items = [
+        MemoryItem(
+            id=row.id,
+            content=row.content,
+            tags=row.tags or {},
+            source=row.source,
+            klass=row.klass,
+            importance=row.importance,
+            manual_boost=row.manual_boost,
+            hits=row.hits,
+            last_access_ts=format_datetime(row.last_access_ts),
+            created_at=format_datetime(row.created_at),
+            decayed_score=_compute_decayed_score(row),
+        )
+        for row in rows
+    ]
+    return MemoriesResponse(memories=items, total=total)
+
+
+@router.put("/memories/{memory_id}", response_model=MemoryItem)
+def update_memory(
+    memory_id: int,
+    payload: MemoryUpdateRequest,
+    db: Session = Depends(get_db),
+) -> MemoryItem:
+    memory = (
+        db.query(Memory)
+        .filter(Memory.id == memory_id, Memory.deleted_at.is_(None))
+        .first()
+    )
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    if hasattr(payload, "model_dump"):
+        update_data = payload.model_dump(exclude_unset=True)
+    else:
+        update_data = payload.dict(exclude_unset=True)
+    if "content" in update_data:
+        memory.content = update_data["content"] or ""
+    if "manual_boost" in update_data:
+        memory.manual_boost = update_data["manual_boost"] or 0.0
+
+    db.commit()
+    db.refresh(memory)
+    return MemoryItem(
+        id=memory.id,
+        content=memory.content,
+        tags=memory.tags or {},
+        source=memory.source,
+        klass=memory.klass,
+        importance=memory.importance,
+        manual_boost=memory.manual_boost,
+        hits=memory.hits,
+        last_access_ts=format_datetime(memory.last_access_ts),
+        created_at=format_datetime(memory.created_at),
+        decayed_score=_compute_decayed_score(memory),
+    )
+
+
+@router.get("/memories/trash", response_model=TrashMemoriesResponse)
+def list_memory_trash(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> TrashMemoriesResponse:
+    query = db.query(Memory).filter(Memory.deleted_at.is_not(None))
+    total = query.count()
+    rows = (
+        query.order_by(Memory.deleted_at.desc(), Memory.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items = [
+        TrashMemoryItem(
+            id=row.id,
+            content=row.content,
+            source=row.source,
+            klass=row.klass,
+            deleted_at=format_datetime(row.deleted_at),
+            created_at=format_datetime(row.created_at),
+        )
+        for row in rows
+    ]
+    return TrashMemoriesResponse(memories=items, total=total)
+
+
+@router.post("/memories/{memory_id}/restore", response_model=MemoryDeleteResponse)
+def restore_memory(memory_id: int, db: Session = Depends(get_db)) -> MemoryDeleteResponse:
+    memory = db.query(Memory).filter(Memory.id == memory_id).first()
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    if memory.deleted_at is None:
+        raise HTTPException(status_code=400, detail="Memory is not deleted")
+    memory.deleted_at = None
+    db.commit()
+    return MemoryDeleteResponse(status="restored", id=memory_id)
+
+
+@router.delete("/memories/{memory_id}/permanent", response_model=MemoryDeleteResponse)
+def delete_memory_permanent(
+    memory_id: int, db: Session = Depends(get_db)
+) -> MemoryDeleteResponse:
+    memory = db.query(Memory).filter(Memory.id == memory_id).first()
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    db.delete(memory)
+    db.commit()
+    return MemoryDeleteResponse(status="deleted_permanently", id=memory_id)
+
+
+@router.delete("/memories/{memory_id}", response_model=MemoryDeleteResponse)
+def delete_memory(memory_id: int, db: Session = Depends(get_db)) -> MemoryDeleteResponse:
+    memory = (
+        db.query(Memory)
+        .filter(Memory.id == memory_id, Memory.deleted_at.is_(None))
+        .first()
+    )
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    memory.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+    return MemoryDeleteResponse(status="deleted", id=memory_id)
