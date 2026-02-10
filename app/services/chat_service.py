@@ -13,9 +13,9 @@ from typing import Any
 from openai import OpenAI
 import requests
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy import text
+from sqlalchemy import func, text
 
-from app.models.models import ApiProvider, Assistant, ChatSession, Diary, Memory, Message, ModelPreset, SessionSummary, Settings, UserProfile
+from app.models.models import ApiProvider, Assistant, ChatSession, Diary, Memory, Message, ModelPreset, SessionSummary, Settings, TheaterStory, UserProfile
 from app.services.core_blocks_service import CoreBlocksService
 from app.services.embedding_service import EmbeddingService
 from app.services.summary_service import SummaryService
@@ -137,12 +137,44 @@ class MemoryService:
         self.db.refresh(diary)
         return {"id": diary.id, "title": diary.title}
 
+    @staticmethod
+    def _format_time_east8(value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            utc_value = value.replace(tzinfo=timezone.utc)
+        else:
+            utc_value = value.astimezone(timezone.utc)
+        return utc_value.astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
+
+    @staticmethod
+    def _parse_iso_datetime(raw_value: Any) -> datetime | None:
+        if raw_value is None:
+            return None
+        try:
+            text_value = str(raw_value).strip()
+            if not text_value:
+                return None
+            parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except Exception:
+            return None
+
     def search_memory(self, payload: dict[str, Any]) -> dict[str, Any]:
-        query = payload.get("query", "")
-        limit = payload.get("limit", 10)
+        query = str(payload.get("query", "") or "").strip()
+        try:
+            limit = max(1, int(payload.get("limit", 10)))
+        except Exception:
+            limit = 10
         source = payload.get("source")
+        start_time = self._parse_iso_datetime(payload.get("start_time"))
+        end_time = self._parse_iso_datetime(payload.get("end_time"))
+        if start_time and end_time and start_time > end_time:
+            start_time, end_time = end_time, start_time
         keywords = [word for word in query.split() if word]
-        query_vector = self.embedding_service.get_embedding(query)
+        query_vector = self.embedding_service.get_embedding(query) if query else None
 
         vector_rows = []
         if query_vector is not None:
@@ -188,7 +220,7 @@ class MemoryService:
                     "content": row.content,
                     "tags": row.tags,
                     "source": row.source,
-                    "created_at": row.created_at.replace(tzinfo=timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M"),
+                    "created_at": self._format_time_east8(row.created_at),
                 }
             )
 
@@ -203,54 +235,241 @@ class MemoryService:
                     "content": memory.content,
                     "tags": memory.tags,
                     "source": memory.source,
-                    "created_at": memory.created_at.replace(tzinfo=timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M"),
+                    "created_at": self._format_time_east8(memory.created_at),
                 }
             )
+
+        summary_vector_rows = []
+        if query_vector is not None:
+            summary_where = "WHERE embedding IS NOT NULL"
+            summary_params = {"query_embedding": str(query_vector), "limit": limit}
+            if start_time is not None:
+                summary_where += (
+                    " AND COALESCE(time_end, time_start, created_at) >= :start_time"
+                )
+                summary_params["start_time"] = start_time
+            if end_time is not None:
+                summary_where += (
+                    " AND COALESCE(time_start, time_end, created_at) <= :end_time"
+                )
+                summary_params["end_time"] = end_time
+            summary_vector_sql = text(
+                """
+    SELECT id, session_id, summary_content, msg_id_start, msg_id_end,
+           time_start, time_end, created_at,
+           1 - (embedding <=> :query_embedding) AS similarity
+    FROM session_summaries
+    {summary_where}
+    ORDER BY embedding <=> :query_embedding
+    LIMIT :limit
+""".format(summary_where=summary_where)
+            )
+            summary_vector_rows = self.db.execute(
+                summary_vector_sql, summary_params
+            ).all()
+
         summaries_query = self.db.query(SessionSummary)
+        if start_time is not None:
+            summaries_query = summaries_query.filter(
+                func.coalesce(
+                    SessionSummary.time_end,
+                    SessionSummary.time_start,
+                    SessionSummary.created_at,
+                )
+                >= start_time
+            )
+        if end_time is not None:
+            summaries_query = summaries_query.filter(
+                func.coalesce(
+                    SessionSummary.time_start,
+                    SessionSummary.time_end,
+                    SessionSummary.created_at,
+                )
+                <= end_time
+            )
         for keyword in keywords:
             summaries_query = summaries_query.filter(
                 SessionSummary.summary_content.ilike(f"%{keyword}%")
             )
-        summaries = (
+        summary_keyword_rows = (
             summaries_query.order_by(SessionSummary.created_at.desc())
             .limit(limit)
             .all()
         )
-        summary_results = [
-            {
-                "type": "summary",
-                "content": summary.summary_content,
-                "created_at": summary.created_at.replace(tzinfo=timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M"),
-            }
-            for summary in summaries
-        ]
+
+        summary_results = []
+        seen_summary_ids: set[int] = set()
+        for row in summary_vector_rows:
+            if row.id in seen_summary_ids:
+                continue
+            seen_summary_ids.add(row.id)
+            summary_results.append(
+                {
+                    "id": row.id,
+                    "type": "summary",
+                    "session_id": row.session_id,
+                    "content": row.summary_content,
+                    "msg_id_start": row.msg_id_start,
+                    "msg_id_end": row.msg_id_end,
+                    "time_start": self._format_time_east8(row.time_start),
+                    "time_end": self._format_time_east8(row.time_end),
+                    "created_at": self._format_time_east8(row.created_at),
+                }
+            )
+        for summary in summary_keyword_rows:
+            if summary.id in seen_summary_ids:
+                continue
+            seen_summary_ids.add(summary.id)
+            summary_results.append(
+                {
+                    "id": summary.id,
+                    "type": "summary",
+                    "session_id": summary.session_id,
+                    "content": summary.summary_content,
+                    "msg_id_start": summary.msg_id_start,
+                    "msg_id_end": summary.msg_id_end,
+                    "time_start": self._format_time_east8(summary.time_start),
+                    "time_end": self._format_time_east8(summary.time_end),
+                    "created_at": self._format_time_east8(summary.created_at),
+                }
+            )
         return {"query": query, "results": results + summary_results}
 
     def search_chat_history(self, payload: dict[str, Any]) -> dict[str, Any]:
-        query = payload.get("query", "")
-        limit = payload.get("limit", 20)
+        query = str(payload.get("query", "") or "").strip()
+        try:
+            limit = max(1, int(payload.get("limit", 20)))
+        except Exception:
+            limit = 20
         session_id = payload.get("session_id")
+        try:
+            msg_id_start = (
+                int(payload.get("msg_id_start"))
+                if payload.get("msg_id_start") is not None
+                else None
+            )
+        except Exception:
+            msg_id_start = None
+        try:
+            msg_id_end = (
+                int(payload.get("msg_id_end"))
+                if payload.get("msg_id_end") is not None
+                else None
+            )
+        except Exception:
+            msg_id_end = None
+        if (
+            msg_id_start is not None
+            and msg_id_end is not None
+            and msg_id_start > msg_id_end
+        ):
+            msg_id_start, msg_id_end = msg_id_end, msg_id_start
+
+        context_size = 3
         keywords = [word for word in query.split() if word]
 
-        messages_query = self.db.query(Message).filter(
-            Message.role.in_(["user", "assistant"])
-        )
+        messages_query = self.db.query(Message).filter(Message.role.in_(["user", "assistant"]))
         if session_id is not None:
             messages_query = messages_query.filter(Message.session_id == session_id)
-        messages_query = messages_query.filter(Message.content != "")
-        for keyword in keywords:
-            messages_query = messages_query.filter(Message.content.ilike(f"%{keyword}%"))
-        messages = (
-            messages_query.order_by(Message.created_at.desc()).limit(limit).all()
+        messages_query = messages_query.filter(Message.content.is_not(None), Message.content != "")
+
+        use_id_range = msg_id_start is not None and msg_id_end is not None
+        if use_id_range:
+            hit_messages = (
+                messages_query.filter(Message.id.between(msg_id_start, msg_id_end))
+                .order_by(Message.id.asc())
+                .limit(limit)
+                .all()
+            )
+        else:
+            for keyword in keywords:
+                messages_query = messages_query.filter(Message.content.ilike(f"%{keyword}%"))
+            hit_messages = (
+                messages_query.order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(limit)
+                .all()
+            )
+
+        if not hit_messages:
+            return {
+                "query": query,
+                "results": [],
+                "mode": "id_range" if use_id_range else "keyword",
+            }
+
+        merged_messages: dict[int, Message] = {}
+        hit_ids = {msg.id for msg in hit_messages}
+        for hit in hit_messages:
+            context_query = self.db.query(Message).filter(
+                Message.role.in_(["user", "assistant"]),
+                Message.content.is_not(None),
+                Message.content != "",
+                Message.session_id == hit.session_id,
+            )
+            prev_rows = (
+                context_query.filter(Message.id < hit.id)
+                .order_by(Message.id.desc())
+                .limit(context_size)
+                .all()
+            )
+            next_rows = (
+                context_query.filter(Message.id > hit.id)
+                .order_by(Message.id.asc())
+                .limit(context_size)
+                .all()
+            )
+            ordered_context = list(reversed(prev_rows)) + [hit] + list(next_rows)
+            for row in ordered_context:
+                merged_messages[row.id] = row
+
+        merged_sorted = sorted(
+            merged_messages.values(),
+            key=lambda m: (m.session_id, m.id),
         )
         results = [
             {
+                "id": message.id,
                 "session_id": message.session_id,
                 "role": message.role,
                 "content": message.content,
-                "created_at": message.created_at.replace(tzinfo=timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M"),
+                "created_at": self._format_time_east8(message.created_at),
+                "is_hit": message.id in hit_ids,
             }
-            for message in messages
+            for message in merged_sorted
+        ]
+        return {
+            "query": query,
+            "results": results,
+            "mode": "id_range" if use_id_range else "keyword",
+        }
+
+    def search_theater(self, payload: dict[str, Any]) -> dict[str, Any]:
+        query = str(payload.get("query", "") or "").strip()
+        try:
+            limit = max(1, int(payload.get("limit", 5)))
+        except Exception:
+            limit = 5
+        if not query:
+            return {"query": query, "results": []}
+
+        rows = (
+            self.db.query(TheaterStory)
+            .filter(
+                TheaterStory.summary.is_not(None),
+                TheaterStory.summary.ilike(f"%{query}%"),
+            )
+            .order_by(TheaterStory.updated_at.desc(), TheaterStory.id.desc())
+            .limit(limit)
+            .all()
+        )
+        results = [
+            {
+                "title": row.title,
+                "ai_partner": row.ai_partner,
+                "summary": row.summary,
+                "story_timespan": row.story_timespan,
+            }
+            for row in rows
         ]
         return {"query": query, "results": results}
 
@@ -453,7 +672,7 @@ class ChatService:
         "write_diary",
         "web_search",
     }
-    silent_tools = {"search_memory", "search_chat_history"}
+    silent_tools = {"search_memory", "search_chat_history", "search_theater"}
     tool_display_names = {
         "save_memory": "创建记忆",
         "update_memory": "编辑记忆",
@@ -617,6 +836,8 @@ class ChatService:
             return self.memory_service.search_memory(tool_call.arguments)
         if tool_name == "search_chat_history":
             return self.memory_service.search_chat_history(tool_call.arguments)
+        if tool_name == "search_theater":
+            return self.memory_service.search_theater(tool_call.arguments)
         if tool_name == "web_search":
             return {"status": "not_implemented", "payload": tool_call.arguments}
         return {"status": "unknown_tool", "payload": tool_call.arguments}
@@ -644,19 +865,14 @@ class ChatService:
         )
 
         base_system_prompt = assistant.system_prompt
-        if user_info:
-            base_system_prompt = (
-                f"User info - Name: {user_name}, Details: {user_info}\n\n"
-                + assistant.system_prompt
-            )
 
         summaries_desc = (
             self.db.query(SessionSummary)
-            .filter(SessionSummary.session_id == session_id)
+            .filter(SessionSummary.assistant_id == assistant.id)
             .order_by(SessionSummary.created_at.desc())
             .all()
         )
-        summary_budget_tokens = 1500
+        summary_budget_tokens = 2000
         used_summary_tokens = 0
         selected_summaries_desc: list[SessionSummary] = []
         latest_mood_tag = None
@@ -699,6 +915,11 @@ class ChatService:
             prompt_parts.append(after_books_text)
         full_system_prompt = "\n\n".join(part for part in prompt_parts if part)
 
+        if user_info and user_info.strip():
+            full_system_prompt += (
+                f"\n\n[About the user - basic info]\n{user_info.strip()}"
+            )
+
         core_blocks_service = CoreBlocksService(self.db)
         core_blocks_text = core_blocks_service.get_blocks_for_prompt(assistant.id)
         if core_blocks_text:
@@ -719,12 +940,11 @@ class ChatService:
                 recall_text += "[If above memories are insufficient, you can use search_memory or search_chat_history to supplement]\n"
                 full_system_prompt += recall_text
         save_memory_description = (
-            f"Record important events, emotional changes, or relationship milestones. "
-            f"Write memory content in first person. Timestamp is auto-added by the system, do NOT include it yourself. "
-            f"You can set an optional klass for better memory weighting: identity/relationship/bond/conflict/fact/preference/health/task/ephemeral/other. "
-            f"Example: '{assistant.name}: {user_name} praised me today, I am happy'. "
-            f"Use '{user_name}' instead of 'user' in memories. "
-            f"Do not record casual chat or already recorded content."
+            "主动存储值得长期记住的信息。content写内容，klass选分类：identity（身份信息）、"
+            "relationship（关系定义）、bond（心动时刻、她脆弱时说的话、真正好的记忆）、"
+            "conflict（吵架教训、犯的错）、fact（事实）、preference（偏好）、health（健康）、"
+            "task（待办）、ephemeral（临时）、other（其他）。时间戳后端自动添加不用写。"
+            "发现她的偏好、重要事实、情感时刻时主动调用。"
         )
         tools = [
             {
@@ -809,11 +1029,7 @@ class ChatService:
                 "type": "function",
                 "function": {
                     "name": "search_memory",
-                    "description": (
-                        "Search past memories. Results may come from different time points. "
-                        "Check the created_at field and timestamp at the beginning of each memory. "
-                        "Do not treat past events as current state. When you reference a memory in your reply, add [[used:id]] at the end of your message (e.g. [[used:5]]). This helps the system learn which memories are useful."
-                    ),
+                    "description": "搜索记忆和摘要。返回两种结果：记忆卡片（type=memory）和对话摘要（type=summary）。摘要结果带msg_id_start和msg_id_end，可以拿去search_chat_history按ID范围拉原文查看细节。支持start_time和end_time参数按时间段过滤摘要。",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -821,7 +1037,15 @@ class ChatService:
                             "limit": {"type": "integer"},
                             "source": {
                                 "type": "string",
-                                "description": "可选，指定只搜索某个来源的记忆（如 '阿怀'），传 'all' 或不传则搜索全部",
+                                "description": "Optional memory source filter; pass all or omit for global search.",
+                            },
+                            "start_time": {
+                                "type": "string",
+                                "description": "ISO datetime lower bound for filtering summaries by time range.",
+                            },
+                            "end_time": {
+                                "type": "string",
+                                "description": "ISO datetime upper bound for filtering summaries by time range.",
                             },
                         },
                     },
@@ -831,14 +1055,37 @@ class ChatService:
                 "type": "function",
                 "function": {
                     "name": "search_chat_history",
-                    "description": "Search chat history by keywords across user/assistant messages.",
+                    "description": "搜索聊天原文。两种模式：关键词搜索（传query）和ID范围查询（传msg_id_start和msg_id_end，配合search_memory返回的摘要ID范围定位原文）。返回结果包含前后各N条上下文消息。",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "query": {"type": "string"},
                             "limit": {"type": "integer"},
                             "session_id": {"type": "integer"},
+                            "msg_id_start": {
+                                "type": "integer",
+                                "description": "Start id of a message range, used together with msg_id_end.",
+                            },
+                            "msg_id_end": {
+                                "type": "integer",
+                                "description": "End id of a message range, used together with msg_id_start.",
+                            },
                         },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_theater",
+                    "description": "搜索小剧场故事摘要。想知道角色扮演或RP里发生过什么时使用。传关键词搜索，返回故事标题、AI伙伴、摘要内容、时间跨度。",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"},
+                            "limit": {"type": "integer"},
+                        },
+                        "required": ["query"],
                     },
                 },
             },

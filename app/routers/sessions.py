@@ -13,6 +13,18 @@ from app.utils import format_datetime
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+VALID_MOOD_TAGS = {
+    "sad",
+    "angry",
+    "anxious",
+    "tired",
+    "emo",
+    "happy",
+    "flirty",
+    "proud",
+    "calm",
+    "mixed",
+}
 
 
 class SessionItem(BaseModel):
@@ -72,6 +84,10 @@ class SessionSummaryItem(BaseModel):
 
 class SessionSummariesResponse(BaseModel):
     summaries: list[SessionSummaryItem]
+
+
+class SessionSummaryUpdateRequest(BaseModel):
+    mood_tag: str
 
 
 @router.get("/sessions", response_model=SessionListResponse)
@@ -198,6 +214,49 @@ def get_session_summaries(
         for row in rows
     ]
     return SessionSummariesResponse(summaries=items)
+
+
+@router.put("/sessions/{session_id}/summaries/{summary_id}", response_model=SessionSummaryItem)
+def update_session_summary_mood(
+    session_id: int,
+    summary_id: int,
+    payload: SessionSummaryUpdateRequest,
+    db: Session = Depends(get_db),
+) -> SessionSummaryItem:
+    session_row = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if session_row is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    mood_tag = (payload.mood_tag or "").strip().lower()
+    if mood_tag not in VALID_MOOD_TAGS:
+        raise HTTPException(status_code=400, detail="Invalid mood_tag")
+
+    summary_row = (
+        db.query(SessionSummary)
+        .filter(
+            SessionSummary.id == summary_id,
+            SessionSummary.session_id == session_id,
+        )
+        .first()
+    )
+    if summary_row is None:
+        raise HTTPException(status_code=404, detail="Summary not found")
+
+    summary_row.mood_tag = mood_tag
+    db.commit()
+    db.refresh(summary_row)
+    return SessionSummaryItem(
+        id=summary_row.id,
+        session_id=summary_row.session_id,
+        summary_content=summary_row.summary_content,
+        perspective=summary_row.perspective,
+        msg_id_start=summary_row.msg_id_start,
+        msg_id_end=summary_row.msg_id_end,
+        time_start=format_datetime(summary_row.time_start),
+        time_end=format_datetime(summary_row.time_end),
+        mood_tag=summary_row.mood_tag,
+        created_at=format_datetime(summary_row.created_at),
+    )
 
 
 @router.put("/sessions/{session_id}", response_model=SessionItem)

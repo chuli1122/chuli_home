@@ -15,21 +15,11 @@ class CoreBlocksService:
         self, block_type: str, assistant_id: int | None = None
     ) -> CoreBlock | None:
         if block_type == "human":
-            block = (
-                self.db.query(CoreBlock)
-                .filter(
-                    CoreBlock.block_type == "human",
-                    CoreBlock.assistant_id == assistant_id,
-                )
-                .first()
-            )
-            if block:
-                return block
             return (
                 self.db.query(CoreBlock)
                 .filter(
                     CoreBlock.block_type == "human",
-                    CoreBlock.assistant_id.is_(None),
+                    CoreBlock.assistant_id == assistant_id,
                 )
                 .first()
             )
@@ -83,7 +73,7 @@ class CoreBlocksService:
         sections: list[str] = []
         human_block = self.get_block("human", assistant_id)
         if human_block and human_block.content and human_block.content.strip():
-            sections.append(f"[About the user]\n{human_block.content.strip()}")
+            sections.append(f"[About the user - what I know about her]\n{human_block.content.strip()}")
 
         persona_block = self.get_block("persona", assistant_id)
         if persona_block and persona_block.content and persona_block.content.strip():

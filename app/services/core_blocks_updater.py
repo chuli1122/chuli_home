@@ -188,15 +188,6 @@ class CoreBlocksUpdater:
             )
             .first()
         )
-        if not human_block:
-            human_block = (
-                db.query(CoreBlock)
-                .filter(
-                    CoreBlock.block_type == "human",
-                    CoreBlock.assistant_id.is_(None),
-                )
-                .first()
-            )
         persona_block = (
             db.query(CoreBlock)
             .filter(
@@ -213,7 +204,12 @@ class CoreBlocksUpdater:
             "Return JSON only in the format: "
             '{"candidates":[{"block_type":"human|persona","content":"..."}]}. '
             "Only include durable updates that should persist across sessions. "
-            "Skip temporary chatter."
+            "Skip temporary chatter. "
+            "For human block, include only AI-perspective understanding about the user: "
+            "behavior patterns, emotional habits, communication style, and interaction traits. "
+            "Do not include fixed profile facts (birthday, gender, zodiac sign, dietary restrictions) "
+            "because those belong to basic info. "
+            "Do not include relationship-definition statements in human block; those belong to persona block."
         )
         user_prompt = (
             f"Assistant name: {assistant.name}\n"
@@ -267,15 +263,6 @@ class CoreBlocksUpdater:
             )
             .first()
         )
-        if block_type == "human" and not existing_block:
-            existing_block = (
-                db.query(CoreBlock)
-                .filter(
-                    CoreBlock.block_type == "human",
-                    CoreBlock.assistant_id.is_(None),
-                )
-                .first()
-            )
 
         if existing_block:
             relation = self._classify_relation(

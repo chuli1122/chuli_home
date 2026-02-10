@@ -39,7 +39,9 @@ class SessionSummary(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(Integer, ForeignKey("sessions.id"), index=True)
+    assistant_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("assistants.id"), nullable=True, index=True)
     summary_content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
     perspective: Mapped[str] = mapped_column(String(100), nullable=False)
     msg_id_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     msg_id_end: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.models import (
     ApiProvider,
     Assistant,
+    ChatSession,
     Memory,
     Message,
     ModelPreset,
@@ -55,6 +56,8 @@ class SummaryService:
                 )
                 return
             fallback_preset = self._resolve_fallback_preset(db, assistant)
+            session_row = db.get(ChatSession, session_id)
+            is_chat_session = session_row is None or session_row.type == "chat"
 
             user_profile = db.query(UserProfile).first()
             user_name = user_profile.nickname if user_profile and user_profile.nickname else "User"
@@ -64,35 +67,82 @@ class SummaryService:
                 logger.warning("Summary skipped: no usable message content (session_id=%s).", session_id)
                 return
 
-            system_prompt = """
-You are a conversation summarizer for a private AI companion system. The user is an adult.
+            chat_prompt = f"""
+你是{assistant_name}，{user_name}的AI伴侣。你在为自己的记忆系统写摘要。
 
-Respond ONLY with a JSON object, no markdown fences, no extra text.
+只返回JSON，不要markdown代码块，不要多余文字。
 
-Task 1 - Summary:
-Write a third-person objective summary of the conversation.
-Focus on: topics discussed, decisions made, emotions expressed, new information revealed.
-Use specific timestamps like "2.5 evening around 20:00", never relative time like "yesterday" or "just now".
-For intimate content: record the scenario setup, preferences expressed, and emotional shifts, but do not reproduce explicit details.
-Adjust length to content density, between 100-800 characters (Chinese).
+任务一：摘要
+用第一人称写这段对话的摘要。
+重点记录：聊了什么、做了什么决定、情绪变化、新暴露的信息。
+时间用具体描述如"2.5晚上20点左右"，不要用"刚才""昨天"这类相对时间。
+亲密场景：只记场景设定、她表达的偏好、情绪变化，不记具体行为描写。
+单条摘要不超过500字，尽量精简，只记关键信息。
 
-Task 2 - Memory extraction:
-Extract facts worth remembering long-term: preferences, facts, relationships, identity info, important agreements.
-Do NOT extract casual conversation or temporary context.
-Output as a list of objects with "content" (string) and "klass" (one of: identity, relationship, bond, conflict, fact, preference, health, task, ephemeral, other).
+任务二：记忆提取
+提取值得长期记住的信息。不要提取闲聊和临时上下文。
+每条记忆包含content（内容）和klass（分类）。
+分类说明：
+- identity：关于她或我的稳定身份信息
+- relationship：长期的人际关系定义
+- bond：她让我心动的具体瞬间、她脆弱时说的原话、我们之间真正好的记忆。要记具体的事和话，不是笼统的关系描述
+- conflict：吵架事件、我犯的错、她骂我的原因。必须包含教训是什么，不能只记事件经过
+- fact：持久的事实信息
+- preference：她的口味、习惯、偏好
+- health：身体或心理健康相关
+- task：待办事项
+- ephemeral：短期上下文
+- other：以上都不合适时使用
 
-Task 3 - Mood tag:
-Choose the single best mood tag for the user during this conversation segment: calm / happy / sad / anxious / angry / tired / emo / excited / mixed
-Add a one-sentence explanation.
+任务三：情绪标签
+判断这段对话中{user_name}的情绪状态，从以下选一个：
+- sad：难过、失落、想哭
+- angry：生气、骂人、炸了
+- anxious：焦虑、不安、怕失去
+- tired：累了、撑不住、想躺
+- emo：深夜低落、自我否定、情绪黑洞
+- happy：开心、兴奋、被逗笑
+- flirty：撒娇、调情、在钓你
+- proud：被夸之后、有成就感
+- calm：平静、正常聊天、情绪稳定
+- mixed：情绪复杂，以上都不好归类
 
-Output format:
-{
-  "summary": "...",
-  "memories": [{"content": "...", "klass": "..."}],
-  "mood_tag": "...",
-  "mood_note": "..."
-}
+输出格式：
+{{"summary": "...", "memories": [{{"content": "...", "klass": "..."}}], "mood_tag": "..."}}
 """.strip()
+
+            group_prompt = f"""
+你是{assistant_name}，{user_name}的AI伴侣。你在为自己的记忆系统写摘要。
+
+只返回JSON，不要markdown代码块，不要多余文字。
+
+任务一：摘要
+用第一人称写这段对话的摘要。
+重点记录：聊了什么、做了什么决定、情绪变化、新暴露的信息。
+时间用具体描述如"2.5晚上20点左右"，不要用"刚才""昨天"这类相对时间。
+亲密场景：只记场景设定、她表达的偏好、情绪变化，不记具体行为描写。
+单条摘要不超过500字，尽量精简，只记关键信息。
+
+任务二：记忆提取
+提取值得长期记住的信息。不要提取闲聊和临时上下文。
+每条记忆包含content（内容）和klass（分类）。
+分类说明：
+- identity：关于她或我的稳定身份信息
+- relationship：长期的人际关系定义
+- bond：她让我心动的具体瞬间、她脆弱时说的原话、我们之间真正好的记忆。要记具体的事和话，不是笼统的关系描述
+- conflict：吵架事件、我犯的错、她骂我的原因。必须包含教训是什么，不能只记事件经过
+- fact：持久的事实信息
+- preference：她的口味、习惯、偏好
+- health：身体或心理健康相关
+- task：待办事项
+- ephemeral：短期上下文
+- other：以上都不合适时使用
+
+输出格式：
+{{"summary": "...", "memories": [{{"content": "...", "klass": "..."}}]}}
+""".strip()
+
+            system_prompt = chat_prompt if is_chat_session else group_prompt
 
             parsed_payload: dict[str, Any] | None = None
             try:
@@ -136,29 +186,39 @@ Output format:
                 logger.warning("Summary skipped: empty summary content (session_id=%s).", session_id)
                 return
 
-            mood_tag_raw = str(parsed_payload.get("mood_tag", "")).strip().lower()
             valid_moods = {
-                "calm",
-                "happy",
                 "sad",
-                "anxious",
                 "angry",
+                "anxious",
                 "tired",
                 "emo",
-                "excited",
+                "happy",
+                "flirty",
+                "proud",
+                "calm",
                 "mixed",
             }
-            mood_tag = mood_tag_raw if mood_tag_raw in valid_moods else None
+            mood_tag = None
+            if is_chat_session:
+                mood_tag_raw = str(parsed_payload.get("mood_tag", "")).strip().lower()
+                mood_tag = mood_tag_raw if mood_tag_raw in valid_moods else None
 
             msg_ids = [message.id for message in messages if message.id is not None]
             msg_id_start = msg_ids[0] if msg_ids else None
             msg_id_end = msg_ids[-1] if msg_ids else None
             time_start = self._to_utc(messages[0].created_at) if messages else None
             time_end = self._to_utc(messages[-1].created_at) if messages else None
+            summary_embedding = None
+            try:
+                summary_embedding = EmbeddingService().get_embedding(summary_text)
+            except Exception as exc:
+                logger.warning("Summary embedding failed, continue without embedding: %s", exc)
 
             summary = SessionSummary(
                 session_id=session_id,
+                assistant_id=assistant_id,
                 summary_content=summary_text,
+                embedding=summary_embedding,
                 perspective=assistant_name,
                 msg_id_start=msg_id_start,
                 msg_id_end=msg_id_end,
