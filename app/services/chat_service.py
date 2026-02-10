@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import re
@@ -691,11 +691,13 @@ class ChatService:
     }
     silent_tools = {"search_memory", "search_chat_history", "search_theater"}
     tool_display_names = {
-        "save_memory": "Create Memory",
-        "update_memory": "Update Memory",
-        "delete_memory": "Delete Memory",
-        "write_diary": "Write Diary",
-        "web_search": "Web Search",
+        "save_memory": "创建记忆",
+        "update_memory": "更新记忆",
+        "delete_memory": "删除记忆",
+        "write_diary": "写日记",
+        "search_memory": "搜索记忆",
+        "search_chat_history": "搜索聊天记录",
+        "search_theater": "搜索小剧场",
     }
 
     def __init__(
