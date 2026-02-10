@@ -378,7 +378,6 @@ class MemoryService:
             hit_messages = (
                 messages_query.filter(Message.id.between(msg_id_start, msg_id_end))
                 .order_by(Message.id.asc())
-                .limit(limit)
                 .all()
             )
         else:
@@ -395,6 +394,24 @@ class MemoryService:
                 "query": query,
                 "results": [],
                 "mode": "id_range" if use_id_range else "keyword",
+            }
+
+        if use_id_range:
+            results = [
+                {
+                    "id": message.id,
+                    "session_id": message.session_id,
+                    "role": message.role,
+                    "content": message.content,
+                    "created_at": self._format_time_east8(message.created_at),
+                    "is_hit": True,
+                }
+                for message in hit_messages
+            ]
+            return {
+                "query": query,
+                "results": results,
+                "mode": "id_range",
             }
 
         merged_messages: dict[int, Message] = {}
@@ -674,11 +691,11 @@ class ChatService:
     }
     silent_tools = {"search_memory", "search_chat_history", "search_theater"}
     tool_display_names = {
-        "save_memory": "创建记忆",
-        "update_memory": "编辑记忆",
-        "delete_memory": "删除记忆",
-        "write_diary": "他写了一页日记",
-        "web_search": "联网搜索",
+        "save_memory": "Create Memory",
+        "update_memory": "Update Memory",
+        "delete_memory": "Delete Memory",
+        "write_diary": "Write Diary",
+        "web_search": "Web Search",
     }
 
     def __init__(
@@ -940,11 +957,8 @@ class ChatService:
                 recall_text += "[If above memories are insufficient, you can use search_memory or search_chat_history to supplement]\n"
                 full_system_prompt += recall_text
         save_memory_description = (
-            "主动存储值得长期记住的信息。content写内容，klass选分类：identity（身份信息）、"
-            "relationship（关系定义）、bond（心动时刻、她脆弱时说的话、真正好的记忆）、"
-            "conflict（吵架教训、犯的错）、fact（事实）、preference（偏好）、health（健康）、"
-            "task（待办）、ephemeral（临时）、other（其他）。时间戳后端自动添加不用写。"
-            "发现她的偏好、重要事实、情感时刻时主动调用。"
+            "Actively store long-term useful information. Use content for memory text and klass for category: identity, relationship, bond, conflict, fact, preference, health, task, ephemeral, other."
+            "Timestamp is added by backend automatically. Save when you detect preferences, important facts, or emotional milestones."
         )
         tools = [
             {
@@ -1029,7 +1043,7 @@ class ChatService:
                 "type": "function",
                 "function": {
                     "name": "search_memory",
-                    "description": "搜索记忆和摘要。返回两种结果：记忆卡片（type=memory）和对话摘要（type=summary）。摘要结果带msg_id_start和msg_id_end，可以拿去search_chat_history按ID范围拉原文查看细节。支持start_time和end_time参数按时间段过滤摘要。",
+                    "description": "Search memories and summaries. Returns memory cards (type=memory) and summary records (type=summary). Summary items include msg_id_start and msg_id_end and can be used with search_chat_history for range lookup. Supports start_time/end_time filtering.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -1055,7 +1069,7 @@ class ChatService:
                 "type": "function",
                 "function": {
                     "name": "search_chat_history",
-                    "description": "搜索聊天原文。两种模式：关键词搜索（传query）和ID范围查询（传msg_id_start和msg_id_end，配合search_memory返回的摘要ID范围定位原文）。返回结果包含前后各N条上下文消息。",
+                    "description": "Search chat history. Mode 1: keyword query returns hit messages with 3 messages of context before and after, merged and deduplicated. Mode 2: ID-range query with msg_id_start and msg_id_end returns all messages in range.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -1078,7 +1092,7 @@ class ChatService:
                 "type": "function",
                 "function": {
                     "name": "search_theater",
-                    "description": "搜索小剧场故事摘要。想知道角色扮演或RP里发生过什么时使用。传关键词搜索，返回故事标题、AI伙伴、摘要内容、时间跨度。",
+                    "description": "Search theater story summaries. Use keywords to find RP history and return title, AI partner, summary, and timespan.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -1096,9 +1110,7 @@ class ChatService:
             if not base_url.endswith("/v1"):
                 base_url = f"{base_url.rstrip('/')}/v1"
         client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
-        print(
-            f"📡 [DEBUG] 原始 Base URL: {api_provider.base_url} | SDK 实际 Base URL: {client.base_url}"
-        )
+        print(f"[DEBUG] Raw Base URL: {api_provider.base_url} | SDK Base URL: {client.base_url}")
         retain_budget = self.dialogue_retain_budget
         trigger_threshold = self.dialogue_trigger_threshold
         dialogue_token_total = 0
@@ -1173,7 +1185,7 @@ class ChatService:
             if "tool_call_id" in message:
                 api_message["tool_call_id"] = message["tool_call_id"]
             api_messages.append(api_message)
-        print(f"📡 [DEBUG] 正在调用的模型: {model_preset.model_name}")
+        print(f"[DEBUG] Calling model: {model_preset.model_name}")
         try:
             response = client.chat.completions.create(
                 model=model_preset.model_name,
@@ -1182,7 +1194,7 @@ class ChatService:
                 tool_choice="auto",
             )
         except Exception as e:
-            print(f"❌ [API ERROR] 请求失败! 错误信息: {str(e)}")
+            print(f"[API ERROR] Request failed: {str(e)}")
             return []
         if not response.choices:
             logger.warning("LLM response contained no choices.")
@@ -1237,7 +1249,7 @@ class ChatService:
             messages.append({"role": "assistant", "content": clean_content})
             self._persist_message(session_id, "assistant", clean_content, {})
         else:
-            fallback_content = "（未在记忆库中检索到相关信息，以下基于系统设定回复）"
+            fallback_content = "(No relevant memory found. Reply based on current prompt.)"
             messages.append({"role": "assistant", "content": fallback_content})
             self._persist_message(session_id, "assistant", fallback_content, {})
         return []
@@ -1332,3 +1344,4 @@ class ChatService:
         self.db.add(message)
         self.db.commit()
         self.db.refresh(message)
+

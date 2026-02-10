@@ -209,7 +209,6 @@ class CoreBlocksUpdater:
             "behavior patterns, emotional habits, communication style, and interaction traits. "
             "Do not include fixed profile facts (birthday, gender, zodiac sign, dietary restrictions) "
             "because those belong to basic info. "
-            "Do not include relationship-definition statements in human block; those belong to persona block."
         )
         user_prompt = (
             f"Assistant name: {assistant.name}\n"
