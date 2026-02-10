@@ -142,7 +142,7 @@ export default function BackgroundSettings() {
         >
           <ChevronLeft size={24} />
         </button>
-        <h1 className="text-lg font-bold">设置壁纸</h1>
+        <h1 className="absolute left-1/2 -translate-x-1/2 text-lg font-bold">背景设置</h1>
         <button 
           onClick={toggleEditMode}
           className={`flex h-10 px-4 items-center justify-center rounded-full text-[15px] font-medium transition active:scale-95 ${

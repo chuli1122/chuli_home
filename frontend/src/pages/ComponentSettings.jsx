@@ -618,7 +618,7 @@ export default function ComponentSettings() {
         >
           <ChevronLeft size={24} />
         </button>
-        <h1 className="text-lg font-bold">组件设置</h1>
+        <h1 className="absolute left-1/2 -translate-x-1/2 text-lg font-bold">组件设置</h1>
         <button 
           onClick={() => setIsPresetModalOpen(true)}
           className="flex h-10 px-4 items-center justify-center rounded-full bg-white shadow-sm text-[13px] font-medium active:scale-95 transition"

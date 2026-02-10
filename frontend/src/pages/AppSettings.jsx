@@ -126,7 +126,7 @@ export default function AppSettings() {
         {/* General Settings Group */}
         <div className="flex flex-col gap-4">
           <button
-            onClick={() => handleNavigate("/settings/api")}
+            onClick={() => navigate("/settings/api", { replace: true })}
             className="flex w-full items-center justify-between rounded-[24px] bg-white p-5 shadow-sm active:scale-[0.98] transition-all"
           >
             <div className="flex items-center gap-4">

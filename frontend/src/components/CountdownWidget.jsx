@@ -16,7 +16,15 @@ const CountdownWidget = ({ style }) => {
 
   useEffect(() => {
     const loadEvents = () => {
-      const savedEvents = JSON.parse(localStorage.getItem("countdown-events") || "[]");
+      let savedEvents = JSON.parse(localStorage.getItem("countdown-events") || "[]");
+      if (savedEvents.length === 0) {
+        savedEvents = [
+          { id: 1, title: "恋爱纪念日", date: "2025-05-20", isPinned: true, repeatType: "yearly" },
+          { id: 2, title: "我的生日", date: "2025-11-11", isPinned: false, repeatType: "yearly" },
+          { id: 3, title: "新年", date: "2026-01-01", isPinned: false, repeatType: "yearly" },
+        ];
+        localStorage.setItem("countdown-events", JSON.stringify(savedEvents));
+      }
       setEvents(savedEvents);
     };
 

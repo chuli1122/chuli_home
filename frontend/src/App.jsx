@@ -8,6 +8,7 @@ import ComponentSettings from "./pages/ComponentSettings";
 import IconSettings from "./pages/IconSettings";
 import FontSettings from "./pages/FontSettings";
 import AppSettings from "./pages/AppSettings";
+import ApiSettings from "./pages/ApiSettings";
 import { useEffect } from "react";
 import { getAllFonts } from "./utils/db";
 
@@ -107,6 +108,7 @@ export default function App() {
           <Route path="/theme/icons" element={<IconSettings />} />
           <Route path="/theme/font" element={<FontSettings />} />
           <Route path="/settings" element={<AppSettings />} />
+          <Route path="/settings/api" element={<ApiSettings />} />
           <Route path="/countdown" element={<Countdown />} />
           {/* Redirect unknown routes to home */}
           <Route path="*" element={<Navigate to="/" replace />} />

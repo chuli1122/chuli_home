@@ -935,7 +935,7 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-full flex-col relative w-full">
+    <div className="flex h-full flex-col relative w-full overflow-hidden">
       {/* Home Specific Wallpaper */}
       {wallpaper && (
         <div 

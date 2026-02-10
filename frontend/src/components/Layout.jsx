@@ -19,9 +19,13 @@ export default function Layout() {
   const [dockStyle, setDockStyle] = useState({ opacity: 30, material: 'glass', color: '#ffffff', backgroundImage: null, iconOpacity: 100 });
   const [customIcons, setCustomIcons] = useState({});
 
+  // Reset iOS residual scroll offset on route change
   useEffect(() => {
-    window.scrollTo(0, 0);
-    
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [location.pathname]);
+
+  useEffect(() => {
     const loadSettings = () => {
       try {
         const saved = JSON.parse(localStorage.getItem("active-wallpaper"));
@@ -76,7 +80,7 @@ export default function Layout() {
   }, [location]);
 
   return (
-    <div className="relative h-screen min-h-[-webkit-fill-available] text-text">
+    <div className="fixed inset-0 overflow-hidden text-text">
       {wallpaper && (
         <div 
           className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"

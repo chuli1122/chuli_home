@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     api_providers,
     assistants,
@@ -19,6 +20,14 @@ from app.routers import (
 from app.routers.auth import require_auth_token
 
 app = FastAPI(title="Chuli Home Backend")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Register API routers
 auth_deps = [Depends(require_auth_token)]

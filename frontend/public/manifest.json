@@ -1,6 +1,6 @@
 {
-  "name": "whisper",
-  "short_name": "whisper",
+  "name": "Whisper",
+  "short_name": "Whisper",
   "display": "standalone",
   "start_url": "/",
   "background_color": "#fffbeb",
