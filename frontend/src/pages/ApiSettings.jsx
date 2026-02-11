@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Plus,
   Trash2,
+  Pencil,
   Eye,
   EyeOff,
   RefreshCw,
@@ -26,63 +27,42 @@ function domainFromUrl(url) {
   }
 }
 
-// ── Slider Field ──
+// ── Number Field (no slider) ──
 
-function SliderField({ label, hint, value, onChange, min, max, step }) {
-  const [editing, setEditing] = useState(false);
+function NumberField({ label, hint, value, onChange, min, max, step }) {
   const [inputVal, setInputVal] = useState(String(value));
 
   useEffect(() => {
-    if (!editing) setInputVal(String(value));
-  }, [value, editing]);
+    setInputVal(String(value));
+  }, [value]);
 
   const commit = () => {
-    setEditing(false);
     let n = parseFloat(inputVal);
     if (isNaN(n)) n = min;
-    n = Math.max(min, Math.min(max, n));
+    if (n > max) n = max;
+    if (n < min) n = min;
     n = Math.round(n / step) * step;
     n = parseFloat(n.toFixed(4));
+    setInputVal(String(n));
     onChange(n);
   };
 
   return (
-    <div>
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="text-[14px] font-medium text-black">{label}</span>
-          {hint && <p className="text-[11px] text-gray-400 mt-0.5">{hint}</p>}
-        </div>
-        {editing ? (
-          <input
-            type="number"
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => e.key === "Enter" && commit()}
-            autoFocus
-            step={step}
-            min={min}
-            max={max}
-            className="w-16 rounded-lg bg-[#F5F5F5] px-2 py-1 text-center text-sm font-bold outline-none"
-          />
-        ) : (
-          <button
-            onClick={() => setEditing(true)}
-            className="text-sm font-bold text-black tabular-nums active:opacity-60"
-          >
-            {value}
-          </button>
-        )}
+    <div className="flex items-center justify-between">
+      <div>
+        <span className="text-[14px] font-medium text-black">{label}</span>
+        {hint && <p className="text-[11px] text-gray-400 mt-0.5">{hint}</p>}
       </div>
       <input
-        type="range"
+        type="number"
+        value={inputVal}
+        onChange={(e) => setInputVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === "Enter" && commit()}
+        step={step}
         min={min}
         max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="mt-2 w-full accent-black"
+        className="w-20 rounded-lg bg-[#F5F5F5] px-3 py-2 text-center text-sm font-bold outline-none"
       />
     </div>
   );
@@ -166,6 +146,11 @@ export default function ApiSettings() {
   const [saveAsNew, setSaveAsNew] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null); // { preset, x, y }
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const longPressTimer = useRef(null);
+  const longPressTriggered = useRef(false);
 
   // Refs to always read latest form values in async callbacks
   const formRef = useRef({});
@@ -346,6 +331,47 @@ export default function ApiSettings() {
     setDeleteTarget(null);
   };
 
+  // ── Long press ──
+
+  const handlePointerDown = (e, preset) => {
+    longPressTriggered.current = false;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    longPressTimer.current = setTimeout(() => {
+      longPressTriggered.current = true;
+      setContextMenu({ preset, x: clientX, y: clientY });
+    }, 500);
+  };
+
+  const handlePointerUp = () => {
+    clearTimeout(longPressTimer.current);
+  };
+
+  const handlePointerMove = () => {
+    clearTimeout(longPressTimer.current);
+  };
+
+  // ── Rename ──
+
+  const openRename = (preset) => {
+    setContextMenu(null);
+    setRenameTarget(preset);
+    setRenameValue(preset.name);
+  };
+
+  const confirmRename = async () => {
+    const name = renameValue.trim();
+    if (!name || !renameTarget) return;
+    try {
+      await apiFetch(`/api/presets/${renameTarget.id}`, { method: "PUT", body: { name } });
+      showToast("已重命名");
+      fetchAll();
+    } catch (e) {
+      showToast("重命名失败: " + e.message);
+    }
+    setRenameTarget(null);
+  };
+
   // ── Render ──
 
   return (
@@ -423,8 +449,8 @@ export default function ApiSettings() {
 
             {/* ── Card 3: Parameters ── */}
             <div className="rounded-[24px] bg-white p-5 shadow-sm space-y-5">
-              <SliderField
-                label="温度"
+              <NumberField
+                label="温度 (0-2)"
                 hint="越低越稳定精准，越高越有创造性和随机性"
                 value={temperature}
                 onChange={setTemperature}
@@ -433,8 +459,8 @@ export default function ApiSettings() {
                 step={0.1}
               />
               <div className="h-[1px] bg-gray-100" />
-              <SliderField
-                label="Top P"
+              <NumberField
+                label="Top P (0-1)"
                 value={topP}
                 onChange={setTopP}
                 min={0}
@@ -508,28 +534,22 @@ export default function ApiSettings() {
                     return (
                       <div
                         key={p.id}
-                        onClick={() => loadPreset(p)}
-                        className={`relative cursor-pointer rounded-[24px] bg-white p-5 shadow-sm transition-all active:scale-[0.98] ${
+                        onClick={() => { if (!longPressTriggered.current) loadPreset(p); }}
+                        onTouchStart={(e) => handlePointerDown(e, p)}
+                        onTouchEnd={handlePointerUp}
+                        onTouchMove={handlePointerMove}
+                        onMouseDown={(e) => handlePointerDown(e, p)}
+                        onMouseUp={handlePointerUp}
+                        onMouseLeave={handlePointerUp}
+                        onContextMenu={(e) => e.preventDefault()}
+                        className={`relative cursor-pointer select-none rounded-[24px] bg-white p-5 shadow-sm transition-all active:scale-[0.98] ${
                           isActive ? "ring-2 ring-black" : ""
                         }`}
                       >
-                        {/* Delete button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteTarget(p);
-                          }}
-                          className="absolute right-4 top-4 p-2 text-gray-300 active:text-red-500 transition-colors active:scale-90"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-
-                        <div className="pr-10">
-                          <div className="text-[15px] font-bold truncate">{p.name}</div>
-                          <div className="mt-1 text-xs text-gray-400 truncate">{p.model_name}</div>
-                          <div className="mt-1.5 text-[11px] text-gray-400 font-mono">
-                            T: {p.temperature} | Top-P: {p.top_p} | Max: {p.max_tokens}
-                          </div>
+                        <div className="text-[15px] font-bold truncate">{p.name}</div>
+                        <div className="mt-1 text-xs text-gray-400 truncate">{p.model_name}</div>
+                        <div className="mt-1.5 text-[11px] text-gray-400 font-mono">
+                          T: {p.temperature} | Top-P: {p.top_p} | Max: {p.max_tokens}
                         </div>
                       </div>
                     );
@@ -568,6 +588,55 @@ export default function ApiSettings() {
         message={deleteTarget ? `确定要删除"${deleteTarget.name}"吗？` : ""}
         confirmText="删除"
       />
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div className="fixed inset-0 z-[150]" onClick={() => setContextMenu(null)}>
+          <div
+            className="absolute w-44 rounded-2xl bg-white shadow-2xl shadow-black/15 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            style={{
+              left: Math.min(contextMenu.x, window.innerWidth - 192),
+              top: Math.min(contextMenu.y, window.innerHeight - 120),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => openRename(contextMenu.preset)}
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-[14px] text-black active:bg-[#F5F5F5] transition-colors"
+            >
+              <Pencil size={16} className="text-gray-400" />
+              修改名称
+            </button>
+            <div className="mx-4 h-[0.5px] bg-gray-100" />
+            <button
+              onClick={() => { setDeleteTarget(contextMenu.preset); setContextMenu(null); }}
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-[14px] text-red-500 active:bg-red-50 transition-colors"
+            >
+              <Trash2 size={16} />
+              删除
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Modal */}
+      <Modal
+        isOpen={!!renameTarget}
+        onClose={() => setRenameTarget(null)}
+        title="修改名称"
+        onConfirm={confirmRename}
+        confirmText="保存"
+        isConfirmDisabled={!renameValue.trim()}
+      >
+        <input
+          type="text"
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          placeholder="输入新名称"
+          autoFocus
+          className="w-full rounded-xl bg-[#F5F5F5] px-4 py-3 text-[15px] text-black outline-none placeholder:text-gray-400"
+        />
+      </Modal>
 
       {/* Toast */}
       {toast.show && (

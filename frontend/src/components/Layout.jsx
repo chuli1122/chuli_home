@@ -2,9 +2,10 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { BookText, MessageCircle, Settings, Palette } from "lucide-react";
 import { useEffect, useState } from "react";
 import LayeredBackground from "./LayeredBackground";
+import { loadImageUrl, isExternalUrl } from "../utils/db";
 
 const dockItems = [
-  { label: "Chat", icon: MessageCircle, path: null },
+  { label: "Chat", icon: MessageCircle, path: "/chat/messages" },
   { label: "记忆", icon: BookText, path: null },
   { label: "美化", icon: Palette, path: "/theme" },
   { label: "设置", icon: Settings, path: "/settings" },
@@ -13,7 +14,7 @@ const dockItems = [
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const hideDock = location.pathname === '/countdown' || location.pathname.startsWith('/theme') || location.pathname.startsWith('/settings');
+  const hideDock = location.pathname === '/countdown' || location.pathname.startsWith('/theme') || location.pathname.startsWith('/settings') || location.pathname.startsWith('/chat');
   const isHome = location.pathname === '/';
   const [wallpaper, setWallpaper] = useState(null);
   const [dockStyle, setDockStyle] = useState({ opacity: 30, material: 'glass', color: '#ffffff', backgroundImage: null, iconOpacity: 100 });
@@ -21,16 +22,25 @@ export default function Layout() {
 
   // Reset iOS residual scroll offset on route change
   useEffect(() => {
+    window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
   }, [location.pathname]);
 
   useEffect(() => {
-    const loadSettings = () => {
+    const loadSettings = async () => {
+      // Wallpaper
       try {
         const saved = JSON.parse(localStorage.getItem("active-wallpaper"));
         if (saved && saved.scope === 'all') {
-          setWallpaper(saved.url);
+          if (saved.imageKey) {
+            const url = await loadImageUrl(saved.imageKey);
+            setWallpaper(url);
+          } else if (saved.url) {
+            setWallpaper(saved.url);
+          } else {
+            setWallpaper(null);
+          }
         } else {
           setWallpaper(null);
         }
@@ -38,18 +48,34 @@ export default function Layout() {
         console.error("Failed to load wallpaper", e);
       }
 
+      // Dock style
       try {
         const savedStyles = JSON.parse(localStorage.getItem("component-styles"));
         if (savedStyles && savedStyles.dock) {
-          setDockStyle(savedStyles.dock);
+          const dock = { ...savedStyles.dock };
+          if (dock.backgroundImage && !isExternalUrl(dock.backgroundImage)) {
+            const url = await loadImageUrl(dock.backgroundImage);
+            dock.backgroundImage = url;
+          }
+          setDockStyle(dock);
         }
       } catch (e) {
         console.error("Failed to load dock style", e);
       }
-      
+
+      // Custom icons
       try {
         const savedIcons = JSON.parse(localStorage.getItem("custom-icons") || "{}");
-        setCustomIcons(savedIcons);
+        const resolved = {};
+        for (const [id, value] of Object.entries(savedIcons)) {
+          if (isExternalUrl(value)) {
+            resolved[id] = value;
+          } else if (value) {
+            const blobUrl = await loadImageUrl(value);
+            if (blobUrl) resolved[id] = blobUrl;
+          }
+        }
+        setCustomIcons(resolved);
       } catch (e) {
         console.error("Failed to load custom icons", e);
       }
@@ -60,7 +86,7 @@ export default function Layout() {
     window.addEventListener('storage', loadSettings);
     window.addEventListener('component-style-updated', loadSettings);
     window.addEventListener('custom-icons-updated', loadSettings);
-    
+
     return () => {
       window.removeEventListener('storage', loadSettings);
       window.removeEventListener('component-style-updated', loadSettings);
@@ -68,36 +94,47 @@ export default function Layout() {
     };
   }, []);
 
+  // Reload wallpaper on route change
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("active-wallpaper"));
-      if (saved && saved.scope === 'all') {
-        setWallpaper(saved.url);
-      } else {
-        setWallpaper(null);
-      }
-    } catch (e) {}
+    const loadWallpaper = async () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem("active-wallpaper"));
+        if (saved && saved.scope === 'all') {
+          if (saved.imageKey) {
+            const url = await loadImageUrl(saved.imageKey);
+            setWallpaper(url);
+          } else if (saved.url) {
+            setWallpaper(saved.url);
+          } else {
+            setWallpaper(null);
+          }
+        } else {
+          setWallpaper(null);
+        }
+      } catch (e) {}
+    };
+    loadWallpaper();
   }, [location]);
 
   return (
-    <div className="fixed inset-0 overflow-hidden text-text">
+    <div className="relative h-screen min-h-[-webkit-fill-available] overflow-hidden text-text">
       {wallpaper && (
-        <div 
+        <div
           className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"
           style={{ backgroundImage: `url(${wallpaper})` }}
         />
       )}
-      
+
       {!wallpaper && (
         <div className="pointer-events-none absolute -bottom-24 -left-16 h-64 w-64 rounded-full bg-white/30 blur-3xl" />
       )}
 
-      <div 
+      <div
         className={`relative z-10 mx-auto h-full w-full ${
-          hideDock 
-            ? 'p-0' 
-            : isHome 
-              ? 'max-w-[420px] pt-[calc(2rem+env(safe-area-inset-top))]' 
+          hideDock
+            ? 'p-0'
+            : isHome
+              ? 'max-w-[420px] pt-[calc(2rem+env(safe-area-inset-top))]'
               : 'max-w-[420px] px-5 pt-[calc(2rem+env(safe-area-inset-top))]'
         }`}
       >
@@ -107,16 +144,15 @@ export default function Layout() {
       {!hideDock && (
         <nav className="fixed bottom-10 left-1/2 z-20 w-[90%] max-w-[380px] -translate-x-1/2 rounded-[36px] px-8 py-4 shadow-2xl shadow-black/10">
           <LayeredBackground style={dockStyle} rounded="rounded-[36px]" />
-          
+
           <div className="relative z-10 flex items-center justify-between">
             {dockItems.map((item) => {
-              // Determine icon ID based on label for custom mapping
               let iconId = '';
               if (item.label === 'Chat') iconId = 'dock_chat';
               if (item.label === '记忆') iconId = 'dock_memory';
               if (item.label === '美化') iconId = 'dock_theme';
               if (item.label === '设置') iconId = 'dock_settings';
-              
+
               const Icon = item.icon;
               const customUrl = customIcons[iconId];
 
@@ -128,18 +164,16 @@ export default function Layout() {
                   className="flex flex-col items-center transition active:scale-95"
                 >
                   <div className="relative h-14 w-14 rounded-[18px] shadow-lg shadow-black/10 overflow-hidden">
-                    {/* Background Layer with Separate Opacity */}
-                    <div 
+                    <div
                       className="absolute inset-0 bg-white/60 backdrop-blur-md transition-opacity duration-300"
                       style={{ opacity: (dockStyle.iconOpacity !== undefined ? dockStyle.iconOpacity : 100) / 100 }}
                     />
-                    
-                    {/* Content Layer */}
+
                     <div className="absolute inset-0 flex items-center justify-center">
                       {customUrl ? (
-                        <img 
-                          src={customUrl} 
-                          alt={item.label} 
+                        <img
+                          src={customUrl}
+                          alt={item.label}
                           className="h-full w-full object-cover transition-opacity duration-300"
                           style={{ opacity: (dockStyle.iconOpacity !== undefined ? dockStyle.iconOpacity : 100) / 100 }}
                         />

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ChevronLeft, User2, Calendar, MessageCircle, BookText, Palette, Settings, MoreHorizontal, Check, Trash2, Image as ImageIcon, Plus, RotateCcw, Heart, Link, ExternalLink, Globe, Book, Clapperboard } from "lucide-react";
 import Modal from "../components/Modal";
 import ConfirmModal from "../components/ConfirmModal";
+import { saveImage, deleteImage, loadImageUrl, isExternalUrl } from "../utils/db";
 
 // Helper Components
 const PresetItem = ({ preset, onSelect, onDelete }) => {
@@ -209,28 +210,28 @@ const PreviewWidget = ({ style, type = 'countdown', countdownData }) => {
                 const days = getDaysLeft(event.date, event.repeatType);
                 const isPast = days < 0;
                 return (
-                  <div key={event.id || index} className={`flex flex-1 flex-col items-center justify-center p-2 ${index === 0 && smallEvents.length > 1 ? 'border-r border-dashed border-black/10' : ''}`}>
-                    <span className="truncate text-[10px] font-medium text-black">{event.title}</span>
-                    <div className="flex items-end gap-0.5 mb-1">
-                      {!isPast && <span className="text-[9px] text-black whitespace-nowrap">还有</span>}
-                      <span className="text-lg font-bold text-black leading-none">{Math.abs(days)}</span>
-                      <span className="text-[9px] text-black whitespace-nowrap">{isPast ? '天前' : '天'}</span>
+                  <div key={event.id || index} className={`flex flex-1 flex-col items-center justify-center px-1 py-0.5 ${index === 0 && smallEvents.length > 1 ? 'border-r border-dashed border-black/10' : ''}`}>
+                    <span className="truncate font-medium text-black" style={{ fontSize: '8px', lineHeight: '1.2' }}>{event.title}</span>
+                    <div className="flex items-end gap-0.5">
+                      {!isPast && <span className="text-black whitespace-nowrap" style={{ fontSize: '7px', lineHeight: '1.2' }}>还有</span>}
+                      <span className="font-bold text-black" style={{ fontSize: '14px', lineHeight: '1' }}>{Math.abs(days)}</span>
+                      <span className="text-black whitespace-nowrap" style={{ fontSize: '7px', lineHeight: '1.2' }}>{isPast ? '天前' : '天'}</span>
                     </div>
                   </div>
                 );
               })}
               {smallEvents.length === 0 && (
                 <>
-                  <div className="flex flex-1 flex-col items-center justify-center p-2 border-r border-dashed border-black/10">
-                    <span className="truncate text-[10px] font-medium text-black">暂无</span>
-                    <div className="flex items-end gap-0.5 mb-1">
-                      <span className="text-lg font-bold text-black leading-none">--</span>
+                  <div className="flex flex-1 flex-col items-center justify-center px-1 py-0.5 border-r border-dashed border-black/10">
+                    <span className="truncate font-medium text-black" style={{ fontSize: '8px', lineHeight: '1.2' }}>暂无</span>
+                    <div className="flex items-end gap-0.5">
+                      <span className="font-bold text-black" style={{ fontSize: '14px', lineHeight: '1' }}>--</span>
                     </div>
                   </div>
-                  <div className="flex flex-1 flex-col items-center justify-center p-2">
-                    <span className="truncate text-[10px] font-medium text-black">暂无</span>
-                    <div className="flex items-end gap-0.5 mb-1">
-                      <span className="text-lg font-bold text-black leading-none">--</span>
+                  <div className="flex flex-1 flex-col items-center justify-center px-1 py-0.5">
+                    <span className="truncate font-medium text-black" style={{ fontSize: '8px', lineHeight: '1.2' }}>暂无</span>
+                    <div className="flex items-end gap-0.5">
+                      <span className="font-bold text-black" style={{ fontSize: '14px', lineHeight: '1' }}>--</span>
                     </div>
                   </div>
                 </>
@@ -455,7 +456,16 @@ export default function ComponentSettings() {
   const [urlModalOpen, setUrlModalOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
   const [customIcons, setCustomIcons] = useState({});
-  
+  const [resolvedBgImages, setResolvedBgImages] = useState({});
+  const [resolvedAvatar, setResolvedAvatar] = useState(null);
+  const [resolvedIcons, setResolvedIcons] = useState({});
+
+  // Helper to get display-ready style (resolved blob URLs for preview)
+  const getDisplayStyle = (tab) => ({
+    ...settings[tab],
+    backgroundImage: resolvedBgImages[tab] || settings[tab]?.backgroundImage || null,
+  });
+
   // Default Settings
   const defaultSettings = {
     profile: { opacity: 40, material: 'glass', color: '#ffffff', backgroundImage: null },
@@ -467,55 +477,101 @@ export default function ComponentSettings() {
   const [settings, setSettings] = useState(defaultSettings);
 
   useEffect(() => {
-    try {
-      const savedSettings = JSON.parse(localStorage.getItem("component-styles"));
-      if (savedSettings) {
-        setSettings(prev => ({
-          profile: { ...prev.profile, ...savedSettings.profile },
-          widget: { ...prev.widget, ...savedSettings.widget },
-          icon: { ...prev.icon, ...savedSettings.icon },
-          dock: { ...prev.dock, ...savedSettings.dock },
-        }));
-      }
-    } catch (e) {
-      console.error("Failed to load settings", e);
-    }
+    const init = async () => {
+      // Load component styles
+      try {
+        const savedSettings = JSON.parse(localStorage.getItem("component-styles"));
+        if (savedSettings) {
+          setSettings(prev => ({
+            profile: { ...prev.profile, ...savedSettings.profile },
+            widget: { ...prev.widget, ...savedSettings.widget },
+            icon: { ...prev.icon, ...savedSettings.icon },
+            dock: { ...prev.dock, ...savedSettings.dock },
+          }));
 
-    const savedPresets = JSON.parse(localStorage.getItem("component-presets") || "[]");
-    setPresets(savedPresets);
-    
-    try {
-      const savedProfile = JSON.parse(localStorage.getItem("user-profile"));
-      if (savedProfile) {
-        setUserProfile(savedProfile);
+          // Resolve background images from IndexedDB
+          const resolved = {};
+          for (const key of ['profile', 'widget', 'icon', 'dock']) {
+            const bg = savedSettings[key]?.backgroundImage;
+            if (bg && isExternalUrl(bg)) {
+              resolved[key] = bg;
+            } else if (bg) {
+              const url = await loadImageUrl(bg);
+              if (url) resolved[key] = url;
+            }
+          }
+          setResolvedBgImages(resolved);
+        }
+      } catch (e) {
+        console.error("Failed to load settings", e);
       }
-    } catch (e) {
-      console.error("Failed to load user profile", e);
-    }
-    
-    try {
-      const savedEvents = JSON.parse(localStorage.getItem("countdown-events") || "[]");
-      if (savedEvents.length > 0) {
-        setCountdownData({
-          main: savedEvents[0],
-          small: savedEvents.slice(1, 3)
-        });
+
+      const savedPresets = JSON.parse(localStorage.getItem("component-presets") || "[]");
+      setPresets(savedPresets);
+
+      // Load user profile + resolve avatar
+      try {
+        const savedProfile = JSON.parse(localStorage.getItem("user-profile"));
+        if (savedProfile) {
+          setUserProfile(savedProfile);
+          if (savedProfile.avatar && !isExternalUrl(savedProfile.avatar)) {
+            const url = await loadImageUrl(savedProfile.avatar);
+            if (url) setResolvedAvatar(url);
+          } else if (savedProfile.avatar) {
+            setResolvedAvatar(savedProfile.avatar);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load user profile", e);
       }
-    } catch (e) {
-      console.error("Failed to load countdown events", e);
-    }
 
-    try {
-      const savedIcons = JSON.parse(localStorage.getItem("custom-icons") || "{}");
-      setCustomIcons(savedIcons);
-    } catch (e) {
-      console.error("Failed to load custom icons", e);
-    }
+      try {
+        const savedEvents = JSON.parse(localStorage.getItem("countdown-events") || "[]");
+        if (savedEvents.length > 0) {
+          setCountdownData({
+            main: savedEvents[0],
+            small: savedEvents.slice(1, 3)
+          });
+        }
+      } catch (e) {
+        console.error("Failed to load countdown events", e);
+      }
 
-    const handleIconsUpdate = () => {
+      // Load custom icons + resolve from IndexedDB
       try {
         const savedIcons = JSON.parse(localStorage.getItem("custom-icons") || "{}");
         setCustomIcons(savedIcons);
+        const resolved = {};
+        for (const [id, value] of Object.entries(savedIcons)) {
+          if (isExternalUrl(value)) {
+            resolved[id] = value;
+          } else if (value) {
+            const url = await loadImageUrl(value);
+            if (url) resolved[id] = url;
+          }
+        }
+        setResolvedIcons(resolved);
+      } catch (e) {
+        console.error("Failed to load custom icons", e);
+      }
+    };
+
+    init();
+
+    const handleIconsUpdate = async () => {
+      try {
+        const savedIcons = JSON.parse(localStorage.getItem("custom-icons") || "{}");
+        setCustomIcons(savedIcons);
+        const resolved = {};
+        for (const [id, value] of Object.entries(savedIcons)) {
+          if (isExternalUrl(value)) {
+            resolved[id] = value;
+          } else if (value) {
+            const url = await loadImageUrl(value);
+            if (url) resolved[id] = url;
+          }
+        }
+        setResolvedIcons(resolved);
       } catch (e) {
         console.error("Failed to load custom icons", e);
       }
@@ -535,24 +591,49 @@ export default function ComponentSettings() {
     setSettings(newSettings);
   };
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      updateSetting('backgroundImage', url);
+      const imageKey = `component_bg_${activeTab}`;
+
+      // Delete previous blob if it was in IndexedDB
+      const prevBg = settings[activeTab]?.backgroundImage;
+      if (prevBg && !isExternalUrl(prevBg)) {
+        await deleteImage(prevBg);
+      }
+
+      await saveImage(imageKey, file);
+      const blobUrl = URL.createObjectURL(file);
+      setResolvedBgImages(prev => ({ ...prev, [activeTab]: blobUrl }));
+      updateSetting('backgroundImage', imageKey);
       e.target.value = null;
     }
   };
 
   const handleUrlSubmit = (url) => {
     if (url) {
+      // Delete previous blob if it was in IndexedDB
+      const prevBg = settings[activeTab]?.backgroundImage;
+      if (prevBg && !isExternalUrl(prevBg)) {
+        deleteImage(prevBg);
+      }
+      setResolvedBgImages(prev => ({ ...prev, [activeTab]: url }));
       updateSetting('backgroundImage', url);
     }
     setUrlModalOpen(false);
     setImageUrl("");
   };
 
-  const clearImage = () => {
+  const clearImage = async () => {
+    const prevBg = settings[activeTab]?.backgroundImage;
+    if (prevBg && !isExternalUrl(prevBg)) {
+      await deleteImage(prevBg);
+    }
+    setResolvedBgImages(prev => {
+      const updated = { ...prev };
+      delete updated[activeTab];
+      return updated;
+    });
     updateSetting('backgroundImage', null);
   };
 
@@ -606,7 +687,7 @@ export default function ComponentSettings() {
     setActiveWidgetPage(page);
   };
 
-  const currentStyle = settings[activeTab];
+  const currentStyle = getDisplayStyle(activeTab);
 
   return (
     <div className="flex h-full flex-col bg-[#F5F5F7] text-black">
@@ -635,7 +716,7 @@ export default function ComponentSettings() {
           <div className="relative z-10 flex h-full flex-col p-4">
             {activeTab === 'profile' && (
               <div className="mt-4 transition-all duration-300 animate-in fade-in slide-in-from-top-4">
-                <PreviewProfileCard style={settings.profile} profile={userProfile} />
+                <PreviewProfileCard style={getDisplayStyle('profile')} profile={{ ...userProfile, avatar: resolvedAvatar }} />
               </div>
             )}
             
@@ -647,17 +728,17 @@ export default function ComponentSettings() {
                 >
                   <div className="snap-center shrink-0 w-full flex justify-center">
                     <div className="w-40 h-40">
-                      <PreviewWidget style={settings.widget} type="countdown" countdownData={countdownData} />
+                      <PreviewWidget style={getDisplayStyle('widget')} type="countdown" countdownData={countdownData} />
                     </div>
                   </div>
                   <div className="snap-center shrink-0 w-full flex justify-center">
                     <div className="w-40 h-40">
-                      <PreviewWidget style={settings.widget} type="placeholder" />
+                      <PreviewWidget style={getDisplayStyle('widget')} type="placeholder" />
                     </div>
                   </div>
                   <div className="snap-center shrink-0 w-full flex justify-center">
                     <div className="w-40 h-40">
-                      <PreviewWidget style={settings.widget} type="placeholder" />
+                      <PreviewWidget style={getDisplayStyle('widget')} type="placeholder" />
                     </div>
                   </div>
                 </div>
@@ -677,13 +758,13 @@ export default function ComponentSettings() {
 
             {activeTab === 'icon' && (
               <div className="flex-1 flex items-center justify-center animate-in fade-in zoom-in duration-300 w-full">
-                <PreviewIcon style={settings.icon} customIcons={customIcons} />
+                <PreviewIcon style={getDisplayStyle('icon')} customIcons={resolvedIcons} />
               </div>
             )}
 
             {activeTab === 'dock' && (
               <div className="mt-auto mb-4 transition-all duration-300 animate-in fade-in slide-in-from-bottom-4">
-                <PreviewDock style={settings.dock} customIcons={customIcons} />
+                <PreviewDock style={getDisplayStyle('dock')} customIcons={resolvedIcons} />
               </div>
             )}
           </div>

@@ -2,46 +2,59 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Plus, Image as ImageIcon, Check, Trash2 } from "lucide-react";
 import ConfirmModal from "../components/ConfirmModal";
+import { saveImage, deleteImage, loadImageUrl } from "../utils/db";
 
 export default function BackgroundSettings() {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
-  
+
   // State
   const [wallpapers, setWallpapers] = useState([]);
+  const [blobUrls, setBlobUrls] = useState({});
   const [selectedId, setSelectedId] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [deleteSelection, setDeleteSelection] = useState(new Set());
-  const [applyScope, setApplyScope] = useState('all'); // 'all' | 'home'
+  const [applyScope, setApplyScope] = useState('all');
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  // Load wallpapers from localStorage on mount
+  // Load wallpapers from localStorage + hydrate from IndexedDB
   useEffect(() => {
     const saved = JSON.parse(localStorage.getItem("user-wallpapers") || "[]");
     setWallpapers(saved);
-    // If there are wallpapers, select the first one by default or the currently active one
-    // For now, just select the first one if available
     if (saved.length > 0) {
       setSelectedId(saved[0].id);
     }
+
+    const hydrate = async () => {
+      const urls = {};
+      for (const wp of saved) {
+        if (wp.imageKey) {
+          const blobUrl = await loadImageUrl(wp.imageKey);
+          if (blobUrl) urls[wp.id] = blobUrl;
+        }
+      }
+      setBlobUrls(urls);
+    };
+    hydrate();
   }, []);
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      const newWallpaper = {
-        id: Date.now(),
-        url: url,
-        createdAt: new Date().toISOString()
-      };
-      
+      const id = Date.now();
+      const imageKey = `wallpaper_${id}`;
+
+      await saveImage(imageKey, file);
+
+      const blobUrl = URL.createObjectURL(file);
+      setBlobUrls(prev => ({ ...prev, [id]: blobUrl }));
+
+      const newWallpaper = { id, imageKey, createdAt: new Date().toISOString() };
       const updated = [newWallpaper, ...wallpapers];
       setWallpapers(updated);
-      setSelectedId(newWallpaper.id);
+      setSelectedId(id);
       localStorage.setItem("user-wallpapers", JSON.stringify(updated));
-      
-      // Reset input
+
       e.target.value = null;
     }
   };
@@ -65,30 +78,38 @@ export default function BackgroundSettings() {
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
+    const toDelete = wallpapers.filter(w => deleteSelection.has(w.id));
     const updated = wallpapers.filter(w => !deleteSelection.has(w.id));
     setWallpapers(updated);
     localStorage.setItem("user-wallpapers", JSON.stringify(updated));
-    
-    // If selected wallpaper was deleted, reset selection
+
+    // Delete blobs from IndexedDB
+    for (const wp of toDelete) {
+      if (wp.imageKey) {
+        await deleteImage(wp.imageKey);
+      }
+    }
+
+    // Clean up blobUrls state
+    setBlobUrls(prev => {
+      const next = { ...prev };
+      for (const wp of toDelete) delete next[wp.id];
+      return next;
+    });
+
     if (deleteSelection.has(selectedId)) {
       setSelectedId(updated.length > 0 ? updated[0].id : null);
     }
-    
-    // Check if we are deleting the active wallpaper
+
+    // Check if active wallpaper was deleted
     try {
       const activeJson = localStorage.getItem("active-wallpaper");
       if (activeJson) {
         const active = JSON.parse(activeJson);
-        // Find if the active wallpaper is in the deletion set
-        // We need to look up the URLs of the deleted items or check IDs
-        // Here we can check if the wallpaper with the active URL is being deleted
-        const activeWallpaperInList = wallpapers.find(w => w.url === active.url);
-        
-        if (activeWallpaperInList && deleteSelection.has(activeWallpaperInList.id)) {
-          // It's being deleted, clear active settings
+        const deletedKeys = new Set(toDelete.map(w => w.imageKey));
+        if (active.imageKey && deletedKeys.has(active.imageKey)) {
           localStorage.removeItem("active-wallpaper");
-          // Dispatch events to notify other components immediately
           window.dispatchEvent(new Event("storage"));
           window.dispatchEvent(new Event("component-style-updated"));
         }
@@ -97,7 +118,6 @@ export default function BackgroundSettings() {
       console.error("Failed to check active wallpaper deletion", e);
     }
 
-    // Don't exit edit mode
     setDeleteSelection(new Set());
     setIsDeleteModalOpen(false);
   };
@@ -106,44 +126,39 @@ export default function BackgroundSettings() {
 
   const showToast = (message) => {
     setToast({ show: true, message });
-    setTimeout(() => setToast({ ...toast, show: false }), 2000);
+    setTimeout(() => setToast({ show: false, message: '' }), 2000);
   };
 
   const handleSave = () => {
     if (!selectedId) return;
     const selectedWallpaper = wallpapers.find(w => w.id === selectedId);
     if (selectedWallpaper) {
-      // Save current wallpaper setting
-      // This would typically update a global context or another localStorage key for the active theme
-      console.log("Applying wallpaper:", selectedWallpaper.url, "Scope:", applyScope);
       localStorage.setItem("active-wallpaper", JSON.stringify({
-        url: selectedWallpaper.url,
+        imageKey: selectedWallpaper.imageKey,
         scope: applyScope
       }));
-      
+
       const message = applyScope === 'home' ? '已应用到主屏幕' : '已应用到全部';
       showToast(message);
-      
+
       setTimeout(() => {
         navigate(-1);
-      }, 1000); // Slight delay to show toast
+      }, 1000);
     }
   };
-
-  const selectedWallpaper = wallpapers.find(w => w.id === selectedId);
 
   return (
     <div className="flex h-full flex-col bg-[#F5F5F7] text-black">
       {/* Header */}
       <div className="flex items-center justify-between px-6 pb-4 pt-[calc(1.5rem+env(safe-area-inset-top))]">
-        <button 
+        <button
           onClick={() => navigate("/theme", { replace: true })}
           className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm active:scale-95 transition"
         >
           <ChevronLeft size={24} />
         </button>
         <h1 className="absolute left-1/2 -translate-x-1/2 text-lg font-bold">背景设置</h1>
-        <button 
+        <button
           onClick={toggleEditMode}
           className={`flex h-10 px-4 items-center justify-center rounded-full text-[15px] font-medium transition active:scale-95 ${
             isEditing ? 'bg-black text-white' : 'bg-white text-black shadow-sm'
@@ -155,14 +170,14 @@ export default function BackgroundSettings() {
 
       {/* Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        
+
         {/* Preview Area (Top) */}
         <div className="flex-1 flex items-center justify-center p-6 min-h-0">
           <div className="relative aspect-[9/19.5] h-full overflow-hidden rounded-[24px] border-[4px] border-black bg-white shadow-2xl">
-            {selectedWallpaper ? (
-              <img 
-                src={selectedWallpaper.url} 
-                alt="Preview" 
+            {blobUrls[selectedId] ? (
+              <img
+                src={blobUrls[selectedId]}
+                alt="Preview"
                 className="h-full w-full object-cover"
               />
             ) : (
@@ -176,7 +191,7 @@ export default function BackgroundSettings() {
 
         {/* Controls Area (Bottom) */}
         <div className="bg-white rounded-t-[32px] shadow-[0_-4px_20px_rgba(0,0,0,0.05)] pb-10">
-          
+
           {/* Scope Selection */}
           {!isEditing && (
             <div className="px-6 pt-6 pb-4">
@@ -184,8 +199,8 @@ export default function BackgroundSettings() {
                 <button
                   onClick={() => setApplyScope('all')}
                   className={`flex-1 py-2.5 text-[13px] font-medium rounded-xl transition-all ${
-                    applyScope === 'all' 
-                      ? 'bg-white text-black shadow-sm' 
+                    applyScope === 'all'
+                      ? 'bg-white text-black shadow-sm'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
@@ -194,8 +209,8 @@ export default function BackgroundSettings() {
                 <button
                   onClick={() => setApplyScope('home')}
                   className={`flex-1 py-2.5 text-[13px] font-medium rounded-xl transition-all ${
-                    applyScope === 'home' 
-                      ? 'bg-white text-black shadow-sm' 
+                    applyScope === 'home'
+                      ? 'bg-white text-black shadow-sm'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
@@ -210,14 +225,14 @@ export default function BackgroundSettings() {
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x p-1">
               {/* Upload Button */}
               {!isEditing && (
-                <button 
+                <button
                   onClick={() => fileInputRef.current?.click()}
                   className="flex-shrink-0 snap-start aspect-[9/19.5] w-[calc((100%-48px)/5)] flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 text-gray-400 transition active:scale-95 hover:bg-gray-100 hover:border-gray-300"
                 >
                   <Plus size={20} className="mb-1" />
                   <span className="text-[9px] font-medium">上传</span>
-                  <input 
-                    type="file" 
+                  <input
+                    type="file"
                     ref={fileInputRef}
                     onChange={handleFileChange}
                     accept="image/*"
@@ -230,22 +245,29 @@ export default function BackgroundSettings() {
               {wallpapers.map((wp) => {
                 const isSelected = selectedId === wp.id;
                 const isMarkedForDeletion = deleteSelection.has(wp.id);
-                
+                const src = blobUrls[wp.id];
+
                 return (
                   <button
                     key={wp.id}
                     onClick={() => handleWallpaperClick(wp.id)}
                     className={`relative flex-shrink-0 snap-start aspect-[9/19.5] w-[calc((100%-48px)/5)] overflow-hidden rounded-xl transition-all active:scale-95 ${
-                      isEditing 
+                      isEditing
                         ? (isMarkedForDeletion ? 'ring-2 ring-red-500 opacity-80' : 'opacity-100')
                         : (isSelected ? 'ring-2 ring-black ring-offset-2' : '')
                     }`}
                   >
-                    <img 
-                      src={wp.url} 
-                      alt="Wallpaper" 
-                      className="h-full w-full object-cover"
-                    />
+                    {src ? (
+                      <img
+                        src={src}
+                        alt="Wallpaper"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-gray-200 flex items-center justify-center">
+                        <ImageIcon size={16} className="text-gray-400" />
+                      </div>
+                    )}
                     {isEditing && isMarkedForDeletion && (
                       <div className="absolute inset-0 flex items-center justify-center bg-red-500/20">
                         <div className="bg-red-500 text-white p-1 rounded-full">

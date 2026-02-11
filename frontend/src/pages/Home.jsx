@@ -23,6 +23,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import VinylWidget from "../components/VinylWidget";
 import CountdownWidget from "../components/CountdownWidget";
 import LayeredBackground from "../components/LayeredBackground";
+import { saveImage, loadImageUrl, isExternalUrl } from "../utils/db";
 
 // --- Icons ---
 
@@ -663,9 +664,10 @@ const CloudWidget = () => {
 const ProfileCard = ({ style }) => {
   const [nickname, setNickname] = useState("");
   const [bio, setBio] = useState("");
-  const [avatar, setAvatar] = useState(null);
+  const [avatarKey, setAvatarKey] = useState(null);
+  const [avatarUrl, setAvatarUrl] = useState(null);
   const fileInputRef = useRef(null);
-  
+
   const [editState, setEditState] = useState({ type: null, isOpen: false });
 
   // Load profile from localStorage on mount
@@ -675,7 +677,16 @@ const ProfileCard = ({ style }) => {
       if (savedProfile) {
         if (savedProfile.nickname) setNickname(savedProfile.nickname);
         if (savedProfile.bio) setBio(savedProfile.bio);
-        if (savedProfile.avatar) setAvatar(savedProfile.avatar);
+        if (savedProfile.avatar) {
+          setAvatarKey(savedProfile.avatar);
+          if (isExternalUrl(savedProfile.avatar)) {
+            setAvatarUrl(savedProfile.avatar);
+          } else {
+            loadImageUrl(savedProfile.avatar).then(url => {
+              if (url) setAvatarUrl(url);
+            });
+          }
+        }
       }
     } catch (e) {
       console.error("Failed to load user profile", e);
@@ -687,10 +698,9 @@ const ProfileCard = ({ style }) => {
     const currentProfile = {
       nickname: updates.nickname !== undefined ? updates.nickname : nickname,
       bio: updates.bio !== undefined ? updates.bio : bio,
-      avatar: updates.avatar !== undefined ? updates.avatar : avatar,
+      avatar: updates.avatar !== undefined ? updates.avatar : avatarKey,
     };
     localStorage.setItem("user-profile", JSON.stringify(currentProfile));
-    // Dispatch storage event for other components (like settings preview) to update
     window.dispatchEvent(new Event("storage"));
   };
 
@@ -710,12 +720,15 @@ const ProfileCard = ({ style }) => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setAvatar(url);
-      saveProfile({ avatar: url });
+      const imageKey = "avatar";
+      await saveImage(imageKey, file);
+      const blobUrl = URL.createObjectURL(file);
+      setAvatarKey(imageKey);
+      setAvatarUrl(blobUrl);
+      saveProfile({ avatar: imageKey });
     }
   };
 
@@ -740,8 +753,8 @@ const ProfileCard = ({ style }) => {
             className="relative mx-auto flex h-[88px] w-[88px] items-center justify-center rounded-full bg-gray-50 text-black shadow-sm border-4 border-white transition active:scale-95 overflow-hidden"
             aria-label="Edit avatar"
           >
-            {avatar ? (
-              <img src={avatar} alt="Avatar" className="h-full w-full object-cover" />
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
             ) : (
               <User2 size={32} className="text-gray-400" />
             )}
@@ -874,12 +887,19 @@ export default function Home() {
   const [customIcons, setCustomIcons] = useState({});
 
   useEffect(() => {
-    const loadSettings = () => {
+    const loadSettings = async () => {
       // Load Wallpaper
       try {
         const savedWallpaper = JSON.parse(localStorage.getItem("active-wallpaper"));
         if (savedWallpaper && savedWallpaper.scope === 'home') {
-          setWallpaper(savedWallpaper.url);
+          if (savedWallpaper.imageKey) {
+            const url = await loadImageUrl(savedWallpaper.imageKey);
+            setWallpaper(url);
+          } else if (savedWallpaper.url) {
+            setWallpaper(savedWallpaper.url);
+          } else {
+            setWallpaper(null);
+          }
         } else {
           setWallpaper(null);
         }
@@ -887,33 +907,47 @@ export default function Home() {
         console.error("Failed to load wallpaper", e);
       }
 
-      // Load Component Styles (for subsequent updates)
+      // Load Component Styles (resolve backgroundImages from IndexedDB)
       try {
         const savedStyles = JSON.parse(localStorage.getItem("component-styles"));
         if (savedStyles) {
-          // Logic duplicated from init just in case of external updates
-          // We can just set it here as initialization already handled migration logic
-          setStyles(savedStyles);
+          const resolved = { ...savedStyles };
+          for (const key of ['profile', 'widget', 'icon', 'dock']) {
+            if (resolved[key]?.backgroundImage && !isExternalUrl(resolved[key].backgroundImage)) {
+              const url = await loadImageUrl(resolved[key].backgroundImage);
+              if (url) resolved[key] = { ...resolved[key], backgroundImage: url };
+            }
+          }
+          setStyles(resolved);
         }
       } catch (e) {
         console.error("Failed to load component styles", e);
       }
-      
+
+      // Load Custom Icons (resolve IndexedDB keys)
       try {
         const savedIcons = JSON.parse(localStorage.getItem("custom-icons") || "{}");
-        setCustomIcons(savedIcons);
+        const resolved = {};
+        for (const [id, value] of Object.entries(savedIcons)) {
+          if (isExternalUrl(value)) {
+            resolved[id] = value;
+          } else if (value) {
+            const blobUrl = await loadImageUrl(value);
+            if (blobUrl) resolved[id] = blobUrl;
+          }
+        }
+        setCustomIcons(resolved);
       } catch (e) {
         console.error("Failed to load custom icons", e);
       }
     };
 
-    // Initial load for wallpaper (since it's not in state initializer)
     loadSettings();
-    
+
     window.addEventListener('storage', loadSettings);
     window.addEventListener('component-style-updated', loadSettings);
     window.addEventListener('custom-icons-updated', loadSettings);
-    
+
     const handleVisibilityChange = () => {
       if (!document.hidden) loadSettings();
     };

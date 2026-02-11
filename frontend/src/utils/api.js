@@ -60,3 +60,56 @@ export async function apiFetch(path, options = {}) {
   console.log(`[api] Success for ${path}:`, data);
   return data;
 }
+
+export async function apiSSE(path, body, onChunk, onDone) {
+  let token = await ensureToken();
+  const url = `${API_BASE}${path}`;
+
+  const doFetch = (t) =>
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${t}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+  let res = await doFetch(token);
+  if (res.status === 401) {
+    localStorage.removeItem("whisper_token");
+    token = await ensureToken();
+    res = await doFetch(token);
+  }
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || `请求失败 (${res.status})`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith("data: ")) continue;
+      const payload = trimmed.slice(6);
+      if (payload === "[DONE]") {
+        onDone && onDone();
+        return;
+      }
+      try {
+        const parsed = JSON.parse(payload);
+        onChunk && onChunk(parsed);
+      } catch {}
+    }
+  }
+  onDone && onDone();
+  return { abortReader: () => reader.cancel() };
+}

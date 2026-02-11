@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Upload, Link, RotateCcw, Image as ImageIcon, MessageCircle, BookText, Palette, Settings, Heart, Globe, Book, Clapperboard, Plus, ExternalLink } from "lucide-react";
 import Modal from "../components/Modal";
+import { saveImage, deleteImage, loadImageUrl, isExternalUrl } from "../utils/db";
 
 // Icon Definitions map
 const iconMap = [
@@ -20,18 +21,33 @@ const iconMap = [
 export default function IconSettings() {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
-  const [customIcons, setCustomIcons] = useState({});
-  const [editingIcon, setEditingIcon] = useState(null); // { id, label }
+  const [customIcons, setCustomIcons] = useState({}); // stores keys/URLs in localStorage
+  const [displayUrls, setDisplayUrls] = useState({}); // resolved blob URLs for display
+  const [editingIcon, setEditingIcon] = useState(null);
   const [urlModalOpen, setUrlModalOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("custom-icons") || "{}");
-      setCustomIcons(saved);
-    } catch (e) {
-      console.error("Failed to load custom icons", e);
-    }
+    const load = async () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem("custom-icons") || "{}");
+        setCustomIcons(saved);
+
+        const resolved = {};
+        for (const [id, value] of Object.entries(saved)) {
+          if (isExternalUrl(value)) {
+            resolved[id] = value;
+          } else if (value) {
+            const blobUrl = await loadImageUrl(value);
+            if (blobUrl) resolved[id] = blobUrl;
+          }
+        }
+        setDisplayUrls(resolved);
+      } catch (e) {
+        console.error("Failed to load custom icons", e);
+      }
+    };
+    load();
   }, []);
 
   const saveIcons = (newIcons) => {
@@ -40,11 +56,23 @@ export default function IconSettings() {
     window.dispatchEvent(new Event("custom-icons-updated"));
   };
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file && editingIcon) {
-      const url = URL.createObjectURL(file);
-      const newIcons = { ...customIcons, [editingIcon.id]: url };
+      const imageKey = `icon_${editingIcon.id}`;
+
+      // Delete previous blob if exists
+      const prevValue = customIcons[editingIcon.id];
+      if (prevValue && !isExternalUrl(prevValue)) {
+        await deleteImage(prevValue);
+      }
+
+      await saveImage(imageKey, file);
+
+      const blobUrl = URL.createObjectURL(file);
+      setDisplayUrls(prev => ({ ...prev, [editingIcon.id]: blobUrl }));
+
+      const newIcons = { ...customIcons, [editingIcon.id]: imageKey };
       saveIcons(newIcons);
       setEditingIcon(null);
       e.target.value = null;
@@ -53,19 +81,35 @@ export default function IconSettings() {
 
   const handleUrlSubmit = () => {
     if (imageUrl && editingIcon) {
+      // Delete previous blob if it was in IndexedDB
+      const prevValue = customIcons[editingIcon.id];
+      if (prevValue && !isExternalUrl(prevValue)) {
+        deleteImage(prevValue);
+      }
+
       const newIcons = { ...customIcons, [editingIcon.id]: imageUrl };
       saveIcons(newIcons);
+      setDisplayUrls(prev => ({ ...prev, [editingIcon.id]: imageUrl }));
       setUrlModalOpen(false);
       setImageUrl("");
       setEditingIcon(null);
     }
   };
 
-  const handleResetIcon = (id, e) => {
+  const handleResetIcon = async (id, e) => {
     e.stopPropagation();
+    const prevValue = customIcons[id];
+    if (prevValue && !isExternalUrl(prevValue)) {
+      await deleteImage(prevValue);
+    }
     const newIcons = { ...customIcons };
     delete newIcons[id];
     saveIcons(newIcons);
+    setDisplayUrls(prev => {
+      const updated = { ...prev };
+      delete updated[id];
+      return updated;
+    });
   };
 
   const openEdit = (icon) => {
@@ -83,7 +127,7 @@ export default function IconSettings() {
     <div className="flex h-full flex-col bg-[#F5F5F7] text-black">
       {/* Header */}
       <div className="flex items-center justify-between px-6 pb-4 pt-[calc(1.5rem+env(safe-area-inset-top))]">
-        <button 
+        <button
           onClick={() => navigate("/theme", { replace: true })}
           className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm active:scale-95 transition"
         >
@@ -101,11 +145,11 @@ export default function IconSettings() {
             <div className="grid grid-cols-4 gap-4">
               {icons.map((icon) => {
                 const DefaultIcon = icon.defaultIcon;
-                const customUrl = customIcons[icon.id];
-                
+                const customUrl = displayUrls[icon.id];
+
                 return (
                   <div key={icon.id} className="flex flex-col items-center gap-2">
-                    <button 
+                    <button
                       onClick={() => openEdit(icon)}
                       className="relative flex h-16 w-16 items-center justify-center rounded-[20px] bg-white shadow-sm transition active:scale-95 overflow-hidden group"
                     >
@@ -116,7 +160,7 @@ export default function IconSettings() {
                       )}
 
                       {customUrl && (
-                        <div 
+                        <div
                           onClick={(e) => handleResetIcon(icon.id, e)}
                           className="absolute bottom-0 right-0 p-1 bg-white/80 backdrop-blur-sm rounded-tl-lg cursor-pointer hover:text-red-500"
                         >
@@ -137,17 +181,17 @@ export default function IconSettings() {
 
       {/* Edit Modal / Bottom Sheet */}
       {editingIcon && (
-        <div 
+        <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/20 backdrop-blur-sm"
           onClick={() => setEditingIcon(null)}
         >
-          <div 
+          <div
             className="w-full max-w-[420px] rounded-t-[32px] bg-white p-6 shadow-2xl animate-in slide-in-from-bottom duration-200"
             onClick={e => e.stopPropagation()}
           >
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-lg font-bold">更换图标</h3>
-              <button 
+              <button
                 onClick={() => setEditingIcon(null)}
                 className="rounded-full bg-gray-100 p-2 text-gray-500"
               >
@@ -157,8 +201,8 @@ export default function IconSettings() {
 
             <div className="flex items-center gap-4 mb-8">
               <div className="flex h-20 w-20 items-center justify-center rounded-[24px] bg-gray-50 border border-gray-100 overflow-hidden shadow-inner">
-                {customIcons[editingIcon.id] ? (
-                  <img src={customIcons[editingIcon.id]} alt="Preview" className="h-full w-full object-cover" />
+                {displayUrls[editingIcon.id] ? (
+                  <img src={displayUrls[editingIcon.id]} alt="Preview" className="h-full w-full object-cover" />
                 ) : (
                   <editingIcon.defaultIcon size={32} className="text-gray-400" />
                 )}
@@ -170,7 +214,7 @@ export default function IconSettings() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <button 
+              <button
                 onClick={() => fileInputRef.current?.click()}
                 className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-gray-50 py-6 active:bg-gray-100 transition"
               >
@@ -178,16 +222,16 @@ export default function IconSettings() {
                   <ImageIcon size={20} />
                 </div>
                 <span className="text-sm font-medium">相册上传</span>
-                <input 
-                  type="file" 
+                <input
+                  type="file"
                   ref={fileInputRef}
                   onChange={handleImageUpload}
                   accept="image/*"
-                  className="hidden" 
+                  className="hidden"
                 />
               </button>
 
-              <button 
+              <button
                 onClick={() => setUrlModalOpen(true)}
                 className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-gray-50 py-6 active:bg-gray-100 transition"
               >
@@ -197,8 +241,8 @@ export default function IconSettings() {
                 <span className="text-sm font-medium">输入链接</span>
               </button>
             </div>
-            
-            {customIcons[editingIcon.id] && (
+
+            {displayUrls[editingIcon.id] && (
               <button
                 onClick={(e) => {
                   handleResetIcon(editingIcon.id, e);

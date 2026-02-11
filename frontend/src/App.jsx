@@ -9,27 +9,44 @@ import IconSettings from "./pages/IconSettings";
 import FontSettings from "./pages/FontSettings";
 import AppSettings from "./pages/AppSettings";
 import ApiSettings from "./pages/ApiSettings";
+import ChatLayout from "./pages/chat/ChatLayout";
+import MessageList from "./pages/chat/MessageList";
+import Contacts from "./pages/chat/Contacts";
+import AboutMe from "./pages/chat/AboutMe";
+import AssistantEdit from "./pages/chat/AssistantEdit";
+import ChatSession from "./pages/chat/ChatSession";
 import { useEffect } from "react";
-import { getAllFonts } from "./utils/db";
+import { getAllFonts, loadImageUrl } from "./utils/db";
 
 // Component to handle global style injection
 const GlobalStyleInjector = () => {
   useEffect(() => {
     // 1. Wallpaper
-    try {
-      const saved = JSON.parse(localStorage.getItem("active-wallpaper"));
-      if (saved && saved.scope === 'global') {
-        const root = document.getElementById('root');
-        if (root) {
-          root.style.backgroundImage = `url(${saved.url})`;
-          root.style.backgroundSize = 'cover';
-          root.style.backgroundPosition = 'center';
-          root.style.backgroundRepeat = 'no-repeat';
+    const loadWallpaper = async () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem("active-wallpaper"));
+        if (saved && saved.scope === 'global') {
+          let url = null;
+          if (saved.imageKey) {
+            url = await loadImageUrl(saved.imageKey);
+          } else if (saved.url) {
+            url = saved.url;
+          }
+          if (url) {
+            const root = document.getElementById('root');
+            if (root) {
+              root.style.backgroundImage = `url(${url})`;
+              root.style.backgroundSize = 'cover';
+              root.style.backgroundPosition = 'center';
+              root.style.backgroundRepeat = 'no-repeat';
+            }
+          }
         }
+      } catch (e) {
+        console.error("Failed to load wallpaper", e);
       }
-    } catch (e) {
-      console.error("Failed to load wallpaper", e);
-    }
+    };
+    loadWallpaper();
 
     // 2. Fonts
     const loadFontSettings = async () => {
@@ -110,6 +127,14 @@ export default function App() {
           <Route path="/settings" element={<AppSettings />} />
           <Route path="/settings/api" element={<ApiSettings />} />
           <Route path="/countdown" element={<Countdown />} />
+          <Route path="/chat" element={<ChatLayout />}>
+            <Route index element={<Navigate to="/chat/messages" replace />} />
+            <Route path="messages" element={<MessageList />} />
+            <Route path="contacts" element={<Contacts />} />
+            <Route path="me" element={<AboutMe />} />
+            <Route path="assistant/:id" element={<AssistantEdit />} />
+            <Route path="session/:id" element={<ChatSession />} />
+          </Route>
           {/* Redirect unknown routes to home */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

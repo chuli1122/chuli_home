@@ -29,6 +29,7 @@ class ChatSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     assistant_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("assistants.id"))
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    assistant_ids: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True)
     type: Mapped[str] = mapped_column(String(32), nullable=False, default="chat")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
@@ -160,8 +161,10 @@ class Assistant(Base):
     model_preset_id: Mapped[int] = mapped_column(Integer, ForeignKey("model_presets.id"), index=True)
     summary_model_preset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("model_presets.id"), nullable=True, index=True)
     summary_fallback_preset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("model_presets.id"), nullable=True, index=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     rule_set_ids: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class UserProfile(Base):

@@ -838,6 +838,314 @@ class ChatService:
                 )
         return messages
 
+    def _build_api_call_params(
+        self, messages: list[dict[str, Any]], session_id: int
+    ) -> tuple | None:
+        """Build all params needed for an API call.
+        Returns (client, model_name, api_messages, tools) or None.
+        Side effects: updates self._trimmed_messages and self._trimmed_message_ids.
+        """
+        self._trimmed_messages = []
+        self._trimmed_message_ids = []
+        user_profile = self.db.query(UserProfile).first()
+        user_info = user_profile.basic_info if user_profile else ""
+        session = self.db.get(ChatSession, session_id)
+        if session and session.assistant_id:
+            assistant = self.db.get(Assistant, session.assistant_id)
+        else:
+            assistant = self.db.query(Assistant).first()
+        if not assistant:
+            return None
+        model_preset = self.db.get(ModelPreset, assistant.model_preset_id)
+        if not model_preset:
+            return None
+        api_provider = self.db.get(ApiProvider, model_preset.api_provider_id)
+        if not api_provider:
+            return None
+        latest_user_message = next(
+            (m.get("content") for m in reversed(messages) if m.get("role") == "user"),
+            None,
+        )
+        base_system_prompt = assistant.system_prompt
+        summaries_desc = (
+            self.db.query(SessionSummary)
+            .filter(SessionSummary.assistant_id == assistant.id)
+            .order_by(SessionSummary.created_at.desc())
+            .all()
+        )
+        summary_budget_tokens = 2000
+        used_summary_tokens = 0
+        selected_summaries_desc: list[SessionSummary] = []
+        latest_mood_tag = None
+        for summary in summaries_desc:
+            if latest_mood_tag is None and summary.mood_tag:
+                latest_mood_tag = summary.mood_tag
+            summary_content = (summary.summary_content or "").strip()
+            if not summary_content:
+                continue
+            summary_tokens = self._estimate_tokens(summary_content)
+            if used_summary_tokens + summary_tokens > summary_budget_tokens:
+                break
+            selected_summaries_desc.append(summary)
+            used_summary_tokens += summary_tokens
+        prompt_parts: list[str] = []
+        if selected_summaries_desc:
+            summary_text = "[Historical conversation summaries]\n"
+            for s in reversed(selected_summaries_desc):
+                summary_text += f"- {s.summary_content}\n"
+            prompt_parts.append(summary_text.rstrip())
+        if latest_mood_tag:
+            prompt_parts.append(f"[User recent mood: {latest_mood_tag}]")
+        world_books_service = WorldBooksService(self.db)
+        active_books = world_books_service.get_active_books(
+            assistant.id, latest_user_message, latest_mood_tag
+        )
+        before_books_text = "\n\n".join(
+            c.strip() for c in active_books.get("before", []) if c and c.strip()
+        )
+        after_books_text = "\n\n".join(
+            c.strip() for c in active_books.get("after", []) if c and c.strip()
+        )
+        if before_books_text:
+            prompt_parts.append(before_books_text)
+        prompt_parts.append(base_system_prompt)
+        if after_books_text:
+            prompt_parts.append(after_books_text)
+        full_system_prompt = "\n\n".join(part for part in prompt_parts if part)
+        if user_info and user_info.strip():
+            full_system_prompt += f"\n\n[About the user - basic info]\n{user_info.strip()}"
+        core_blocks_service = CoreBlocksService(self.db)
+        core_blocks_text = core_blocks_service.get_blocks_for_prompt(assistant.id)
+        if core_blocks_text:
+            full_system_prompt += "\n\n" + core_blocks_text
+        if latest_user_message:
+            recall_results = self.memory_service.fast_recall(
+                latest_user_message, limit=5, current_mood_tag=latest_mood_tag
+            )
+            if recall_results:
+                recall_text = (
+                    "\n\n[The following are related memories automatically retrieved based on this conversation. "
+                    "Usually no need to call search_memory again]\n"
+                )
+                for mem in recall_results:
+                    source = mem.get("source", "unknown")
+                    recall_text += f"- [{mem['created_at']}] {mem['content']} (source: {source})\n"
+                recall_text += "[If above memories are insufficient, you can use search_memory or search_chat_history to supplement]\n"
+                full_system_prompt += recall_text
+        save_memory_description = (
+            "Actively store long-term useful information. Use content for memory text and klass for category: identity, relationship, bond, conflict, fact, preference, health, task, ephemeral, other."
+            "Timestamp is added by backend automatically. Save when you detect preferences, important facts, or emotional milestones."
+        )
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "save_memory",
+                    "description": save_memory_description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "content": {"type": "string"},
+                            "tags": {"type": "object"},
+                            "klass": {
+                                "type": "string",
+                                "description": "Memory class for weighting: identity, relationship, bond, conflict, fact, preference, health, task, ephemeral, other.",
+                                "enum": ["identity", "relationship", "bond", "conflict", "fact", "preference", "health", "task", "ephemeral", "other"],
+                            },
+                        },
+                        "required": ["content"],
+                    },
+                },
+            },
+            {"type": "function", "function": {"name": "update_memory", "description": "Update an existing memory.", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}, "content": {"type": "string"}, "tags": {"type": "object"}}, "required": ["id"]}}},
+            {"type": "function", "function": {"name": "delete_memory", "description": "Delete a memory.", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
+            {"type": "function", "function": {"name": "write_diary", "description": "Use this to write a private diary entry or a message for the user to read later. This is an Exchange Diary for expressing deep feelings, inner thoughts, or love that isn't a direct chat reply.", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "content": {"type": "string"}, "is_read": {"type": "boolean"}}}}},
+            {"type": "function", "function": {"name": "search_memory", "description": "Search memories and summaries. Returns memory cards (type=memory) and summary records (type=summary). Summary items include msg_id_start and msg_id_end. Supports start_time/end_time filtering.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "source": {"type": "string"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}}}}},
+            {"type": "function", "function": {"name": "search_chat_history", "description": "Search chat history. Mode 1: keyword query. Mode 2: ID-range query with msg_id_start and msg_id_end.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "session_id": {"type": "integer"}, "msg_id_start": {"type": "integer"}, "msg_id_end": {"type": "integer"}}}}},
+            {"type": "function", "function": {"name": "search_theater", "description": "Search theater story summaries.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}},
+        ]
+        # Client setup
+        base_url = api_provider.base_url
+        if base_url.endswith("/chat/completions"):
+            base_url = base_url[: -len("/chat/completions")]
+            if not base_url.endswith("/v1"):
+                base_url = f"{base_url.rstrip('/')}/v1"
+        client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
+        # Token trimming
+        retain_budget = self.dialogue_retain_budget
+        trigger_threshold = self.dialogue_trigger_threshold
+        dialogue_token_total = 0
+        for message in messages:
+            if message.get("role") in ("user", "assistant"):
+                dialogue_token_total += self._estimate_tokens(message.get("content", "") or "")
+        message_index = 0
+        if dialogue_token_total > trigger_threshold:
+            while dialogue_token_total > retain_budget and message_index < len(messages):
+                role = messages[message_index].get("role")
+                if role in ("user", "assistant"):
+                    trimmed_message = messages.pop(message_index)
+                    dialogue_token_total -= self._estimate_tokens(trimmed_message.get("content", "") or "")
+                    self._trimmed_messages.append(trimmed_message)
+                    trimmed_id = trimmed_message.get("id")
+                    if isinstance(trimmed_id, int):
+                        self._trimmed_message_ids.append(trimmed_id)
+                    if role == "assistant":
+                        while message_index < len(messages):
+                            next_msg = messages[message_index]
+                            if next_msg.get("role") != "tool":
+                                break
+                            trimmed_tool = messages.pop(message_index)
+                            self._trimmed_messages.append(trimmed_tool)
+                            trimmed_tool_id = trimmed_tool.get("id")
+                            if isinstance(trimmed_tool_id, int):
+                                self._trimmed_message_ids.append(trimmed_tool_id)
+                    continue
+                message_index += 1
+        # Format api_messages
+        api_messages = []
+        for message in messages:
+            role = message.get("role")
+            content = message.get("content")
+            if role == "system":
+                content = full_system_prompt
+            elif role == "user" and content is not None:
+                msg_time = message.get("created_at")
+                if msg_time:
+                    timestamp = msg_time if isinstance(msg_time, str) else msg_time.strftime("%Y.%m.%d %H:%M")
+                else:
+                    timestamp = datetime.now(timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
+                content = f"[{timestamp}] {content}"
+            elif role == "assistant" and content is not None:
+                msg_time = message.get("created_at")
+                if msg_time:
+                    timestamp = msg_time if isinstance(msg_time, str) else msg_time.strftime("%Y.%m.%d %H:%M")
+                    content = f"[{timestamp}] {content}"
+            api_message = {"role": role, "content": content}
+            if "name" in message:
+                api_message["name"] = message["name"]
+            if "tool_calls" in message:
+                api_message["tool_calls"] = message["tool_calls"]
+            if "tool_call_id" in message:
+                api_message["tool_call_id"] = message["tool_call_id"]
+            api_messages.append(api_message)
+        return (client, model_preset.model_name, api_messages, tools)
+
+    def stream_chat_completion(
+        self,
+        session_id: int,
+        messages: list[dict[str, Any]],
+        background_tasks: BackgroundTasks | None = None,
+    ) -> Iterable[str]:
+        """Streaming chat completion. Yields SSE events."""
+        if messages:
+            last_message = messages[-1]
+            if last_message.get("role") == "user":
+                self._persist_message(
+                    session_id, "user", last_message.get("content", ""), {}
+                )
+        all_trimmed_message_ids: list[int] = []
+        while True:
+            params = self._build_api_call_params(messages, session_id)
+            if params is None:
+                yield 'data: [DONE]\n\n'
+                return
+            client, model_name, api_messages, tools = params
+            all_trimmed_message_ids.extend(self._trimmed_message_ids)
+            try:
+                stream = client.chat.completions.create(
+                    model=model_name,
+                    messages=api_messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    stream=True,
+                )
+            except Exception as e:
+                logger.error(f"Streaming request failed: {e}")
+                yield f'data: {json.dumps({"error": str(e)})}\n\n'
+                yield 'data: [DONE]\n\n'
+                return
+            content_chunks: list[str] = []
+            tool_calls_acc: dict[int, dict] = {}
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if getattr(delta, "content", None):
+                    content_chunks.append(delta.content)
+                    yield f'data: {json.dumps({"content": delta.content})}\n\n'
+                if getattr(delta, "tool_calls", None):
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                        if tc_delta.id:
+                            tool_calls_acc[idx]["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                tool_calls_acc[idx]["name"] += tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                tool_calls_acc[idx]["arguments"] += tc_delta.function.arguments
+            if tool_calls_acc:
+                tool_calls_payload = []
+                parsed_tool_calls = []
+                for idx in sorted(tool_calls_acc.keys()):
+                    tc = tool_calls_acc[idx]
+                    tool_calls_payload.append({
+                        "id": tc["id"], "type": "function",
+                        "function": {"name": tc["name"], "arguments": tc["arguments"]},
+                    })
+                    parsed_tool_calls.append(ToolCall(
+                        name=tc["name"],
+                        arguments=json.loads(tc["arguments"] or "{}"),
+                        id=tc["id"],
+                    ))
+                full_content = "".join(content_chunks)
+                messages.append({
+                    "role": "assistant", "content": full_content,
+                    "tool_calls": tool_calls_payload,
+                })
+                self._persist_message(session_id, "assistant", full_content, {"tool_calls": tool_calls_payload})
+                for tc in parsed_tool_calls:
+                    self._persist_tool_call(session_id, tc)
+                    tool_result = self._execute_tool(tc)
+                    messages.append({
+                        "role": "tool", "name": tc.name,
+                        "content": json.dumps(tool_result, ensure_ascii=False),
+                        "tool_call_id": tc.id,
+                    })
+                    self._persist_tool_result(session_id, tc.name, tool_result)
+                continue
+            # Final text response
+            full_content = "".join(content_chunks)
+            used_ids = re.findall(r'\[\[used:(\d+)\]\]', full_content)
+            now_utc = datetime.now(timezone.utc)
+            for memory_id in used_ids:
+                memory = self.db.get(Memory, int(memory_id))
+                if memory:
+                    memory.hits += 1
+                    memory.last_access_ts = now_utc
+            if used_ids:
+                self.db.commit()
+            clean_content = re.sub(r'\[\[used:\d+\]\]', '', full_content).strip()
+            if not clean_content:
+                clean_content = "(No relevant memory found.)"
+            self._persist_message(session_id, "assistant", clean_content, {})
+            session = self.db.get(ChatSession, session_id)
+            if session:
+                session.updated_at = datetime.now(timezone.utc)
+                self.db.commit()
+            if all_trimmed_message_ids and background_tasks:
+                assistant_id = session.assistant_id if session else None
+                if assistant_id:
+                    unique_ids = list(dict.fromkeys(
+                        mid for mid in all_trimmed_message_ids if isinstance(mid, int)
+                    ))
+                    background_tasks.add_task(
+                        self._trigger_summary, session_id, unique_ids, assistant_id,
+                    )
+            yield 'data: [DONE]\n\n'
+            return
+
     def _execute_tool(self, tool_call: ToolCall) -> dict[str, Any]:
         tool_name = tool_call.name
         if tool_name == "save_memory":
