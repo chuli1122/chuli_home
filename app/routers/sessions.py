@@ -23,7 +23,6 @@ VALID_MOOD_TAGS = {
     "flirty",
     "proud",
     "calm",
-    "mixed",
 }
 
 

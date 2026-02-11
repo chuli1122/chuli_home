@@ -462,16 +462,19 @@ class CoreBlocksUpdater:
                 base_url = f"{base_url.rstrip('/')}/v1"
         client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
 
-        response = client.chat.completions.create(
-            model=preset.model_name,
-            messages=[
+        params: dict[str, Any] = {
+            "model": preset.model_name,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=preset.temperature,
-            top_p=preset.top_p,
-            max_tokens=preset.max_tokens,
-        )
+            "max_tokens": preset.max_tokens,
+        }
+        if preset.temperature is not None:
+            params["temperature"] = preset.temperature
+        if preset.top_p is not None:
+            params["top_p"] = preset.top_p
+        response = client.chat.completions.create(**params)
         if not response.choices:
             raise ValueError("Core-block model response contained no choices.")
         content = response.choices[0].message.content or ""

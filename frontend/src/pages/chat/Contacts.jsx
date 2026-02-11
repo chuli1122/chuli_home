@@ -4,26 +4,30 @@ import { Ban, Trash2 } from "lucide-react";
 import { apiFetch } from "../../utils/api";
 import ConfirmModal from "../../components/ConfirmModal";
 
-const ACTION_WIDTH = 172;
-const SNAP_THRESHOLD = 56;
+const ACTION_WIDTH = 140;
+const SNAP_THRESHOLD = 50;
 
 function SwipeRow({ children, onBlock, onDelete, isBlocked }) {
   const rowRef = useRef(null);
+  const actionsRef = useRef(null);
   const state = useRef({
-    startX: 0,
-    startY: 0,
-    base: 0,       // offset at touch start
-    current: 0,    // live offset
-    dragging: false,
-    dirLocked: false, // true once we know horizontal vs vertical
-    isHorizontal: false,
+    startX: 0, startY: 0, base: 0, current: 0,
+    dragging: false, dirLocked: false, isHorizontal: false,
   });
 
   const applyTranslate = (x, animate) => {
     const el = rowRef.current;
+    const act = actionsRef.current;
     if (!el) return;
-    el.style.transition = animate ? "transform 0.3s cubic-bezier(.4,0,.2,1)" : "none";
+    const ease = animate ? "all 0.3s cubic-bezier(.4,0,.2,1)" : "none";
+    el.style.transition = ease;
     el.style.transform = `translateX(${x}px)`;
+    if (act) {
+      const progress = Math.min(1, Math.abs(x) / ACTION_WIDTH);
+      act.style.transition = ease;
+      act.style.transform = `translateX(${(1 - progress) * 40}px)`;
+      act.style.opacity = `${progress}`;
+    }
     state.current.current = x;
   };
 
@@ -32,14 +36,11 @@ function SwipeRow({ children, onBlock, onDelete, isBlocked }) {
   const onTouchStart = (e) => {
     const t = e.touches[0];
     const s = state.current;
-    s.startX = t.clientX;
-    s.startY = t.clientY;
-    s.base = s.current;
-    s.dragging = true;
-    s.dirLocked = false;
-    s.isHorizontal = false;
-    const el = rowRef.current;
-    if (el) el.style.transition = "none";
+    s.startX = t.clientX; s.startY = t.clientY;
+    s.base = s.current; s.dragging = true;
+    s.dirLocked = false; s.isHorizontal = false;
+    if (rowRef.current) rowRef.current.style.transition = "none";
+    if (actionsRef.current) actionsRef.current.style.transition = "none";
   };
 
   const onTouchMove = (e) => {
@@ -48,69 +49,66 @@ function SwipeRow({ children, onBlock, onDelete, isBlocked }) {
     const t = e.touches[0];
     const dx = t.clientX - s.startX;
     const dy = t.clientY - s.startY;
-
-    // Lock direction on first significant move
     if (!s.dirLocked) {
       if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
       s.dirLocked = true;
       s.isHorizontal = Math.abs(dx) > Math.abs(dy);
     }
-
-    if (!s.isHorizontal) {
-      // Vertical → let scroll handle it
-      s.dragging = false;
-      return;
-    }
-
-    // Horizontal swipe — prevent scroll
+    if (!s.isHorizontal) { s.dragging = false; return; }
     e.preventDefault();
-    let next = s.base + dx;
-    next = Math.max(-ACTION_WIDTH, Math.min(0, next));
+    let next = Math.max(-ACTION_WIDTH, Math.min(0, s.base + dx));
     const el = rowRef.current;
+    const act = actionsRef.current;
     if (el) el.style.transform = `translateX(${next}px)`;
+    if (act) {
+      const progress = Math.min(1, Math.abs(next) / ACTION_WIDTH);
+      act.style.transform = `translateX(${(1 - progress) * 40}px)`;
+      act.style.opacity = `${progress}`;
+    }
     s.current = next;
   };
 
   const onTouchEnd = () => {
     const s = state.current;
     s.dragging = false;
-    if (s.current < -SNAP_THRESHOLD) {
-      applyTranslate(-ACTION_WIDTH, true);
-    } else {
-      applyTranslate(0, true);
-    }
+    if (s.current < -SNAP_THRESHOLD) applyTranslate(-ACTION_WIDTH, true);
+    else applyTranslate(0, true);
   };
 
   return (
-    <div className="relative overflow-hidden rounded-[24px]">
-      {/* Action buttons — Kelivo style */}
-      <div className="absolute right-0 top-0 bottom-0 flex items-center gap-2 pr-2.5">
+    <div className="relative overflow-hidden rounded-[20px]">
+      <div
+        ref={actionsRef}
+        className="absolute right-0 top-0 bottom-0 flex items-center gap-1.5 pr-2"
+        style={{ opacity: 0, transform: "translateX(40px)" }}
+      >
         <button
           onClick={() => { close(); onBlock(); }}
-          className="flex h-[calc(100%-16px)] w-[76px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 active:bg-gray-100 transition"
+          className="flex h-[calc(100%-14px)] w-[62px] flex-col items-center justify-center gap-1 rounded-xl"
+          style={{ background: "var(--chat-input-bg)", border: "1px solid var(--chat-accent)" }}
         >
-          <Ban size={18} className="text-gray-500" />
-          <span className="text-[11px] font-medium text-gray-500">
-            {isBlocked ? "取消拉黑" : "拉黑"}
+          <Ban size={16} style={{ color: "var(--chat-text-muted)" }} />
+          <span className="text-[10px] font-medium" style={{ color: "var(--chat-text-muted)" }}>
+            {isBlocked ? "取消" : "拉黑"}
           </span>
         </button>
         <button
           onClick={() => { close(); onDelete(); }}
-          className="flex h-[calc(100%-16px)] w-[76px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-red-200 bg-red-50 active:bg-red-100 transition"
+          className="flex h-[calc(100%-14px)] w-[62px] flex-col items-center justify-center gap-1 rounded-xl border border-red-200 bg-red-50 active:bg-red-100"
         >
-          <Trash2 size={18} className="text-red-500" />
-          <span className="text-[11px] font-medium text-red-500">删除</span>
+          <Trash2 size={16} className="text-red-500" />
+          <span className="text-[10px] font-medium text-red-500">删除</span>
         </button>
       </div>
 
-      {/* Main card — slides with finger */}
       <div
         ref={rowRef}
-        className="relative z-10 rounded-[24px] bg-white shadow-sm"
+        className="relative z-10 rounded-[20px]"
+        style={{ background: "var(--chat-card-bg)" }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        style={{ transform: "translateX(0px)", willChange: "transform" }}
+        {...{ style: { background: "var(--chat-card-bg)", transform: "translateX(0px)", willChange: "transform" } }}
       >
         {children}
       </div>
@@ -192,20 +190,20 @@ export default function Contacts() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-black" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2" style={{ borderColor: "var(--chat-accent)", borderTopColor: "var(--chat-accent-dark)" }} />
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto px-6 pb-24">
+      <div className="flex-1 overflow-y-auto px-5 pb-24">
         {assistants.length === 0 && (
-          <p className="mt-16 text-center text-sm text-gray-400">
+          <p className="mt-16 text-center text-sm" style={{ color: "var(--chat-text-muted)" }}>
             暂无助手，点击右上角 + 创建
           </p>
         )}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           {assistants.map((a) => {
             const isBlocked = blocked.includes(a.id);
             return (
@@ -216,15 +214,18 @@ export default function Contacts() {
                 onDelete={() => startDelete(a)}
               >
                 <div
-                  className="flex items-center gap-4 p-5"
+                  className="flex items-center gap-4 p-4"
                   onClick={() => navigate(`/chat/assistant/${a.id}`)}
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F5F5F7] text-gray-500 text-[15px] font-medium">
+                  <div
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
+                    style={{ background: "var(--chat-input-bg)", color: "var(--chat-accent-dark)" }}
+                  >
                     {a.name[0]}
                   </div>
-                  <span className="text-[15px] font-medium">{a.name}</span>
+                  <span className="text-[15px] font-medium" style={{ color: "var(--chat-text)" }}>{a.name}</span>
                   {isBlocked && (
-                    <span className="ml-auto text-[10px] text-red-400 bg-red-50 px-2 py-0.5 rounded-full">
+                    <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full" style={{ color: "#e05080", background: "#fce0e8" }}>
                       已拉黑
                     </span>
                   )}
@@ -235,7 +236,6 @@ export default function Contacts() {
         </div>
       </div>
 
-      {/* Block confirm */}
       <ConfirmModal
         isOpen={blockTarget !== null}
         onClose={() => setBlockTarget(null)}
@@ -248,7 +248,6 @@ export default function Contacts() {
         }
       />
 
-      {/* Delete chain confirm */}
       <ConfirmModal
         isOpen={deleteTarget !== null && deleteStep > 0}
         onClose={() => { setDeleteTarget(null); setDeleteStep(0); }}

@@ -105,8 +105,6 @@ class SummaryService:
 - flirty：撒娇、调情、在钓你
 - proud：被夸之后、有成就感
 - calm：平静、正常聊天、情绪稳定
-- mixed：情绪复杂，以上都不好归类
-
 输出格式：
 {{"summary": "...", "memories": [{{"content": "...", "klass": "..."}}], "mood_tag": "..."}}
 """.strip()
@@ -196,7 +194,6 @@ class SummaryService:
                 "flirty",
                 "proud",
                 "calm",
-                "mixed",
             }
             mood_tag = None
             if is_chat_session:
@@ -370,16 +367,19 @@ LIMIT 1
                 base_url = f"{base_url.rstrip('/')}/v1"
         client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
 
-        response = client.chat.completions.create(
-            model=preset.model_name,
-            messages=[
+        params: dict[str, Any] = {
+            "model": preset.model_name,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": conversation_text},
             ],
-            temperature=preset.temperature,
-            top_p=preset.top_p,
-            max_tokens=preset.max_tokens,
-        )
+            "max_tokens": preset.max_tokens,
+        }
+        if preset.temperature is not None:
+            params["temperature"] = preset.temperature
+        if preset.top_p is not None:
+            params["top_p"] = preset.top_p
+        response = client.chat.completions.create(**params)
         if not response.choices:
             raise ValueError("Summary response contained no choices.")
         content = response.choices[0].message.content or ""

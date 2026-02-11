@@ -89,6 +89,21 @@ def list_assistants(db: Session = Depends(get_db)) -> AssistantsResponse:
     return AssistantsResponse(assistants=items)
 
 
+@router.get("/assistants/{assistant_id}", response_model=AssistantFullResponse)
+def get_assistant(
+    assistant_id: int,
+    db: Session = Depends(get_db),
+) -> AssistantFullResponse:
+    assistant = (
+        db.query(Assistant)
+        .filter(Assistant.id == assistant_id, Assistant.deleted_at.is_(None))
+        .first()
+    )
+    if not assistant:
+        raise HTTPException(status_code=404, detail="Assistant not found")
+    return _assistant_to_full(assistant)
+
+
 @router.post("/assistants", response_model=AssistantFullResponse)
 def create_assistant(
     payload: AssistantCreateRequest,

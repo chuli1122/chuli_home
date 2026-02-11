@@ -133,7 +133,9 @@ export default function ApiSettings() {
   const [modelOptions, setModelOptions] = useState([]);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [temperature, setTemperature] = useState(1.0);
+  const [tempEnabled, setTempEnabled] = useState(false);
   const [topP, setTopP] = useState(1.0);
+  const [topPEnabled, setTopPEnabled] = useState(false);
   const [maxTokens, setMaxTokens] = useState(4096);
 
   // Editing
@@ -154,7 +156,7 @@ export default function ApiSettings() {
 
   // Refs to always read latest form values in async callbacks
   const formRef = useRef({});
-  formRef.current = { baseUrl, apiKey, modelName, temperature, topP, maxTokens, editingPreset, providers };
+  formRef.current = { baseUrl, apiKey, modelName, temperature, tempEnabled, topP, topPEnabled, maxTokens, editingPreset, providers };
 
   const showToast = useCallback((message) => {
     setToast({ show: true, message });
@@ -193,8 +195,10 @@ export default function ApiSettings() {
   const loadPreset = (preset) => {
     setEditingPreset(preset);
     setModelName(preset.model_name);
-    setTemperature(preset.temperature);
-    setTopP(preset.top_p);
+    setTempEnabled(preset.temperature != null);
+    setTemperature(preset.temperature ?? 1.0);
+    setTopPEnabled(preset.top_p != null);
+    setTopP(preset.top_p ?? 1.0);
     setMaxTokens(preset.max_tokens);
 
     const provider = providers.find((p) => p.id === preset.api_provider_id);
@@ -210,7 +214,9 @@ export default function ApiSettings() {
     setApiKey("");
     setModelName("");
     setTemperature(1.0);
+    setTempEnabled(false);
     setTopP(1.0);
+    setTopPEnabled(false);
     setMaxTokens(4096);
     setModelOptions([]);
   };
@@ -274,8 +280,8 @@ export default function ApiSettings() {
       const body = {
         name,
         model_name: f.modelName.trim(),
-        temperature: f.temperature,
-        top_p: f.topP,
+        temperature: f.tempEnabled ? f.temperature : null,
+        top_p: f.topPEnabled ? f.topP : null,
         max_tokens: Number(f.maxTokens) || 4096,
         api_provider_id: providerId,
       };
@@ -449,24 +455,72 @@ export default function ApiSettings() {
 
             {/* ── Card 3: Parameters ── */}
             <div className="rounded-[24px] bg-white p-5 shadow-sm space-y-5">
-              <NumberField
-                label="温度 (0-2)"
-                hint="越低越稳定精准，越高越有创造性和随机性"
-                value={temperature}
-                onChange={setTemperature}
-                min={0}
-                max={2}
-                step={0.1}
-              />
+              <div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[14px] font-medium text-black">温度 (0-2)</span>
+                    <p className="text-[11px] text-gray-400 mt-0.5">越低越稳定精准，越高越有创造性和随机性</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTempEnabled(!tempEnabled)}
+                    className={`relative h-7 w-12 rounded-full transition-colors ${tempEnabled ? "bg-black" : "bg-gray-200"}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${tempEnabled ? "translate-x-5" : ""}`} />
+                  </button>
+                </div>
+                {tempEnabled && (
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-[13px] text-gray-500">值</span>
+                    <input
+                      type="number"
+                      value={temperature}
+                      onChange={(e) => setTemperature(parseFloat(e.target.value) || 0)}
+                      onBlur={() => {
+                        let v = Math.max(0, Math.min(2, temperature));
+                        v = Math.round(v / 0.1) * 0.1;
+                        setTemperature(parseFloat(v.toFixed(1)));
+                      }}
+                      step={0.1}
+                      min={0}
+                      max={2}
+                      className="w-20 rounded-lg bg-[#F5F5F5] px-3 py-2 text-center text-sm font-bold outline-none"
+                    />
+                  </div>
+                )}
+              </div>
               <div className="h-[1px] bg-gray-100" />
-              <NumberField
-                label="Top P (0-1)"
-                value={topP}
-                onChange={setTopP}
-                min={0}
-                max={1}
-                step={0.05}
-              />
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[14px] font-medium text-black">Top P (0-1)</span>
+                  <button
+                    type="button"
+                    onClick={() => setTopPEnabled(!topPEnabled)}
+                    className={`relative h-7 w-12 rounded-full transition-colors ${topPEnabled ? "bg-black" : "bg-gray-200"}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${topPEnabled ? "translate-x-5" : ""}`} />
+                  </button>
+                </div>
+                {topPEnabled && (
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-[13px] text-gray-500">值</span>
+                    <input
+                      type="number"
+                      value={topP}
+                      onChange={(e) => setTopP(parseFloat(e.target.value) || 0)}
+                      onBlur={() => {
+                        let v = Math.max(0, Math.min(1, topP));
+                        v = Math.round(v / 0.05) * 0.05;
+                        setTopP(parseFloat(v.toFixed(2)));
+                      }}
+                      step={0.05}
+                      min={0}
+                      max={1}
+                      className="w-20 rounded-lg bg-[#F5F5F5] px-3 py-2 text-center text-sm font-bold outline-none"
+                    />
+                  </div>
+                )}
+              </div>
               <div className="h-[1px] bg-gray-100" />
               <div className="flex items-center justify-between">
                 <span className="text-[14px] font-medium text-black">Max Tokens</span>
@@ -549,7 +603,7 @@ export default function ApiSettings() {
                         <div className="text-[15px] font-bold truncate">{p.name}</div>
                         <div className="mt-1 text-xs text-gray-400 truncate">{p.model_name}</div>
                         <div className="mt-1.5 text-[11px] text-gray-400 font-mono">
-                          T: {p.temperature} | Top-P: {p.top_p} | Max: {p.max_tokens}
+                          T: {p.temperature ?? "默认"} | Top-P: {p.top_p ?? "默认"} | Max: {p.max_tokens}
                         </div>
                       </div>
                     );

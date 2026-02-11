@@ -10,9 +10,8 @@ export default function MessageList() {
   const [previews, setPreviews] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Assistant selection modal (triggered from ChatLayout via location.state)
   const [assistants, setAssistants] = useState([]);
-  const [selectMode, setSelectMode] = useState(null); // 'chat' | 'group'
+  const [selectMode, setSelectMode] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
 
   const load = async () => {
@@ -41,7 +40,6 @@ export default function MessageList() {
 
   useEffect(() => { load(); }, []);
 
-  // Handle action from ChatLayout's dropdown
   useEffect(() => {
     const action = location.state?.action;
     if (action === "chat" || action === "group") {
@@ -102,20 +100,22 @@ export default function MessageList() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-black" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2" style={{ borderColor: "var(--chat-accent)", borderTopColor: "var(--chat-accent-dark)" }} />
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto px-6 pb-24">
+      <div className="flex-1 overflow-y-auto px-5 pb-24">
         {sessions.length === 0 && (
-          <p className="mt-16 text-center text-sm text-gray-400">
-            暂无会话，点击右上角 + 开始聊天
-          </p>
+          <div className="mt-16 text-center">
+            <p className="text-sm" style={{ color: "var(--chat-text-muted)" }}>
+              暂无会话，点击右上角 + 开始聊天
+            </p>
+          </div>
         )}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           {sessions.map((s) => {
             const preview = previews[s.id];
             const readTime = getReadTime(s.id);
@@ -124,26 +124,30 @@ export default function MessageList() {
               <button
                 key={s.id}
                 onClick={() => navigate(`/chat/session/${s.id}`)}
-                className="flex w-full items-center gap-4 rounded-[24px] bg-white p-5 shadow-sm text-left active:scale-[0.98] transition-all"
+                className="flex w-full items-center gap-4 rounded-[20px] p-4 text-left active:scale-[0.98] transition-all"
+                style={{ background: "var(--chat-card-bg)" }}
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F5F5F7] text-gray-500 text-[15px] font-medium">
+                <div
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
+                  style={{ background: "var(--chat-input-bg)", color: "var(--chat-accent-dark)" }}
+                >
                   {(s.title || "?")[0]}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <span className="text-[15px] font-medium truncate">
+                    <span className="text-[15px] font-medium truncate" style={{ color: "var(--chat-text)" }}>
                       {s.title || `会话 ${s.id}`}
                     </span>
-                    <span className="text-[10px] text-gray-400 shrink-0 ml-2">
+                    <span className="text-[10px] shrink-0 ml-2" style={{ color: "var(--chat-text-muted)" }}>
                       {formatTime(s.updated_at)}
                     </span>
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-gray-400">
+                  <p className="mt-0.5 truncate text-xs" style={{ color: "var(--chat-text-muted)" }}>
                     {preview ? preview.content : ""}
                   </p>
                 </div>
                 {hasUnread && (
-                  <div className="h-2 w-2 shrink-0 rounded-full bg-red-500" />
+                  <div className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: "var(--chat-accent-dark)" }} />
                 )}
               </button>
             );
@@ -151,7 +155,6 @@ export default function MessageList() {
         </div>
       </div>
 
-      {/* Assistant selection modal */}
       <Modal
         isOpen={selectMode !== null}
         onClose={() => setSelectMode(null)}
@@ -172,22 +175,26 @@ export default function MessageList() {
                   if (selectMode === "chat") setSelectedIds([a.id]);
                   else toggleSelect(a.id);
                 }}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
-                  selected ? "bg-gray-100" : "active:bg-gray-50"
-                }`}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition"
+                style={{
+                  background: selected ? "var(--chat-input-bg)" : "transparent",
+                }}
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#F5F5F7] text-sm font-medium">
+                <div
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-medium"
+                  style={{ background: "var(--chat-bg)", color: "var(--chat-accent-dark)" }}
+                >
                   {a.name[0]}
                 </div>
-                <span className="text-sm">{a.name}</span>
+                <span className="text-sm" style={{ color: "var(--chat-text)" }}>{a.name}</span>
                 {selected && (
-                  <span className="ml-auto text-xs text-blue-500">已选</span>
+                  <span className="ml-auto text-xs" style={{ color: "var(--chat-accent-dark)" }}>已选</span>
                 )}
               </button>
             );
           })}
           {assistants.length === 0 && (
-            <p className="py-6 text-center text-sm text-gray-400">
+            <p className="py-6 text-center text-sm" style={{ color: "var(--chat-text-muted)" }}>
               暂无助手，请先在通讯录创建
             </p>
           )}

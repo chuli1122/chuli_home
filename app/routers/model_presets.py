@@ -18,8 +18,8 @@ class PresetItem(BaseModel):
     id: int
     name: str
     model_name: str
-    temperature: float
-    top_p: float
+    temperature: float | None
+    top_p: float | None
     max_tokens: int
     api_provider_id: int
     created_at: str | None
@@ -32,8 +32,8 @@ class PresetsResponse(BaseModel):
 class PresetCreateRequest(BaseModel):
     name: str
     model_name: str
-    temperature: float = 1.0
-    top_p: float = 1.0
+    temperature: float | None = None
+    top_p: float | None = None
     max_tokens: int = 2048
     api_provider_id: int
 

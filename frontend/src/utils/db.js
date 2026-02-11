@@ -110,3 +110,29 @@ export const loadImageUrl = async (key) => {
 export const isExternalUrl = (value) => {
   return typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'));
 };
+
+// ── Sticker helpers ──
+
+export const getAllStickers = async () => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([IMAGES_STORE], 'readonly');
+    const store = transaction.objectStore(IMAGES_STORE);
+    const request = store.getAll();
+    request.onsuccess = () => {
+      const all = request.result || [];
+      resolve(all.filter(item => item.key && item.key.startsWith('sticker-')));
+    };
+    request.onerror = (event) => reject(event.target.error);
+  });
+};
+
+export const addSticker = async (file) => {
+  const key = `sticker-${Date.now()}`;
+  await saveImage(key, file);
+  return key;
+};
+
+export const removeSticker = async (key) => {
+  await deleteImage(key);
+};

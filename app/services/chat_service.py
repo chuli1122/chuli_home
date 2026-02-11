@@ -1028,7 +1028,7 @@ class ChatService:
             if "tool_call_id" in message:
                 api_message["tool_call_id"] = message["tool_call_id"]
             api_messages.append(api_message)
-        return (client, model_preset.model_name, api_messages, tools)
+        return (client, model_preset.model_name, api_messages, tools, model_preset.temperature, model_preset.top_p)
 
     def stream_chat_completion(
         self,
@@ -1049,16 +1049,21 @@ class ChatService:
             if params is None:
                 yield 'data: [DONE]\n\n'
                 return
-            client, model_name, api_messages, tools = params
+            client, model_name, api_messages, tools, preset_temperature, preset_top_p = params
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
             try:
-                stream = client.chat.completions.create(
-                    model=model_name,
-                    messages=api_messages,
-                    tools=tools,
-                    tool_choice="auto",
-                    stream=True,
-                )
+                stream_params: dict[str, Any] = {
+                    "model": model_name,
+                    "messages": api_messages,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "stream": True,
+                }
+                if preset_temperature is not None:
+                    stream_params["temperature"] = preset_temperature
+                if preset_top_p is not None:
+                    stream_params["top_p"] = preset_top_p
+                stream = client.chat.completions.create(**stream_params)
             except Exception as e:
                 logger.error(f"Streaming request failed: {e}")
                 yield f'data: {json.dumps({"error": str(e)})}\n\n'
@@ -1497,12 +1502,17 @@ class ChatService:
             api_messages.append(api_message)
         print(f"[DEBUG] Calling model: {model_preset.model_name}")
         try:
-            response = client.chat.completions.create(
-                model=model_preset.model_name,
-                messages=api_messages,
-                tools=tools,
-                tool_choice="auto",
-            )
+            call_params: dict[str, Any] = {
+                "model": model_preset.model_name,
+                "messages": api_messages,
+                "tools": tools,
+                "tool_choice": "auto",
+            }
+            if model_preset.temperature is not None:
+                call_params["temperature"] = model_preset.temperature
+            if model_preset.top_p is not None:
+                call_params["top_p"] = model_preset.top_p
+            response = client.chat.completions.create(**call_params)
         except Exception as e:
             print(f"[API ERROR] Request failed: {str(e)}")
             return []
