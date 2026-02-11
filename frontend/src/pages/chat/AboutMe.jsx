@@ -10,6 +10,7 @@ export default function AboutMe() {
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [originalData, setOriginalData] = useState({});
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -22,12 +23,12 @@ export default function AboutMe() {
           nickname: data.nickname || "",
           basic_info: data.basic_info || "",
         });
-        // Load avatar from fixed IndexedDB key
         const url = await loadImageUrl(AVATAR_KEY);
         if (url) setAvatarUrl(url);
       } catch (e) {
         console.error("Failed to load profile", e);
       }
+      setLoading(false);
     };
     loadProfile();
   }, []);
@@ -36,12 +37,10 @@ export default function AboutMe() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      // Delete old avatar then save new one with the same fixed key
       await deleteImage(AVATAR_KEY);
       await saveImage(AVATAR_KEY, file);
       const url = await loadImageUrl(AVATAR_KEY);
       setAvatarUrl(url);
-      // Save the fixed key to backend
       await apiFetch("/api/user/profile", {
         method: "PUT",
         body: { avatar_url: AVATAR_KEY },
@@ -73,6 +72,14 @@ export default function AboutMe() {
   const hasChanges =
     nickname !== originalData.nickname ||
     basicInfo !== originalData.basic_info;
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-black" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-6 pb-24">
@@ -125,24 +132,23 @@ export default function AboutMe() {
         />
       </div>
 
-      {/* Buttons */}
-      {hasChanges && (
-        <div className="mt-4 flex gap-3">
-          <button
-            onClick={handleCancel}
-            className="flex-1 rounded-[20px] bg-white py-3 text-sm font-medium shadow-sm active:scale-[0.98] transition"
-          >
-            取消
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 rounded-[20px] bg-black py-3 text-sm font-medium text-white shadow-sm active:scale-[0.98] transition disabled:opacity-50"
-          >
-            {saving ? "保存中..." : "保存"}
-          </button>
-        </div>
-      )}
+      {/* Buttons — always visible */}
+      <div className="mt-4 flex gap-3">
+        <button
+          onClick={handleCancel}
+          disabled={!hasChanges}
+          className="flex-1 rounded-[20px] bg-white py-3 text-sm font-medium shadow-sm active:scale-[0.98] transition disabled:opacity-40"
+        >
+          取消
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saving || !hasChanges}
+          className="flex-1 rounded-[20px] bg-black py-3 text-sm font-medium text-white shadow-sm active:scale-[0.98] transition disabled:opacity-40"
+        >
+          {saving ? "保存中..." : "保存"}
+        </button>
+      </div>
     </div>
   );
 }

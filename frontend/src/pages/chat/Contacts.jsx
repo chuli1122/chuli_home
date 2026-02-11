@@ -1,12 +1,102 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { Ban, Trash2 } from "lucide-react";
 import { apiFetch } from "../../utils/api";
 import ConfirmModal from "../../components/ConfirmModal";
+
+const ACTION_WIDTH = 168; // total width of two buttons area
+const SNAP_THRESHOLD = ACTION_WIDTH / 3;
+
+function SwipeRow({ children, onBlock, onDelete, isBlocked }) {
+  const rowRef = useRef(null);
+  const startXRef = useRef(0);
+  const currentXRef = useRef(0);
+  const offsetRef = useRef(0);
+  const draggingRef = useRef(false);
+
+  const setTranslate = useCallback((x, animate = false) => {
+    const el = rowRef.current;
+    if (!el) return;
+    el.style.transition = animate ? "transform 0.3s ease" : "none";
+    el.style.transform = `translateX(${x}px)`;
+    offsetRef.current = x;
+  }, []);
+
+  const handleTouchStart = (e) => {
+    startXRef.current = e.touches[0].clientX;
+    currentXRef.current = offsetRef.current;
+    draggingRef.current = true;
+    const el = rowRef.current;
+    if (el) el.style.transition = "none";
+  };
+
+  const handleTouchMove = (e) => {
+    if (!draggingRef.current) return;
+    const dx = e.touches[0].clientX - startXRef.current;
+    let next = currentXRef.current + dx;
+    // Clamp: can't swipe right past 0, or left past -ACTION_WIDTH
+    next = Math.max(-ACTION_WIDTH, Math.min(0, next));
+    const el = rowRef.current;
+    if (el) el.style.transform = `translateX(${next}px)`;
+    offsetRef.current = next;
+  };
+
+  const handleTouchEnd = () => {
+    draggingRef.current = false;
+    // Snap: if past threshold → open, otherwise → close
+    if (offsetRef.current < -SNAP_THRESHOLD) {
+      setTranslate(-ACTION_WIDTH, true);
+    } else {
+      setTranslate(0, true);
+    }
+  };
+
+  // Close on outside tap
+  const close = useCallback(() => {
+    setTranslate(0, true);
+  }, [setTranslate]);
+
+  return (
+    <div className="relative overflow-hidden rounded-[20px]">
+      {/* Action buttons behind — Kelivo style: rounded border + icon + text */}
+      <div className="absolute right-0 top-0 bottom-0 flex items-center gap-2 pr-2">
+        <button
+          onClick={() => { close(); onBlock(); }}
+          className="flex h-[calc(100%-12px)] w-[74px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 active:bg-gray-100 transition"
+        >
+          <Ban size={18} className="text-gray-500" />
+          <span className="text-[11px] font-medium text-gray-500">
+            {isBlocked ? "取消拉黑" : "拉黑"}
+          </span>
+        </button>
+        <button
+          onClick={() => { close(); onDelete(); }}
+          className="flex h-[calc(100%-12px)] w-[74px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-red-200 bg-red-50 active:bg-red-100 transition"
+        >
+          <Trash2 size={18} className="text-red-500" />
+          <span className="text-[11px] font-medium text-red-500">删除</span>
+        </button>
+      </div>
+
+      {/* Main card — slides left following finger */}
+      <div
+        ref={rowRef}
+        className="relative bg-white rounded-[20px] shadow-sm"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ transform: "translateX(0px)", willChange: "transform" }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export default function Contacts() {
   const navigate = useNavigate();
   const [assistants, setAssistants] = useState([]);
-  const [swipedId, setSwipedId] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [blocked, setBlocked] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("blocked-assistants") || "[]");
@@ -17,8 +107,6 @@ export default function Contacts() {
   const [deleteStep, setDeleteStep] = useState(0);
   const [blockTarget, setBlockTarget] = useState(null);
 
-  const touchRef = useRef({ startX: 0, id: null });
-
   const load = async () => {
     try {
       const data = await apiFetch("/api/assistants");
@@ -26,6 +114,7 @@ export default function Contacts() {
     } catch (e) {
       console.error("Failed to load assistants", e);
     }
+    setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
@@ -35,7 +124,6 @@ export default function Contacts() {
       const next = blocked.filter((id) => id !== assistant.id);
       setBlocked(next);
       localStorage.setItem("blocked-assistants", JSON.stringify(next));
-      setSwipedId(null);
     } else {
       setBlockTarget(assistant);
     }
@@ -47,7 +135,6 @@ export default function Contacts() {
     setBlocked(next);
     localStorage.setItem("blocked-assistants", JSON.stringify(next));
     setBlockTarget(null);
-    setSwipedId(null);
   };
 
   const startDelete = (assistant) => {
@@ -71,22 +158,19 @@ export default function Contacts() {
       await apiFetch(`/api/assistants/${deleteTarget.id}`, { method: "DELETE" });
       setDeleteTarget(null);
       setDeleteStep(0);
-      setSwipedId(null);
       load();
     } catch (e) {
       console.error("Failed to delete assistant", e);
     }
   };
 
-  const handleTouchStart = (e, id) => {
-    touchRef.current = { startX: e.touches[0].clientX, id };
-  };
-
-  const handleTouchEnd = (e) => {
-    const dx = e.changedTouches[0].clientX - touchRef.current.startX;
-    if (dx < -50) setSwipedId(touchRef.current.id);
-    else if (dx > 30) setSwipedId(null);
-  };
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-black" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -98,36 +182,17 @@ export default function Contacts() {
         )}
         <div className="flex flex-col gap-3">
           {assistants.map((a) => {
-            const isSwiped = swipedId === a.id;
             const isBlocked = blocked.includes(a.id);
             return (
-              <div key={a.id} className="relative overflow-hidden rounded-[20px]">
-                {/* Action buttons behind */}
-                <div className="absolute right-0 top-0 bottom-0 flex items-stretch">
-                  <button
-                    onClick={() => toggleBlock(a)}
-                    className={`flex w-16 items-center justify-center text-xs font-medium text-white ${
-                      isBlocked ? "bg-green-500" : "bg-orange-400"
-                    }`}
-                  >
-                    {isBlocked ? "取消拉黑" : "拉黑"}
-                  </button>
-                  <button
-                    onClick={() => startDelete(a)}
-                    className="flex w-16 items-center justify-center text-xs font-medium text-white bg-red-500"
-                  >
-                    删除
-                  </button>
-                </div>
-
-                {/* Main row - card style */}
+              <SwipeRow
+                key={a.id}
+                isBlocked={isBlocked}
+                onBlock={() => toggleBlock(a)}
+                onDelete={() => startDelete(a)}
+              >
                 <div
-                  className={`relative flex items-center gap-4 rounded-[20px] bg-white p-4 shadow-sm transition-transform duration-200 ${
-                    isSwiped ? "-translate-x-32" : "translate-x-0"
-                  }`}
-                  onTouchStart={(e) => handleTouchStart(e, a.id)}
-                  onTouchEnd={handleTouchEnd}
-                  onClick={() => !isSwiped && navigate(`/chat/assistant/${a.id}`)}
+                  className="flex items-center gap-4 p-4"
+                  onClick={() => navigate(`/chat/assistant/${a.id}`)}
                 >
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F5F5F7] text-gray-500 text-base font-medium">
                     {a.name[0]}
@@ -139,7 +204,7 @@ export default function Contacts() {
                     </span>
                   )}
                 </div>
-              </div>
+              </SwipeRow>
             );
           })}
         </div>
