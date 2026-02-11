@@ -8,6 +8,7 @@ export default function MessageList() {
   const location = useLocation();
   const [sessions, setSessions] = useState([]);
   const [previews, setPreviews] = useState({});
+  const [loading, setLoading] = useState(true);
 
   // Assistant selection modal (triggered from ChatLayout via location.state)
   const [assistants, setAssistants] = useState([]);
@@ -35,6 +36,7 @@ export default function MessageList() {
     } catch (e) {
       console.error("Failed to load sessions", e);
     }
+    setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
@@ -44,7 +46,6 @@ export default function MessageList() {
     const action = location.state?.action;
     if (action === "chat" || action === "group") {
       openSelect(action);
-      // Clear the state so it doesn't re-trigger
       window.history.replaceState({}, "");
     }
   }, [location.state]);
@@ -98,6 +99,14 @@ export default function MessageList() {
     } catch { return 0; }
   };
 
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-black" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto px-6 pb-24">
@@ -106,7 +115,7 @@ export default function MessageList() {
             暂无会话，点击右上角 + 开始聊天
           </p>
         )}
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           {sessions.map((s) => {
             const preview = previews[s.id];
             const readTime = getReadTime(s.id);
@@ -115,9 +124,9 @@ export default function MessageList() {
               <button
                 key={s.id}
                 onClick={() => navigate(`/chat/session/${s.id}`)}
-                className="flex w-full items-center gap-3 rounded-[20px] bg-white p-4 shadow-sm text-left active:scale-[0.98] transition-all"
+                className="flex w-full items-center gap-4 rounded-[24px] bg-white p-5 shadow-sm text-left active:scale-[0.98] transition-all"
               >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F5F5F7] text-gray-500 text-base font-medium">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F5F5F7] text-gray-500 text-[15px] font-medium">
                   {(s.title || "?")[0]}
                 </div>
                 <div className="flex-1 min-w-0">

@@ -4,65 +4,90 @@ import { Ban, Trash2 } from "lucide-react";
 import { apiFetch } from "../../utils/api";
 import ConfirmModal from "../../components/ConfirmModal";
 
-const ACTION_WIDTH = 168; // total width of two buttons area
-const SNAP_THRESHOLD = ACTION_WIDTH / 3;
+const ACTION_WIDTH = 172;
+const SNAP_THRESHOLD = 56;
 
 function SwipeRow({ children, onBlock, onDelete, isBlocked }) {
   const rowRef = useRef(null);
-  const startXRef = useRef(0);
-  const currentXRef = useRef(0);
-  const offsetRef = useRef(0);
-  const draggingRef = useRef(false);
+  const state = useRef({
+    startX: 0,
+    startY: 0,
+    base: 0,       // offset at touch start
+    current: 0,    // live offset
+    dragging: false,
+    dirLocked: false, // true once we know horizontal vs vertical
+    isHorizontal: false,
+  });
 
-  const setTranslate = useCallback((x, animate = false) => {
+  const applyTranslate = (x, animate) => {
     const el = rowRef.current;
     if (!el) return;
-    el.style.transition = animate ? "transform 0.3s ease" : "none";
+    el.style.transition = animate ? "transform 0.3s cubic-bezier(.4,0,.2,1)" : "none";
     el.style.transform = `translateX(${x}px)`;
-    offsetRef.current = x;
-  }, []);
+    state.current.current = x;
+  };
 
-  const handleTouchStart = (e) => {
-    startXRef.current = e.touches[0].clientX;
-    currentXRef.current = offsetRef.current;
-    draggingRef.current = true;
+  const close = useCallback(() => applyTranslate(0, true), []);
+
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    const s = state.current;
+    s.startX = t.clientX;
+    s.startY = t.clientY;
+    s.base = s.current;
+    s.dragging = true;
+    s.dirLocked = false;
+    s.isHorizontal = false;
     const el = rowRef.current;
     if (el) el.style.transition = "none";
   };
 
-  const handleTouchMove = (e) => {
-    if (!draggingRef.current) return;
-    const dx = e.touches[0].clientX - startXRef.current;
-    let next = currentXRef.current + dx;
-    // Clamp: can't swipe right past 0, or left past -ACTION_WIDTH
+  const onTouchMove = (e) => {
+    const s = state.current;
+    if (!s.dragging) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.startX;
+    const dy = t.clientY - s.startY;
+
+    // Lock direction on first significant move
+    if (!s.dirLocked) {
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      s.dirLocked = true;
+      s.isHorizontal = Math.abs(dx) > Math.abs(dy);
+    }
+
+    if (!s.isHorizontal) {
+      // Vertical → let scroll handle it
+      s.dragging = false;
+      return;
+    }
+
+    // Horizontal swipe — prevent scroll
+    e.preventDefault();
+    let next = s.base + dx;
     next = Math.max(-ACTION_WIDTH, Math.min(0, next));
     const el = rowRef.current;
     if (el) el.style.transform = `translateX(${next}px)`;
-    offsetRef.current = next;
+    s.current = next;
   };
 
-  const handleTouchEnd = () => {
-    draggingRef.current = false;
-    // Snap: if past threshold → open, otherwise → close
-    if (offsetRef.current < -SNAP_THRESHOLD) {
-      setTranslate(-ACTION_WIDTH, true);
+  const onTouchEnd = () => {
+    const s = state.current;
+    s.dragging = false;
+    if (s.current < -SNAP_THRESHOLD) {
+      applyTranslate(-ACTION_WIDTH, true);
     } else {
-      setTranslate(0, true);
+      applyTranslate(0, true);
     }
   };
 
-  // Close on outside tap
-  const close = useCallback(() => {
-    setTranslate(0, true);
-  }, [setTranslate]);
-
   return (
-    <div className="relative overflow-hidden rounded-[20px]">
-      {/* Action buttons behind — Kelivo style: rounded border + icon + text */}
-      <div className="absolute right-0 top-0 bottom-0 flex items-center gap-2 pr-2">
+    <div className="relative overflow-hidden rounded-[24px]">
+      {/* Action buttons — Kelivo style */}
+      <div className="absolute right-0 top-0 bottom-0 flex items-center gap-2 pr-2.5">
         <button
           onClick={() => { close(); onBlock(); }}
-          className="flex h-[calc(100%-12px)] w-[74px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 active:bg-gray-100 transition"
+          className="flex h-[calc(100%-16px)] w-[76px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 active:bg-gray-100 transition"
         >
           <Ban size={18} className="text-gray-500" />
           <span className="text-[11px] font-medium text-gray-500">
@@ -71,20 +96,20 @@ function SwipeRow({ children, onBlock, onDelete, isBlocked }) {
         </button>
         <button
           onClick={() => { close(); onDelete(); }}
-          className="flex h-[calc(100%-12px)] w-[74px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-red-200 bg-red-50 active:bg-red-100 transition"
+          className="flex h-[calc(100%-16px)] w-[76px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-red-200 bg-red-50 active:bg-red-100 transition"
         >
           <Trash2 size={18} className="text-red-500" />
           <span className="text-[11px] font-medium text-red-500">删除</span>
         </button>
       </div>
 
-      {/* Main card — slides left following finger */}
+      {/* Main card — slides with finger */}
       <div
         ref={rowRef}
-        className="relative bg-white rounded-[20px] shadow-sm"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        className="relative z-10 rounded-[24px] bg-white shadow-sm"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
         style={{ transform: "translateX(0px)", willChange: "transform" }}
       >
         {children}
@@ -180,7 +205,7 @@ export default function Contacts() {
             暂无助手，点击右上角 + 创建
           </p>
         )}
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           {assistants.map((a) => {
             const isBlocked = blocked.includes(a.id);
             return (
@@ -191,10 +216,10 @@ export default function Contacts() {
                 onDelete={() => startDelete(a)}
               >
                 <div
-                  className="flex items-center gap-4 p-4"
+                  className="flex items-center gap-4 p-5"
                   onClick={() => navigate(`/chat/assistant/${a.id}`)}
                 >
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F5F5F7] text-gray-500 text-base font-medium">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F5F5F7] text-gray-500 text-[15px] font-medium">
                     {a.name[0]}
                   </div>
                   <span className="text-[15px] font-medium">{a.name}</span>
