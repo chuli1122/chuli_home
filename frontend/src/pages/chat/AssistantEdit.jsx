@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Maximize2, Upload } from "lucide-react";
 import { apiFetch } from "../../utils/api";
-import { saveImage, loadImageUrl } from "../../utils/db";
+import { saveImage, loadImageUrl, deleteImage } from "../../utils/db";
 import Modal from "../../components/Modal";
 
 export default function AssistantEdit() {
@@ -89,7 +89,8 @@ export default function AssistantEdit() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const key = `assistant-avatar-${id}-${Date.now()}`;
+      const key = `assistant-avatar-${id}`;
+      await deleteImage(key);
       await saveImage(key, file);
       const url = await loadImageUrl(key);
       setAvatarUrl(url);
@@ -160,7 +161,7 @@ export default function AssistantEdit() {
       <select
         value={value || ""}
         onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none bg-white"
+        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-base outline-none bg-white"
       >
         <option value="">未选择</option>
         {presets.map((p) => (
@@ -177,7 +178,7 @@ export default function AssistantEdit() {
       {/* Header */}
       <div className="flex items-center px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-2">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/chat/contacts", { replace: true })}
           className="mr-3 rounded-full p-1.5 active:bg-black/5"
         >
           <ArrowLeft size={22} />
@@ -243,7 +244,7 @@ export default function AssistantEdit() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="助手名称"
-                className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400"
+                className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-base outline-none focus:border-gray-400"
               />
             </div>
 
@@ -277,7 +278,7 @@ export default function AssistantEdit() {
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
                 placeholder="输入 System Prompt..."
-                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400 resize-none"
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-base outline-none focus:border-gray-400 resize-none"
                 style={{ height: 200 }}
               />
             </div>
@@ -311,7 +312,7 @@ export default function AssistantEdit() {
                 value={humanBlock}
                 onChange={(e) => setHumanBlock(e.target.value)}
                 placeholder="描述你自己，让 AI 了解你..."
-                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400 resize-none"
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-base outline-none focus:border-gray-400 resize-none"
                 rows={6}
               />
             </div>
@@ -321,7 +322,7 @@ export default function AssistantEdit() {
                 value={personaBlock}
                 onChange={(e) => setPersonaBlock(e.target.value)}
                 placeholder="描述你们之间的默契..."
-                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400 resize-none"
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-base outline-none focus:border-gray-400 resize-none"
                 rows={6}
               />
             </div>
@@ -333,7 +334,7 @@ export default function AssistantEdit() {
       <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-gray-100 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-[420px] gap-3">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate("/chat/contacts", { replace: true })}
             className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm active:bg-gray-50"
           >
             取消
@@ -358,7 +359,7 @@ export default function AssistantEdit() {
         <textarea
           value={systemPrompt}
           onChange={(e) => setSystemPrompt(e.target.value)}
-          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400 resize-none"
+          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-base outline-none focus:border-gray-400 resize-none"
           style={{ height: "60vh" }}
         />
       </Modal>

@@ -131,7 +131,7 @@ export default function App() {
             <Route index element={<Navigate to="/chat/messages" replace />} />
             <Route path="messages" element={<MessageList />} />
             <Route path="contacts" element={<Contacts />} />
-            <Route path="me" element={<AboutMe />} />
+            <Route path="about" element={<AboutMe />} />
             <Route path="assistant/:id" element={<AssistantEdit />} />
             <Route path="session/:id" element={<ChatSession />} />
           </Route>

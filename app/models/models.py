@@ -157,8 +157,8 @@ class Assistant(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    model_preset_id: Mapped[int] = mapped_column(Integer, ForeignKey("model_presets.id"), index=True)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    model_preset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("model_presets.id"), nullable=True, index=True)
     summary_model_preset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("model_presets.id"), nullable=True, index=True)
     summary_fallback_preset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("model_presets.id"), nullable=True, index=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)

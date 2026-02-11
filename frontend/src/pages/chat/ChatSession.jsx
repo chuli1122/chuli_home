@@ -241,7 +241,7 @@ export default function ChatSession() {
       {/* Header */}
       <div className="flex items-center px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-2 border-b border-gray-200/40">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/chat/messages", { replace: true })}
           className="mr-3 rounded-full p-1.5 active:bg-black/5"
         >
           <ArrowLeft size={22} />
@@ -337,7 +337,7 @@ export default function ChatSession() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="输入消息..."
             rows={1}
-            className="flex-1 rounded-2xl border border-gray-200 px-3.5 py-2 text-sm outline-none resize-none max-h-24 overflow-y-auto"
+            className="flex-1 rounded-2xl border border-gray-200 px-3.5 py-2 text-base outline-none resize-none max-h-24 overflow-y-auto"
             style={{
               height: Math.min(24 + input.split("\n").length * 20, 96),
             }}
