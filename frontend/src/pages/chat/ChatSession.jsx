@@ -1050,15 +1050,14 @@ export default function ChatSession() {
 
   const formatMsgTime = (ts) => {
     const d = new Date(ts);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const time = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-    if (diffMs > 24 * 60 * 60 * 1000) {
-      const month = d.getMonth() + 1;
-      const day = d.getDate();
-      return `${month}月${day}日 ${time}`;
-    }
-    return time;
+    return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  };
+
+  // Get date string (YYYY.MM.DD) for a timestamp, used for date dividers
+  const getMsgDateStr = (ts) => {
+    if (!ts) return null;
+    const d = new Date(ts);
+    return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
   };
 
   const moodIcon = currentMood || "calm";
@@ -1335,7 +1334,25 @@ export default function ChatSession() {
         {messages.map((msg, i) => {
           // Skip empty/EMPTY assistant messages (including empty tool-call intermediates)
           if (isEmptyAssistant(msg)) return null;
+          // Date divider — show when date changes between visible messages
+          const curDate = getMsgDateStr(msg.created_at);
+          const prevDate = (() => {
+            for (let j = i - 1; j >= 0; j--) {
+              if (isEmptyAssistant(messages[j])) continue;
+              return getMsgDateStr(messages[j].created_at);
+            }
+            return null;
+          })();
+          const showDateDivider = curDate && curDate !== prevDate;
           // System notification — centered inset style
+          // Date divider element
+          const dateDividerEl = showDateDivider ? (
+            <div className="flex items-center my-4" style={{ userSelect: "none", WebkitUserSelect: "none" }}>
+              <div className="flex-1" style={{ height: 1, background: "linear-gradient(to right, transparent, rgba(176,160,184,0.35), rgba(176,160,184,0.35))" }} />
+              <span className="px-3" style={{ fontSize: 11, color: "#b0a0b8", whiteSpace: "nowrap" }}>{curDate}</span>
+              <div className="flex-1" style={{ height: 1, background: "linear-gradient(to left, transparent, rgba(176,160,184,0.35), rgba(176,160,184,0.35))" }} />
+            </div>
+          ) : null;
           if (msg.role === "system") {
             // Friendly display for mood change messages
             let displayText = msg.content;
@@ -1344,7 +1361,9 @@ export default function ChatSession() {
               displayText = `已更改心情为：${moodMatch[1]}`;
             }
             return (
-              <div key={msg.id || i} id={`msg-${msg.id}`} className="mb-3 flex justify-center">
+              <React.Fragment key={msg.id || i}>
+              {dateDividerEl}
+              <div id={`msg-${msg.id}`} className="mb-3 flex justify-center">
                 <span
                   onTouchStart={(e) => startLongPress(e, msg)}
                   onTouchEnd={cancelLongPress}
@@ -1365,6 +1384,7 @@ export default function ChatSession() {
                   {displayText}
                 </span>
               </div>
+              </React.Fragment>
             );
           }
           const isUser = msg.role === "user";
@@ -1379,14 +1399,16 @@ export default function ChatSession() {
             return true;
           })();
           return (
-            <div key={msg.id || i} id={`msg-${msg.id}`} className={`${showAvatar ? "mt-3" : "mt-0.5"} relative animate-bubble`}>
+            <React.Fragment key={msg.id || i}>
+            {dateDividerEl}
+            <div id={`msg-${msg.id}`} className={`${showAvatar ? "mt-4" : "mt-1"} relative animate-bubble`}>
               {/* Avatar row — only when showAvatar */}
               {showAvatar && (
                 <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1`}>
                   {!isUser && (
                     <div className="shrink-0 flex items-center justify-center overflow-hidden"
                       style={{
-                        width: 36, height: 36, borderRadius: 12,
+                        width: 42, height: 42, borderRadius: 13,
                         background: "linear-gradient(135deg, #ffd1e8, #e8d1ff)",
                         border: "2px solid #ffb8d9",
                       }}
@@ -1394,14 +1416,14 @@ export default function ChatSession() {
                       {assistantAvatar ? (
                         <img src={assistantAvatar} alt="AI" className="h-full w-full object-cover" />
                       ) : (
-                        <span style={{ fontSize: 12, color: "#7a5080", fontWeight: 600 }}>AI</span>
+                        <span style={{ fontSize: 13, color: "#7a5080", fontWeight: 600 }}>AI</span>
                       )}
                     </div>
                   )}
                   {isUser && (
                     <div className="shrink-0 flex items-center justify-center overflow-hidden"
                       style={{
-                        width: 36, height: 36, borderRadius: 12,
+                        width: 42, height: 42, borderRadius: 13,
                         background: "linear-gradient(135deg, #fff0d0, #ffe0eb)",
                         border: "2px solid #ffc8a0",
                       }}
@@ -1409,7 +1431,7 @@ export default function ChatSession() {
                       {userAvatar ? (
                         <img src={userAvatar} alt="me" className="h-full w-full object-cover" />
                       ) : (
-                        <span style={{ fontSize: 12, color: "#8a6040", fontWeight: 600 }}>我</span>
+                        <span style={{ fontSize: 13, color: "#8a6040", fontWeight: 600 }}>我</span>
                       )}
                     </div>
                   )}
@@ -1436,7 +1458,7 @@ export default function ChatSession() {
                   onMouseLeave={cancelLongPress}
                   onContextMenu={(e) => e.preventDefault()}
                   style={{
-                    maxWidth: "78%",
+                    maxWidth: "85%",
                     padding: "10px 14px",
                     borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
                     background: isUser
@@ -1487,6 +1509,7 @@ export default function ChatSession() {
                 </div>
               )}
             </div>
+            </React.Fragment>
           );
         })}
         <div ref={messagesEndRef} />
