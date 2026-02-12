@@ -172,8 +172,7 @@ export default function ChatSession() {
 
         setMessages((prev) => [...msgs, ...prev]);
       } else {
-        // Initial load - mark to scroll to bottom in useEffect
-        shouldScrollToBottomRef.current = true;
+        // Initial load - scroll flag already set in useEffect
         setMessages(msgs);
       }
     } catch (e) {
