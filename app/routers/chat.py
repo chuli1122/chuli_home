@@ -45,6 +45,9 @@ def _load_session_messages(db: Session, session_id: int) -> list[dict[str, Any]]
     )
     messages: list[dict[str, Any]] = [{"role": "system", "content": ""}]
     for m in db_msgs:
+        # Skip empty assistant messages (tool call artifacts without context)
+        if m.role == "assistant" and (not m.content or not m.content.strip()):
+            continue
         messages.append({
             "role": m.role,
             "content": m.content,
