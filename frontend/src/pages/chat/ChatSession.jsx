@@ -138,7 +138,7 @@ export default function ChatSession() {
       setLoading(true);
 
       let url = `/api/sessions/${id}/messages?limit=50`;
-      if (before) url += `&before=${before}`;
+      if (before) url += `&before_id=${before}`;
 
       const data = await apiFetch(url);
       const msgs = (data.messages || []).filter(
