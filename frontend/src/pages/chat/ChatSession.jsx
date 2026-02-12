@@ -1379,30 +1379,45 @@ export default function ChatSession() {
             return true;
           })();
           return (
-            <div key={msg.id || i} id={`msg-${msg.id}`} className={`${showAvatar ? "mt-3" : "mt-1"} relative`}>
-              <div className={`flex items-end ${isUser ? "justify-end" : "justify-start"} animate-bubble`}>
-                {/* AI avatar */}
-                {!isUser && (
-                  showAvatar ? (
-                    <div className="mr-2 shrink-0 flex items-center justify-center overflow-hidden"
+            <div key={msg.id || i} id={`msg-${msg.id}`} className={`${showAvatar ? "mt-3" : "mt-0.5"} relative animate-bubble`}>
+              {/* Avatar row — only when showAvatar */}
+              {showAvatar && (
+                <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1`}>
+                  {!isUser && (
+                    <div className="shrink-0 flex items-center justify-center overflow-hidden"
                       style={{
-                        width: 46, height: 46, borderRadius: 14,
+                        width: 36, height: 36, borderRadius: 12,
                         background: "linear-gradient(135deg, #ffd1e8, #e8d1ff)",
                         border: "2px solid #ffb8d9",
-                        alignSelf: "flex-start", marginTop: 2,
                       }}
                     >
                       {assistantAvatar ? (
                         <img src={assistantAvatar} alt="AI" className="h-full w-full object-cover" />
                       ) : (
-                        <span style={{ fontSize: 14, color: "#7a5080", fontWeight: 600 }}>AI</span>
+                        <span style={{ fontSize: 12, color: "#7a5080", fontWeight: 600 }}>AI</span>
                       )}
                     </div>
-                  ) : (
-                    <div className="mr-2 shrink-0" style={{ width: 46 }} />
-                  )
-                )}
-                {/* Timestamp on left side of user bubble */}
+                  )}
+                  {isUser && (
+                    <div className="shrink-0 flex items-center justify-center overflow-hidden"
+                      style={{
+                        width: 36, height: 36, borderRadius: 12,
+                        background: "linear-gradient(135deg, #fff0d0, #ffe0eb)",
+                        border: "2px solid #ffc8a0",
+                      }}
+                    >
+                      {userAvatar ? (
+                        <img src={userAvatar} alt="me" className="h-full w-full object-cover" />
+                      ) : (
+                        <span style={{ fontSize: 12, color: "#8a6040", fontWeight: 600 }}>我</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Bubble row — flush to edge, timestamp on opposite side */}
+              <div className={`flex items-end ${isUser ? "justify-end" : "justify-start"}`}>
+                {/* Timestamp on left of user bubble */}
                 {isUser && msg.created_at && (
                   <span className="shrink-0" style={{
                     fontSize: 10, color: "#c4a0b0", marginRight: 6, marginBottom: 2,
@@ -1412,46 +1427,40 @@ export default function ChatSession() {
                   </span>
                 )}
                 {/* Bubble */}
-                <div style={{ maxWidth: "72%", marginTop: 6 }}>
-                  <div
-                    onTouchStart={(e) => startLongPress(e, msg)}
-                    onTouchEnd={cancelLongPress}
-                    onTouchMove={cancelLongPress}
-                    onMouseDown={(e) => startLongPress(e, msg)}
-                    onMouseUp={cancelLongPress}
-                    onMouseLeave={cancelLongPress}
-                    onContextMenu={(e) => e.preventDefault()}
-                    style={isUser ? {
-                      padding: "10px 14px", borderRadius: "16px 4px 16px 16px",
-                      background: "linear-gradient(135deg, #ffe8f0, #ffddea)",
-                      border: "2px solid #ffb8d9", boxShadow: "2px 2px 0px #ffb8d9",
-                      fontSize: 14, lineHeight: 1.6, color: "#4a3548",
-                      wordBreak: "break-word",
-                      whiteSpace: "pre-wrap",
-                      userSelect: "none",
-                      WebkitUserSelect: "none",
-                    } : {
-                      padding: "10px 14px", borderRadius: "4px 16px 16px 16px",
-                      background: "linear-gradient(135deg, #fffef8, #fffaf0)",
-                      border: "2px solid #e8d1ff", boxShadow: "2px 2px 0px #e0d0f0",
-                      fontSize: 14, lineHeight: 1.6, color: "#4a3548",
-                      wordBreak: "break-word",
-                      whiteSpace: "pre-wrap",
-                      userSelect: "none",
-                      WebkitUserSelect: "none",
-                    }}
-                  >
-                    {msg.content ? (
-                      <MessageContent
-                        content={msg.content}
-                        isMarkdown={!isUser}
-                      />
-                    ) : (
-                      streaming && !isUser ? "..." : ""
-                    )}
-                  </div>
+                <div
+                  onTouchStart={(e) => startLongPress(e, msg)}
+                  onTouchEnd={cancelLongPress}
+                  onTouchMove={cancelLongPress}
+                  onMouseDown={(e) => startLongPress(e, msg)}
+                  onMouseUp={cancelLongPress}
+                  onMouseLeave={cancelLongPress}
+                  onContextMenu={(e) => e.preventDefault()}
+                  style={{
+                    maxWidth: "78%",
+                    padding: "10px 14px",
+                    borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
+                    background: isUser
+                      ? "linear-gradient(135deg, #ffe8f0, #ffddea)"
+                      : "linear-gradient(135deg, #fffef8, #fffaf0)",
+                    border: isUser ? "2px solid #ffb8d9" : "2px solid #e8d1ff",
+                    boxShadow: isUser ? "2px 2px 0px #ffb8d9" : "2px 2px 0px #e0d0f0",
+                    fontSize: 14, lineHeight: 1.6, color: "#4a3548",
+                    wordBreak: "break-word",
+                    whiteSpace: "pre-wrap",
+                    userSelect: "none",
+                    WebkitUserSelect: "none",
+                  }}
+                >
+                  {msg.content ? (
+                    <MessageContent
+                      content={msg.content}
+                      isMarkdown={!isUser}
+                    />
+                  ) : (
+                    streaming && !isUser ? "..." : ""
+                  )}
                 </div>
-                {/* Timestamp on right side of AI bubble */}
+                {/* Timestamp on right of AI bubble */}
                 {!isUser && msg.created_at && (
                   <span className="shrink-0" style={{
                     fontSize: 10, color: "#c4a0b0", marginLeft: 6, marginBottom: 2,
@@ -1459,27 +1468,6 @@ export default function ChatSession() {
                   }}>
                     {formatMsgTime(msg.created_at)}
                   </span>
-                )}
-                {/* User avatar */}
-                {isUser && (
-                  showAvatar ? (
-                    <div className="ml-2 shrink-0 flex items-center justify-center overflow-hidden"
-                      style={{
-                        width: 46, height: 46, borderRadius: 14,
-                        background: "linear-gradient(135deg, #fff0d0, #ffe0eb)",
-                        border: "2px solid #ffc8a0",
-                        alignSelf: "flex-start", marginTop: 2,
-                      }}
-                    >
-                      {userAvatar ? (
-                        <img src={userAvatar} alt="me" className="h-full w-full object-cover" />
-                      ) : (
-                        <span style={{ fontSize: 14, color: "#8a6040", fontWeight: 600 }}>我</span>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="ml-2 shrink-0" style={{ width: 46 }} />
-                  )
                 )}
               </div>
               {/* Cat paw locate indicator */}
