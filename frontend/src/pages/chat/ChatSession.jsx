@@ -71,6 +71,7 @@ export default function ChatSession() {
   const scrollRestoreRef = useRef(null);
   const shouldScrollToBottomRef = useRef(false);
   const scrollTimerRef = useRef(null);
+  const streamAutoScrollRef = useRef(true);
 
   // Mood
   const [currentMood, setCurrentMood] = useState(null);
@@ -350,31 +351,25 @@ export default function ChatSession() {
     return () => clearTimeout(timer);
   }, [searchQuery, showSearch]);
 
-  // Scroll handler: load more + show/hide scroll-to-bottom
+  // Scroll handler: load more + show/hide scroll-to-bottom + streaming sticky scroll
   const handleScroll = () => {
     const el = messagesContainerRef.current;
     if (!el) return;
 
-    // Show scroll to bottom button while scrolling (if not at bottom)
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+
+    // During streaming: track whether user scrolled away from bottom
+    if (streaming) {
+      streamAutoScrollRef.current = nearBottom;
+    }
+
     if (!nearBottom) {
       setShowScrollBtn(true);
-
-      // Clear existing timer
-      if (scrollTimerRef.current) {
-        clearTimeout(scrollTimerRef.current);
-      }
-
-      // Hide button after scrolling stops (1 second)
-      scrollTimerRef.current = setTimeout(() => {
-        setShowScrollBtn(false);
-      }, 1000);
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current = setTimeout(() => setShowScrollBtn(false), 1000);
     } else {
-      // At bottom - hide button immediately
       setShowScrollBtn(false);
-      if (scrollTimerRef.current) {
-        clearTimeout(scrollTimerRef.current);
-      }
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     }
 
     // Load more when scrolled to top
@@ -633,6 +628,7 @@ export default function ChatSession() {
     setTimeout(() => scrollToBottomAuto(), 50);
 
     setStreaming(true);
+    streamAutoScrollRef.current = true;
     streamContentRef.current = "";
     const aiMsgId = Date.now() + 1;
     setMessages((prev) => [
@@ -653,6 +649,7 @@ export default function ChatSession() {
                 m.id === aiMsgId ? { ...m, content: streamContentRef.current } : m
               )
             );
+            if (streamAutoScrollRef.current) scrollToBottomAuto();
           }
         },
         () => {
@@ -683,12 +680,14 @@ export default function ChatSession() {
   const receiveNormal = async () => {
     if (streaming || loading) return;
     setStreaming(true);
+    streamAutoScrollRef.current = true;
     streamContentRef.current = "";
     const aiMsgId = Date.now() + 1;
     setMessages((prev) => [
       ...prev,
       { id: aiMsgId, role: "assistant", content: "", created_at: new Date().toISOString() },
     ]);
+    setTimeout(() => scrollToBottomAuto(), 50);
 
     try {
       await apiSSE(
@@ -702,6 +701,7 @@ export default function ChatSession() {
                 m.id === aiMsgId ? { ...m, content: streamContentRef.current } : m
               )
             );
+            if (streamAutoScrollRef.current) scrollToBottomAuto();
           }
         },
         () => {
@@ -937,12 +937,14 @@ export default function ChatSession() {
 
     // Request new AI reply
     setStreaming(true);
+    streamAutoScrollRef.current = true;
     streamContentRef.current = "";
     const aiMsgId = Date.now();
     setMessages((prev) => [
       ...prev,
       { id: aiMsgId, role: "assistant", content: "", created_at: new Date().toISOString() },
     ]);
+    setTimeout(() => scrollToBottomAuto(), 50);
 
     try {
       await apiSSE(
@@ -956,6 +958,7 @@ export default function ChatSession() {
                 m.id === aiMsgId ? { ...m, content: streamContentRef.current } : m
               )
             );
+            if (streamAutoScrollRef.current) scrollToBottomAuto();
           }
         },
         () => {
