@@ -1347,24 +1347,37 @@ export default function ChatSession() {
           }
           const isUser = msg.role === "user";
           const showPaw = pawIndicator && pawIndicator.msgId === msg.id;
+          // Show avatar only on first message in a consecutive run from the same role
+          const showAvatar = (() => {
+            for (let j = i - 1; j >= 0; j--) {
+              const prev = messages[j];
+              if (isEmptyAssistant(prev) || prev.role === "system") continue;
+              return prev.role !== msg.role;
+            }
+            return true;
+          })();
           return (
-            <div key={msg.id || i} id={`msg-${msg.id}`} className="mb-3 relative">
+            <div key={msg.id || i} id={`msg-${msg.id}`} className={`${showAvatar ? "mt-3" : "mt-1"} relative`}>
               <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-bubble`}>
                 {/* AI avatar */}
                 {!isUser && (
-                  <div className="mr-2 shrink-0 mt-0.5 flex items-center justify-center overflow-hidden"
-                    style={{
-                      width: 46, height: 46, borderRadius: 14,
-                      background: "linear-gradient(135deg, #ffd1e8, #e8d1ff)",
-                      border: "2px solid #ffb8d9",
-                    }}
-                  >
-                    {assistantAvatar ? (
-                      <img src={assistantAvatar} alt="AI" className="h-full w-full object-cover" />
-                    ) : (
-                      <span style={{ fontSize: 14, color: "#7a5080", fontWeight: 600 }}>AI</span>
-                    )}
-                  </div>
+                  showAvatar ? (
+                    <div className="mr-2 shrink-0 mt-0.5 flex items-center justify-center overflow-hidden"
+                      style={{
+                        width: 46, height: 46, borderRadius: 14,
+                        background: "linear-gradient(135deg, #ffd1e8, #e8d1ff)",
+                        border: "2px solid #ffb8d9",
+                      }}
+                    >
+                      {assistantAvatar ? (
+                        <img src={assistantAvatar} alt="AI" className="h-full w-full object-cover" />
+                      ) : (
+                        <span style={{ fontSize: 14, color: "#7a5080", fontWeight: 600 }}>AI</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mr-2 shrink-0" style={{ width: 46 }} />
+                  )
                 )}
                 {/* Bubble + timestamp column */}
                 <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start", marginTop: 6 }}>
@@ -1421,19 +1434,23 @@ export default function ChatSession() {
                 </div>
                 {/* User avatar */}
                 {isUser && (
-                  <div className="ml-2 shrink-0 mt-0.5 flex items-center justify-center overflow-hidden"
-                    style={{
-                      width: 46, height: 46, borderRadius: 14,
-                      background: "linear-gradient(135deg, #fff0d0, #ffe0eb)",
-                      border: "2px solid #ffc8a0",
-                    }}
-                  >
-                    {userAvatar ? (
-                      <img src={userAvatar} alt="me" className="h-full w-full object-cover" />
-                    ) : (
-                      <span style={{ fontSize: 14, color: "#8a6040", fontWeight: 600 }}>我</span>
-                    )}
-                  </div>
+                  showAvatar ? (
+                    <div className="ml-2 shrink-0 mt-0.5 flex items-center justify-center overflow-hidden"
+                      style={{
+                        width: 46, height: 46, borderRadius: 14,
+                        background: "linear-gradient(135deg, #fff0d0, #ffe0eb)",
+                        border: "2px solid #ffc8a0",
+                      }}
+                    >
+                      {userAvatar ? (
+                        <img src={userAvatar} alt="me" className="h-full w-full object-cover" />
+                      ) : (
+                        <span style={{ fontSize: 14, color: "#8a6040", fontWeight: 600 }}>我</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="ml-2 shrink-0" style={{ width: 46 }} />
+                  )
                 )}
               </div>
               {/* Cat paw locate indicator */}
