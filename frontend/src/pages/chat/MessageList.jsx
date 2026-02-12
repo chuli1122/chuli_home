@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import { apiFetch } from "../../utils/api";
+import { loadImageUrl } from "../../utils/db";
 import Modal from "../../components/Modal";
 import ConfirmModal from "../../components/ConfirmModal";
 
@@ -104,6 +105,7 @@ export default function MessageList() {
   const location = useLocation();
   const [sessions, setSessions] = useState([]);
   const [previews, setPreviews] = useState({});
+  const [avatarUrls, setAvatarUrls] = useState({});
   const [loading, setLoading] = useState(true);
 
   const [assistants, setAssistants] = useState([]);
@@ -126,17 +128,31 @@ export default function MessageList() {
       );
       setSessions(list);
       const previewMap = {};
+      const avatarMap = {};
       await Promise.all(
         list.map(async (s) => {
           try {
+            // Load message preview
             const msgData = await apiFetch(`/api/sessions/${s.id}/messages?limit=10`);
             const msgs = msgData.messages || [];
             // Messages are in ascending order (oldest first), so get the last one
             if (msgs.length > 0) previewMap[s.id] = msgs[msgs.length - 1];
+
+            // Load assistant avatar for single chat
+            if (s.assistant_id && s.type === 'chat') {
+              try {
+                const assistantData = await apiFetch(`/api/assistants/${s.assistant_id}`);
+                if (assistantData.avatar_url) {
+                  const url = await loadImageUrl(assistantData.avatar_url);
+                  if (url) avatarMap[s.id] = url;
+                }
+              } catch {}
+            }
           } catch {}
         })
       );
       setPreviews(previewMap);
+      setAvatarUrls(avatarMap);
     } catch (e) {
       console.error("Failed to load sessions", e);
     }
@@ -254,6 +270,7 @@ export default function MessageList() {
         <div className="flex flex-col gap-3">
           {sessions.map((s) => {
             const preview = previews[s.id];
+            const avatarUrl = avatarUrls[s.id];
             const readTime = getReadTime(s.id);
             const hasUnread = s.updated_at && new Date(s.updated_at).getTime() > readTime;
             return (
@@ -270,10 +287,14 @@ export default function MessageList() {
                   onContextMenu={(e) => e.preventDefault()}
                 >
                   <div
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full overflow-hidden text-[15px] font-medium"
                     style={{ background: "var(--chat-input-bg)", color: "var(--chat-accent-dark)" }}
                   >
-                    {(s.title || "?")[0]}
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span>{(s.title || "?")[0]}</span>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
