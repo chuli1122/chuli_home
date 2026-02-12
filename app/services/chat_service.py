@@ -941,13 +941,10 @@ class ChatService:
                 full_system_prompt += recall_text
         if short_mode:
             full_system_prompt += (
-                "\n\n[Short message mode]\n"
-                "The user is sending short messages like texting. "
-                "Reply in short, casual chat-style messages. "
-                "If you want to send multiple messages, separate them with [NEXT] on its own line. "
-                "Each segment should be a short standalone message (1-2 sentences max). "
-                "Do NOT use [NEXT] if a single short reply is enough. "
-                "Keep the tone natural, like real-time chatting."
+                "\n\n[短消息模式]\n"
+                "像真人发微信一样回复。用多条短消息，每条一个想法或一句话。"
+                "可以很短（一个字、一个标点都行），可以中途补充，语气自然口语化。"
+                "不需要完整句子，不需要Markdown。用[NEXT]分隔每条消息。"
             )
         save_memory_description = (
             "Actively store long-term useful information. Use content for memory text and klass for category: identity, relationship, bond, conflict, fact, preference, health, task, ephemeral, other."
