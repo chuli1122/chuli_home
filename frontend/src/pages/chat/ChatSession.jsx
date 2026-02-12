@@ -163,11 +163,14 @@ export default function ChatSession() {
 
         setMessages((prev) => [...msgs, ...prev]);
 
-        // Restore position after render
+        // Double requestAnimationFrame to ensure DOM is fully updated
         requestAnimationFrame(() => {
-          if (el) {
-            el.scrollTop = savedScrollTop + (el.scrollHeight - savedScrollHeight);
-          }
+          requestAnimationFrame(() => {
+            if (el) {
+              const newScrollTop = savedScrollTop + (el.scrollHeight - savedScrollHeight);
+              el.scrollTop = newScrollTop;
+            }
+          });
         });
       } else {
         // Initial load - scroll to bottom after messages load

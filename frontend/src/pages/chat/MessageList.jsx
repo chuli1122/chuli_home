@@ -129,9 +129,10 @@ export default function MessageList() {
       await Promise.all(
         list.map(async (s) => {
           try {
-            const msgData = await apiFetch(`/api/sessions/${s.id}/messages?limit=1`);
+            const msgData = await apiFetch(`/api/sessions/${s.id}/messages?limit=10`);
             const msgs = msgData.messages || [];
-            if (msgs.length > 0) previewMap[s.id] = msgs[0];
+            // Messages are in ascending order (oldest first), so get the last one
+            if (msgs.length > 0) previewMap[s.id] = msgs[msgs.length - 1];
           } catch {}
         })
       );
