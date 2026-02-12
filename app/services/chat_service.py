@@ -789,30 +789,32 @@ class ChatService:
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
         while pending_tool_calls:
-            tool_call = pending_tool_calls.pop(0)
-            tool_name = tool_call.name
-            if tool_name in self.interactive_tools and event_callback:
-                display_name = self.tool_display_names.get(tool_name, tool_name)
-                sanitized_args = self._sanitize_tool_args(tool_call)
-                event_callback(
+            # Execute ALL tool calls in this batch before calling the API again
+            for tool_call in pending_tool_calls:
+                tool_name = tool_call.name
+                if tool_name in self.interactive_tools and event_callback:
+                    display_name = self.tool_display_names.get(tool_name, tool_name)
+                    sanitized_args = self._sanitize_tool_args(tool_call)
+                    event_callback(
+                        {
+                            "event": "tool_call_start",
+                            "display_name": display_name,
+                            "tool_name": tool_name,
+                            "arguments": sanitized_args,
+                        }
+                    )
+                self._persist_tool_call(session_id, tool_call)
+                tool_result = self._execute_tool(tool_call)
+                messages.append(
                     {
-                        "event": "tool_call_start",
-                        "display_name": display_name,
-                        "tool_name": tool_name,
-                        "arguments": sanitized_args,
+                        "role": "tool",
+                        "name": tool_name,
+                        "content": json.dumps(tool_result, ensure_ascii=False),
+                        "tool_call_id": tool_call.id,
                     }
                 )
-            self._persist_tool_call(session_id, tool_call)
-            tool_result = self._execute_tool(tool_call)
-            messages.append(
-                {
-                    "role": "tool",
-                    "name": tool_name,
-                    "content": json.dumps(tool_result, ensure_ascii=False),
-                    "tool_call_id": tool_call.id,
-                }
-            )
-            self._persist_tool_result(session_id, tool_name, tool_result)
+                self._persist_tool_result(session_id, tool_name, tool_result)
+            # All tool results added, now call API again for next response
             pending_tool_calls = list(self._fetch_next_tool_calls(messages, session_id))
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
