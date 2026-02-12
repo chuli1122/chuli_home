@@ -212,10 +212,23 @@ export default function ChatSession() {
       const { savedScrollHeight, savedScrollTop } = scrollRestoreRef.current;
       const el = messagesContainerRef.current;
 
-      // Use requestAnimationFrame to ensure layout is complete
+      // Use multiple RAF to ensure rendering is complete
       requestAnimationFrame(() => {
-        const newScrollTop = savedScrollTop + (el.scrollHeight - savedScrollHeight);
-        el.scrollTop = newScrollTop;
+        requestAnimationFrame(() => {
+          const newScrollTop = savedScrollTop + (el.scrollHeight - savedScrollHeight);
+          el.scrollTop = newScrollTop;
+
+          // Force repaint by reading layout properties
+          void el.offsetHeight;
+
+          // Micro-adjust to trigger render
+          requestAnimationFrame(() => {
+            el.scrollTop = newScrollTop + 1;
+            requestAnimationFrame(() => {
+              el.scrollTop = newScrollTop;
+            });
+          });
+        });
       });
 
       // Clear the restore flag
