@@ -250,8 +250,8 @@ export default function ChatSession() {
 
       // Clear the restore flag
       scrollRestoreRef.current = null;
-    } else if (shouldScrollToBottomRef.current) {
-      // Scroll to bottom on initial load
+    } else if (shouldScrollToBottomRef.current && messages.length > 0) {
+      // Scroll to bottom on initial load (only if there are messages)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           el.scrollTop = el.scrollHeight;
