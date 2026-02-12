@@ -75,13 +75,18 @@ async def chat_completions(
     # Build messages list
     if payload.message is not None:
         messages = _load_session_messages(db, payload.session_id)
-        messages.append({"role": "user", "content": payload.message})
+        # Only append non-empty user messages (empty = receive mode)
+        if isinstance(payload.message, list) or (payload.message and payload.message.strip()):
+            messages.append({"role": "user", "content": payload.message})
     elif payload.messages and any(m.get("role") == "system" for m in payload.messages):
         messages = payload.messages
     else:
         messages = _load_session_messages(db, payload.session_id)
         for m in payload.messages:
-            messages.append({"role": "user", "content": m.get("content", "")})
+            content = m.get("content", "")
+            # Only append non-empty user messages (empty = receive mode)
+            if isinstance(content, list) or (content and content.strip()):
+                messages.append({"role": "user", "content": content})
 
     if payload.stream:
         def generate():

@@ -1002,7 +1002,7 @@ export default function ChatSession() {
     if (loading) return;
     setLoading(true);
     try {
-      const msgsToSend = pendingMessages.length > 0 ? pendingMessages : [{ role: "user", content: "" }];
+      const msgsToSend = pendingMessages.length > 0 ? pendingMessages : [];
       const body = { session_id: Number(id), stream: false, messages: msgsToSend, short_mode: true };
       const data = await apiFetch("/api/chat/completions", {
         method: "POST",
@@ -1010,38 +1010,43 @@ export default function ChatSession() {
       });
       setPendingMessages([]);
       const responseMessages = data.messages || [];
-      // Prefer NEW assistant messages (no DB id, no tool_calls) to avoid repeating old ones
-      let reply = responseMessages
-        .filter((m) => m.role === "assistant" && !m.id && m.content && !m.tool_calls)
-        .pop();
-      // Fallback: if filter found nothing, use last assistant but check it's not a repeat
-      if (!reply) {
+      // Collect ALL new assistant messages (no DB id, no tool_calls)
+      let replies = responseMessages.filter(
+        (m) => m.role === "assistant" && !m.id && m.content && !m.tool_calls
+      );
+      // Fallback: last assistant message that's not a repeat
+      if (replies.length === 0) {
         const candidate = responseMessages
           .filter((m) => m.role === "assistant" && m.content)
           .pop();
         const localLast = messages.filter((m) => m.role === "assistant").pop();
         if (candidate && (!localLast || candidate.content !== localLast.content)) {
-          reply = candidate;
+          replies = [candidate];
         }
       }
-      if (reply && reply.content) {
-        const parts = reply.content.split("[NEXT]").filter(Boolean);
-        for (let i = 0; i < parts.length; i++) {
-          await new Promise((r) => setTimeout(r, i === 0 ? 0 : 1500));
-          const clean = parts[i].replace(/\[\[used:\d+\]\]/g, "").trim();
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: Date.now() + i,
-              role: "assistant",
-              content: clean,
-              created_at: new Date().toISOString(),
-            },
-          ]);
-          setTimeout(() => scrollToBottomAuto(), 50);
+      // Display each reply with delay, also handle any remaining [NEXT] splits
+      const allParts = [];
+      for (const r of replies) {
+        const parts = r.content.split("[NEXT]").filter(Boolean);
+        for (const p of parts) {
+          const clean = p.replace(/\[\[used:\d+\]\]/g, "").trim();
+          if (clean) allParts.push(clean);
         }
-        updateReadTime();
       }
+      for (let i = 0; i < allParts.length; i++) {
+        await new Promise((r) => setTimeout(r, i === 0 ? 0 : 1500));
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + i,
+            role: "assistant",
+            content: allParts[i],
+            created_at: new Date().toISOString(),
+          },
+        ]);
+        setTimeout(() => scrollToBottomAuto(), 50);
+      }
+      if (allParts.length > 0) updateReadTime();
     } catch (e) {
       console.error("Collect send failed", e);
     }
