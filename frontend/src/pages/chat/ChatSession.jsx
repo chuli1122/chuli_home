@@ -254,12 +254,9 @@ export default function ChatSession() {
       // Scroll to bottom on initial load (only if there are messages)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // Try scrollIntoView on the last message for more reliable scrolling
-          if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
-          } else {
-            el.scrollTop = el.scrollHeight;
-          }
+          el.scrollTop = el.scrollHeight;
+          // Force repaint
+          void el.offsetHeight;
         });
       });
 
