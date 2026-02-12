@@ -61,6 +61,8 @@ export default function ChatSession() {
   const [showStickerPanel, setShowStickerPanel] = useState(false);
   const [stickers, setStickers] = useState([]);
   const [stickerUrls, setStickerUrls] = useState({});
+  const [deletingSticker, setDeletingSticker] = useState(null); // key of sticker showing delete bubble
+  const [stickerDeleteConfirm, setStickerDeleteConfirm] = useState(false); // whether in confirm state
 
   // Attachments
   const [attachments, setAttachments] = useState([]);
@@ -129,6 +131,14 @@ export default function ChatSession() {
     };
     loadSession();
   }, [id]);
+
+  // Reset delete state when sticker panel closes
+  useEffect(() => {
+    if (!showStickerPanel) {
+      setDeletingSticker(null);
+      setStickerDeleteConfirm(false);
+    }
+  }, [showStickerPanel]);
 
   // Load messages
   const loadMessages = useCallback(async (before = null) => {
@@ -407,6 +417,11 @@ export default function ChatSession() {
       setAttachments((prev) => [...prev, { type: "sticker", key: stickerKey, url }]);
     }
     setShowStickerPanel(false);
+  };
+
+  const handleRemoveSticker = async (stickerKey) => {
+    await removeSticker(stickerKey);
+    loadStickers();
   };
 
   // Attachments
@@ -1143,7 +1158,7 @@ export default function ChatSession() {
       {/* Sticker Panel */}
       {showStickerPanel && (
         <div
-          className="animate-slide-up rounded-t-2xl"
+          className="animate-slide-up rounded-t-2xl relative"
           style={{ background: "var(--chat-card-bg)", maxHeight: 280 }}
         >
           <div className="flex items-center justify-between px-4 py-2">
@@ -1152,11 +1167,12 @@ export default function ChatSession() {
               <X size={18} style={{ color: "var(--chat-text-muted)" }} />
             </button>
           </div>
-          <div className="sticker-grid overflow-y-auto px-2 pb-2" style={{ maxHeight: 220 }}>
-            {/* Add button */}
+          <div style={{ height: 200, overflowY: "auto", padding: "0 8px" }}>
+            <div className="sticker-grid" style={{ padding: 8 }}>
+            {/* Add button - square */}
             <button
               onClick={() => stickerInputRef.current?.click()}
-              className="flex h-16 w-full items-center justify-center rounded-xl"
+              className="flex aspect-square h-auto w-full items-center justify-center rounded-xl"
               style={{ background: "var(--chat-input-bg)", border: "1px dashed var(--chat-accent)" }}
             >
               <Plus size={22} style={{ color: "var(--chat-accent-dark)" }} />
@@ -1165,16 +1181,92 @@ export default function ChatSession() {
             {stickers.map((s) => (
               <button
                 key={s.key}
-                onClick={() => selectSticker(s.key)}
-                className="h-16 w-full rounded-xl overflow-hidden active:scale-90 transition"
-                style={{ background: "var(--chat-input-bg)" }}
+                onClick={() => {
+                  if (deletingSticker === s.key) return;
+                  if (deletingSticker) {
+                    setDeletingSticker(null);
+                    setStickerDeleteConfirm(false);
+                    return;
+                  }
+                  selectSticker(s.key);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDeletingSticker(s.key);
+                  setStickerDeleteConfirm(false);
+                }}
+                onTouchStart={(e) => {
+                  const timer = setTimeout(() => {
+                    setDeletingSticker(s.key);
+                    setStickerDeleteConfirm(false);
+                  }, 500);
+                  e.currentTarget.dataset.timer = timer;
+                }}
+                onTouchEnd={(e) => {
+                  clearTimeout(e.currentTarget.dataset.timer);
+                }}
+                onTouchMove={(e) => {
+                  clearTimeout(e.currentTarget.dataset.timer);
+                }}
+                className="aspect-square h-auto w-full rounded-xl overflow-hidden active:scale-90 transition"
+                style={{ background: "var(--chat-input-bg)", WebkitTouchCallout: "none" }}
               >
                 {stickerUrls[s.key] && (
-                  <img src={stickerUrls[s.key]} alt="" className="h-full w-full object-contain" />
+                  <img
+                    src={stickerUrls[s.key]}
+                    alt=""
+                    className="h-full w-full object-contain pointer-events-none select-none"
+                    style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
+                    draggable={false}
+                  />
                 )}
               </button>
             ))}
+            </div>
           </div>
+          {/* Delete bubble - outside scroll container */}
+          {deletingSticker && (
+            <div className="absolute top-14 left-1/2 -translate-x-1/2 flex gap-2" style={{ zIndex: 9999 }}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (stickerDeleteConfirm) {
+                    handleRemoveSticker(deletingSticker);
+                    setDeletingSticker(null);
+                    setStickerDeleteConfirm(false);
+                  } else {
+                    setStickerDeleteConfirm(true);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap"
+                style={{
+                  background: stickerDeleteConfirm ? "#ef4444" : "#e8a0b8",
+                  color: "#ffffff",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                  border: "2px solid #ffffff",
+                }}
+              >
+                {stickerDeleteConfirm ? "确认删除" : "删除"}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeletingSticker(null);
+                  setStickerDeleteConfirm(false);
+                }}
+                className="px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap"
+                style={{
+                  background: "#9ca3af",
+                  color: "#ffffff",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                  border: "2px solid #ffffff",
+                }}
+              >
+                取消
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1205,21 +1297,23 @@ export default function ChatSession() {
 
         {/* Attachment previews */}
         {attachments.length > 0 && (
-          <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
+          <div className="flex gap-2 mb-2 overflow-x-auto py-2">
             {attachments.map((att, i) => (
-              <div key={i} className="relative shrink-0 rounded-xl overflow-hidden" style={{ background: "var(--chat-input-bg)" }}>
-                {(att.type === "image" || att.type === "sticker") ? (
-                  <img src={att.url} alt="" className="h-12 w-12 object-cover rounded-xl" />
-                ) : (
-                  <div className="flex items-center gap-1 px-2 py-2 text-[10px]" style={{ color: "var(--chat-text)" }}>
-                    <File size={12} />
-                    <span className="max-w-[60px] truncate">{att.name}</span>
-                  </div>
-                )}
+              <div key={i} className="relative shrink-0" style={{ width: 88, height: 88 }}>
+                <div className="w-full h-full rounded-xl overflow-hidden" style={{ background: "var(--chat-input-bg)" }}>
+                  {(att.type === "image" || att.type === "sticker") ? (
+                    <img src={att.url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-1 w-full h-full px-2 text-xs" style={{ color: "var(--chat-text)" }}>
+                      <File size={20} />
+                      <span className="w-full text-center truncate text-[10px]">{att.name}</span>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={() => removeAttachment(i)}
-                  className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-white text-[10px]"
-                  style={{ background: "var(--chat-accent-dark)" }}
+                  className="absolute -top-2 -right-2 flex h-7 w-7 items-center justify-center rounded-full text-white text-base font-medium"
+                  style={{ background: "var(--chat-accent-dark)", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }}
                 >
                   ×
                 </button>

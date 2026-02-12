@@ -261,6 +261,12 @@ input, textarea {
   padding: 8px;
 }
 
+.sticker-grid > button {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  height: auto;
+}
+
 /* Toolbar panel icons */
 .toolbar-icon-btn {
   display: flex;
