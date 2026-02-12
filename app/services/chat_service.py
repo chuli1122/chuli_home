@@ -773,12 +773,13 @@ class ChatService:
         event_callback: Callable[[dict[str, Any]], None] | None = None,
         background_tasks: BackgroundTasks | None = None,
     ) -> list[dict[str, Any]]:
-        if messages:
-            last_message = messages[-1]
-            user_content = last_message.get("content", "")
-            has_content = bool(user_content) if isinstance(user_content, list) else bool(user_content and user_content.strip())
-            if last_message.get("role") == "user" and has_content:
-                self._persist_message(session_id, "user", user_content, {})
+        # Persist all NEW user messages (those without a DB id)
+        for msg in messages:
+            if msg.get("role") == "user" and not msg.get("id"):
+                user_content = msg.get("content", "")
+                has_content = bool(user_content) if isinstance(user_content, list) else bool(user_content and user_content.strip())
+                if has_content:
+                    self._persist_message(session_id, "user", user_content, {})
         all_trimmed_messages: list[dict[str, Any]] = []
         all_trimmed_message_ids: list[int] = []
         if tool_calls:
@@ -1206,7 +1207,11 @@ class ChatService:
         user_profile = self.db.query(UserProfile).first()
         user_name = user_profile.nickname if user_profile else "??"
         user_info = user_profile.basic_info if user_profile else ""
-        assistant = self.db.query(Assistant).first()
+        session = self.db.get(ChatSession, session_id)
+        if session and session.assistant_id:
+            assistant = self.db.get(Assistant, session.assistant_id)
+        else:
+            assistant = self.db.query(Assistant).first()
         if not assistant:
             return []
         model_preset = self.db.get(ModelPreset, assistant.model_preset_id)

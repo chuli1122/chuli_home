@@ -970,29 +970,37 @@ export default function ChatSession() {
     };
     setMessages((prev) => [...prev, userMsg]);
     setPendingMessages((prev) => [...prev, { role: "user", content: text }]);
+    setTimeout(() => scrollToBottomAuto(), 50);
   };
 
   const collectAndSend = async () => {
     if (loading) return;
+    if (pendingMessages.length === 0) return;
     setLoading(true);
     try {
-      const body = { session_id: Number(id), stream: false };
-      if (pendingMessages.length > 0) {
-        body.messages = pendingMessages;
-      } else {
-        body.message = "";
-      }
+      const body = { session_id: Number(id), stream: false, messages: pendingMessages };
       const data = await apiFetch("/api/chat/completions", {
         method: "POST",
         body,
       });
       setPendingMessages([]);
       const responseMessages = data.messages || [];
-      const lastAssistant = responseMessages
-        .filter((m) => m.role === "assistant")
+      // Prefer NEW assistant messages (no DB id, no tool_calls) to avoid repeating old ones
+      let reply = responseMessages
+        .filter((m) => m.role === "assistant" && !m.id && m.content && !m.tool_calls)
         .pop();
-      if (lastAssistant && lastAssistant.content) {
-        const parts = lastAssistant.content.split("[NEXT]").filter(Boolean);
+      // Fallback: if filter found nothing, use last assistant but check it's not a repeat
+      if (!reply) {
+        const candidate = responseMessages
+          .filter((m) => m.role === "assistant" && m.content)
+          .pop();
+        const localLast = messages.filter((m) => m.role === "assistant").pop();
+        if (candidate && (!localLast || candidate.content !== localLast.content)) {
+          reply = candidate;
+        }
+      }
+      if (reply && reply.content) {
+        const parts = reply.content.split("[NEXT]").filter(Boolean);
         for (let i = 0; i < parts.length; i++) {
           await new Promise((r) => setTimeout(r, i === 0 ? 0 : 1500));
           const clean = parts[i].replace(/\[\[used:\d+\]\]/g, "").trim();
@@ -1005,8 +1013,8 @@ export default function ChatSession() {
               created_at: new Date().toISOString(),
             },
           ]);
+          setTimeout(() => scrollToBottomAuto(), 50);
         }
-        // Update read time when assistant messages are received
         updateReadTime();
       }
     } catch (e) {
@@ -1079,7 +1087,7 @@ export default function ChatSession() {
               className="font-semibold truncate"
               style={{ color: "#4a2050", fontSize: 15, lineHeight: "20px" }}
             >
-              {sessionInfo?.title || assistantName || `会话 ${id}`}
+              {loading && mode === "short" ? "对方正在输入..." : (sessionInfo?.title || assistantName || `会话 ${id}`)}
             </h1>
             <div className="truncate" style={{ color: "#c4a0b0", fontSize: 8, lineHeight: "11px" }}>
               {!isGroup && modelName ? modelName : "\u00A0"}
