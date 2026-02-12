@@ -163,15 +163,15 @@ export default function ChatSession() {
 
         setMessages((prev) => [...msgs, ...prev]);
 
-        // Double requestAnimationFrame to ensure DOM is fully updated
-        requestAnimationFrame(() => {
+        // Use setTimeout with requestAnimationFrame for reliable scroll restoration
+        setTimeout(() => {
           requestAnimationFrame(() => {
             if (el) {
               const newScrollTop = savedScrollTop + (el.scrollHeight - savedScrollHeight);
               el.scrollTop = newScrollTop;
             }
           });
-        });
+        }, 0);
       } else {
         // Initial load - scroll to bottom after messages load
         setMessages(msgs);
@@ -898,13 +898,20 @@ export default function ChatSession() {
       >
         {hasMore && messages.length > 0 && (
           <div className="text-center py-2">
-            <button
-              onClick={() => cursorRef.current && loadMessages(cursorRef.current)}
-              className="text-xs"
-              style={{ color: "var(--chat-text-muted)" }}
-            >
-              加载更多
-            </button>
+            {loading ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="h-3 w-3 animate-spin rounded-full border-2" style={{ borderColor: "var(--chat-accent)", borderTopColor: "transparent" }} />
+                <span className="text-xs" style={{ color: "var(--chat-text-muted)" }}>加载中...</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => cursorRef.current && loadMessages(cursorRef.current)}
+                className="text-xs"
+                style={{ color: "var(--chat-text-muted)" }}
+              >
+                加载更多
+              </button>
+            )}
           </div>
         )}
         {messages.map((msg, i) => {
