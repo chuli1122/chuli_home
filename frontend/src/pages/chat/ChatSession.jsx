@@ -252,11 +252,22 @@ export default function ChatSession() {
       scrollRestoreRef.current = null;
     } else if (shouldScrollToBottomRef.current && messages.length > 0) {
       // Scroll to bottom on initial load (only if there are messages)
+      // Use multiple attempts to ensure it works
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           el.scrollTop = el.scrollHeight;
-          // Force repaint
           void el.offsetHeight;
+
+          // Additional scroll after short delay to handle slow rendering
+          setTimeout(() => {
+            el.scrollTop = el.scrollHeight;
+            void el.offsetHeight;
+          }, 50);
+
+          // Final scroll to be absolutely sure
+          setTimeout(() => {
+            el.scrollTop = el.scrollHeight;
+          }, 150);
         });
       });
 
