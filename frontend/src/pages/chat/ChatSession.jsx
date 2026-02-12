@@ -53,7 +53,9 @@ export default function ChatSession() {
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [sessionInfo, setSessionInfo] = useState(null);
-  const [mode, setMode] = useState("normal");
+  const [mode, setMode] = useState(() => {
+    try { return localStorage.getItem(`chat-mode-${id}`) || "normal"; } catch { return "normal"; }
+  });
   const [modeTip, setModeTip] = useState("");
   const [pendingMessages, setPendingMessages] = useState([]);
   const [cursor, setCursor] = useState(null);
@@ -391,6 +393,7 @@ export default function ChatSession() {
   const toggleMode = () => {
     const next = mode === "normal" ? "short" : "normal";
     setMode(next);
+    try { localStorage.setItem(`chat-mode-${id}`, next); } catch {}
     setModeTip(next === "short" ? "已切换到短消息模式" : "已切换到普通模式");
     setTimeout(() => setModeTip(""), 2000);
   };
