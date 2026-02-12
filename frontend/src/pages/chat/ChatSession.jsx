@@ -1358,15 +1358,16 @@ export default function ChatSession() {
           })();
           return (
             <div key={msg.id || i} id={`msg-${msg.id}`} className={`${showAvatar ? "mt-3" : "mt-1"} relative`}>
-              <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-bubble`}>
+              <div className={`flex items-end ${isUser ? "justify-end" : "justify-start"} animate-bubble`}>
                 {/* AI avatar */}
                 {!isUser && (
                   showAvatar ? (
-                    <div className="mr-2 shrink-0 mt-0.5 flex items-center justify-center overflow-hidden"
+                    <div className="mr-2 shrink-0 flex items-center justify-center overflow-hidden"
                       style={{
                         width: 46, height: 46, borderRadius: 14,
                         background: "linear-gradient(135deg, #ffd1e8, #e8d1ff)",
                         border: "2px solid #ffb8d9",
+                        alignSelf: "flex-start", marginTop: 2,
                       }}
                     >
                       {assistantAvatar ? (
@@ -1379,9 +1380,17 @@ export default function ChatSession() {
                     <div className="mr-2 shrink-0" style={{ width: 46 }} />
                   )
                 )}
-                {/* Bubble + timestamp column */}
-                <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start", marginTop: 6 }}>
-                  {/* Bubble */}
+                {/* Timestamp on left side of user bubble */}
+                {isUser && msg.created_at && (
+                  <span className="shrink-0" style={{
+                    fontSize: 10, color: "#c4a0b0", marginRight: 6, marginBottom: 2,
+                    userSelect: "none", WebkitUserSelect: "none",
+                  }}>
+                    {formatMsgTime(msg.created_at)}
+                  </span>
+                )}
+                {/* Bubble */}
+                <div style={{ maxWidth: "72%", marginTop: 6 }}>
                   <div
                     onTouchStart={(e) => startLongPress(e, msg)}
                     onTouchEnd={cancelLongPress}
@@ -1419,27 +1428,25 @@ export default function ChatSession() {
                       streaming && !isUser ? "..." : ""
                     )}
                   </div>
-                  {/* Timestamp below bubble */}
-                  {msg.created_at && (
-                    <span style={{
-                      fontSize: 10, color: "#c4a0b0", marginTop: 3,
-                      paddingLeft: isUser ? 0 : 6,
-                      paddingRight: isUser ? 6 : 0,
-                      userSelect: "none",
-                      WebkitUserSelect: "none",
-                    }}>
-                      {formatMsgTime(msg.created_at)}
-                    </span>
-                  )}
                 </div>
+                {/* Timestamp on right side of AI bubble */}
+                {!isUser && msg.created_at && (
+                  <span className="shrink-0" style={{
+                    fontSize: 10, color: "#c4a0b0", marginLeft: 6, marginBottom: 2,
+                    userSelect: "none", WebkitUserSelect: "none",
+                  }}>
+                    {formatMsgTime(msg.created_at)}
+                  </span>
+                )}
                 {/* User avatar */}
                 {isUser && (
                   showAvatar ? (
-                    <div className="ml-2 shrink-0 mt-0.5 flex items-center justify-center overflow-hidden"
+                    <div className="ml-2 shrink-0 flex items-center justify-center overflow-hidden"
                       style={{
                         width: 46, height: 46, borderRadius: 14,
                         background: "linear-gradient(135deg, #fff0d0, #ffe0eb)",
                         border: "2px solid #ffc8a0",
+                        alignSelf: "flex-start", marginTop: 2,
                       }}
                     >
                       {userAvatar ? (
