@@ -75,7 +75,7 @@ export default function MessageList() {
       }
       const data = await apiFetch("/api/sessions", { method: "POST", body });
       setSelectMode(null);
-      navigate(`/chat/session/${data.id}`);
+      navigate(`/chat/session/${data.id}`, { replace: true });
     } catch (e) {
       console.error("Failed to create session", e);
     }
@@ -123,7 +123,7 @@ export default function MessageList() {
             return (
               <button
                 key={s.id}
-                onClick={() => navigate(`/chat/session/${s.id}`)}
+                onClick={() => navigate(`/chat/session/${s.id}`, { replace: true })}
                 className="flex w-full items-center gap-4 rounded-[20px] p-4 text-left active:scale-[0.98] transition-all"
                 style={{ background: "var(--chat-card-bg)" }}
               >

@@ -215,7 +215,7 @@ export default function Contacts() {
               >
                 <div
                   className="flex items-center gap-4 p-4"
-                  onClick={() => navigate(`/chat/assistant/${a.id}`)}
+                  onClick={() => navigate(`/chat/assistant/${a.id}`, { replace: true })}
                 >
                   <div
                     className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[15px] font-medium"

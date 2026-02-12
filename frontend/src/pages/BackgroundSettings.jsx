@@ -142,7 +142,7 @@ export default function BackgroundSettings() {
       showToast(message);
 
       setTimeout(() => {
-        navigate(-1);
+        navigate("/theme", { replace: true });
       }, 1000);
     }
   };

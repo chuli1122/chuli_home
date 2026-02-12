@@ -118,7 +118,8 @@ export default function ChatSession() {
 
   // Auto scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   // Scroll handler: load more + show/hide scroll-to-bottom
@@ -134,7 +135,8 @@ export default function ChatSession() {
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
   // Mode toggle
@@ -179,8 +181,10 @@ export default function ChatSession() {
     setSearchQuery("");
     setSearchResults([]);
     const el = document.getElementById(`msg-${msgId}`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const container = messagesContainerRef.current;
+    if (el && container) {
+      const offset = el.offsetTop - container.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
+      container.scrollTo({ top: offset, behavior: "smooth" });
       el.style.background = "var(--chat-accent)";
       el.style.transition = "background 0.3s";
       setTimeout(() => { el.style.background = ""; }, 1500);

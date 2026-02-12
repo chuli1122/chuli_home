@@ -31,6 +31,7 @@ export async function apiFetch(path, options = {}) {
   const doFetch = (t) =>
     fetch(url, {
       ...options,
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${t}`,

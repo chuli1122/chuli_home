@@ -51,12 +51,12 @@ export default function ChatLayout() {
 
   const startChat = () => {
     setShowMsgMenu(false);
-    navigate("/chat/messages", { state: { action: "chat" } });
+    navigate("/chat/messages", { replace: true, state: { action: "chat" } });
   };
 
   const startGroup = () => {
     setShowMsgMenu(false);
-    navigate("/chat/messages", { state: { action: "group" } });
+    navigate("/chat/messages", { replace: true, state: { action: "group" } });
   };
 
   const createAssistant = async () => {
@@ -68,7 +68,7 @@ export default function ChatLayout() {
       });
       setShowCreate(false);
       setNewName("");
-      navigate(`/chat/assistant/${data.id}`);
+      navigate(`/chat/assistant/${data.id}`, { replace: true });
     } catch (e) {
       console.error("Failed to create assistant", e);
     }
