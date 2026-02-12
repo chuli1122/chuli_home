@@ -98,6 +98,8 @@ export default function AssistantEdit() {
     loadData();
   }, [id]);
 
+  const [pendingAvatarFile, setPendingAvatarFile] = useState(null);
+
   const hasChanges =
     name !== originalData.name ||
     systemPrompt !== originalData.system_prompt ||
@@ -105,21 +107,15 @@ export default function AssistantEdit() {
     summaryPresetId !== originalData.summary_preset_id ||
     summaryFallbackId !== originalData.summary_fallback_id ||
     humanBlock !== originalData.human_block ||
-    personaBlock !== originalData.persona_block;
+    personaBlock !== originalData.persona_block ||
+    pendingAvatarFile !== null;
 
-  const handleAvatarChange = async (e) => {
+  const handleAvatarChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    try {
-      const key = `assistant-avatar-${id}`;
-      await deleteImage(key);
-      await saveImage(key, file);
-      const url = await loadImageUrl(key);
-      setAvatarUrl(url);
-      setAvatarKey(key);
-    } catch (e) {
-      console.error("Failed to save avatar", e);
-    }
+    setPendingAvatarFile(file);
+    setAvatarUrl(URL.createObjectURL(file));
+    setAvatarKey(`assistant-avatar-${id}`);
   };
 
   const handlePromptFile = (e) => {
@@ -133,6 +129,14 @@ export default function AssistantEdit() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Persist pending avatar to IndexedDB
+      if (pendingAvatarFile && avatarKey) {
+        await deleteImage(avatarKey);
+        await saveImage(avatarKey, pendingAvatarFile);
+        const url = await loadImageUrl(avatarKey);
+        setAvatarUrl(url);
+        setPendingAvatarFile(null);
+      }
       const body = { name };
       if (avatarKey) body.avatar_url = avatarKey;
       body.system_prompt = systemPrompt;

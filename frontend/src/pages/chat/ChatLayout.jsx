@@ -76,7 +76,7 @@ export default function ChatLayout() {
 
   // Tab icons as inline pixel-art style SVGs
   const TabIcon = ({ tabKey, active }) => {
-    const color = active ? "var(--chat-accent-dark)" : "#c0a0b0";
+    const color = active ? "var(--chat-accent-dark)" : "var(--chat-tab-inactive)";
     if (tabKey === "messages") {
       return (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -183,7 +183,7 @@ export default function ChatLayout() {
                 <span
                   className="text-[10px]"
                   style={{
-                    color: active ? "var(--chat-accent-dark)" : "#c0a0b0",
+                    color: active ? "var(--chat-accent-dark)" : "var(--chat-tab-inactive)",
                     fontWeight: active ? 600 : 400,
                   }}
                 >

@@ -35,21 +35,13 @@ export default function AboutMe() {
     loadProfile();
   }, []);
 
-  const handleAvatarChange = async (e) => {
+  const [pendingAvatarFile, setPendingAvatarFile] = useState(null);
+
+  const handleAvatarChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    try {
-      await deleteImage(AVATAR_KEY);
-      await saveImage(AVATAR_KEY, file);
-      const url = await loadImageUrl(AVATAR_KEY);
-      setAvatarUrl(url);
-      await apiFetch("/api/user/profile", {
-        method: "PUT",
-        body: { avatar_url: AVATAR_KEY },
-      });
-    } catch (e) {
-      console.error("Failed to save avatar", e);
-    }
+    setPendingAvatarFile(file);
+    setAvatarUrl(URL.createObjectURL(file));
   };
 
   const handleInfoFile = (e) => {
@@ -63,6 +55,18 @@ export default function AboutMe() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Save pending avatar to IndexedDB + backend
+      if (pendingAvatarFile) {
+        await deleteImage(AVATAR_KEY);
+        await saveImage(AVATAR_KEY, pendingAvatarFile);
+        const url = await loadImageUrl(AVATAR_KEY);
+        setAvatarUrl(url);
+        setPendingAvatarFile(null);
+        await apiFetch("/api/user/profile", {
+          method: "PUT",
+          body: { avatar_url: AVATAR_KEY },
+        });
+      }
       await apiFetch("/api/user/profile", {
         method: "PUT",
         body: { nickname, basic_info: basicInfo },
@@ -74,14 +78,20 @@ export default function AboutMe() {
     setSaving(false);
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
     setNickname(originalData.nickname || "");
     setBasicInfo(originalData.basic_info || "");
+    if (pendingAvatarFile) {
+      setPendingAvatarFile(null);
+      const url = await loadImageUrl(AVATAR_KEY);
+      setAvatarUrl(url || null);
+    }
   };
 
   const hasChanges =
     nickname !== originalData.nickname ||
-    basicInfo !== originalData.basic_info;
+    basicInfo !== originalData.basic_info ||
+    pendingAvatarFile !== null;
 
   if (loading) {
     return (

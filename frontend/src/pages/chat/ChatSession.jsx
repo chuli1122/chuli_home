@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import { apiFetch, apiSSE } from "../../utils/api";
 import { loadImageUrl, getAllStickers, addSticker, removeSticker } from "../../utils/db";
+import Modal from "../../components/Modal";
+import ConfirmModal from "../../components/ConfirmModal";
 
 const MOODS = [
   { key: "happy", label: "开心" },
@@ -37,6 +39,9 @@ export default function ChatSession() {
   const messagesContainerRef = useRef(null);
   const abortRef = useRef(null);
   const streamContentRef = useRef("");
+  const loadingRef = useRef(false);
+  const cursorRef = useRef(null);
+  const hasMoreRef = useRef(true);
 
   // Mood
   const [currentMood, setCurrentMood] = useState(null);
@@ -60,10 +65,32 @@ export default function ChatSession() {
   const fileInputRef = useRef(null);
   const stickerInputRef = useRef(null);
 
-  // Assistant avatar
+  // Avatars + model name + display title
   const [assistantAvatar, setAssistantAvatar] = useState(null);
+  const [userAvatar, setUserAvatar] = useState(null);
+  const [modelName, setModelName] = useState("");
+  const [assistantName, setAssistantName] = useState("");
+  const [pageReady, setPageReady] = useState(false);
 
-  // Load session info + mood
+  // Context menu for long-press
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, message }
+  const longPressTimer = useRef(null);
+  const longPressPos = useRef({ x: 0, y: 0 });
+
+  // Quote reference
+  const [quotedMessage, setQuotedMessage] = useState(null);
+
+  // Edit modal
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [editContent, setEditContent] = useState("");
+
+  // Delete confirmation
+  const [deletingMessage, setDeletingMessage] = useState(null);
+
+  // Input ref for scroll into view
+  const inputAreaRef = useRef(null);
+
+  // Load session info + mood + model name + assistant name + avatars
   useEffect(() => {
     const loadSession = async () => {
       try {
@@ -71,43 +98,98 @@ export default function ChatSession() {
         const session = (data.sessions || []).find((s) => s.id === Number(id));
         setSessionInfo(session || null);
         if (session?.mood) setCurrentMood(session.mood);
-        // Load assistant avatar
+        // Load assistant avatar + model name + name
         if (session?.assistant_id) {
           try {
             const a = await apiFetch(`/api/assistants/${session.assistant_id}`);
+            setAssistantName(a.name || "");
             if (a.avatar_url) {
               const url = await loadImageUrl(a.avatar_url);
               if (url) setAssistantAvatar(url);
             }
+            if (a.model_preset_id) {
+              try {
+                const presetsData = await apiFetch("/api/presets");
+                const preset = (presetsData.presets || []).find((p) => p.id === a.model_preset_id);
+                if (preset) setModelName(preset.model_name);
+              } catch {}
+            }
           } catch {}
         }
       } catch {}
+      // Load user avatar from IndexedDB (independent of session loading)
+      try {
+        const uUrl = await loadImageUrl("user-avatar");
+        if (uUrl) setUserAvatar(uUrl);
+      } catch {}
+      setPageReady(true);
     };
     loadSession();
   }, [id]);
 
   // Load messages
   const loadMessages = useCallback(async (before = null) => {
+    if (loadingRef.current) return;
+
+    const el = messagesContainerRef.current;
+
     try {
+      loadingRef.current = true;
+      setLoading(true);
+
       let url = `/api/sessions/${id}/messages?limit=50`;
       if (before) url += `&before=${before}`;
+
       const data = await apiFetch(url);
       const msgs = (data.messages || []).filter(
         (m) => m.role === "user" || m.role === "assistant"
       );
-      if (msgs.length < 50) setHasMore(false);
-      if (before) {
-        setMessages((prev) => [...msgs, ...prev]);
-      } else {
-        setMessages(msgs);
+
+      // Use backend's has_more flag
+      const backendHasMore = data.has_more === true;
+      setHasMore(backendHasMore);
+      hasMoreRef.current = backendHasMore;
+
+      if (msgs.length > 0) {
+        const newCursor = msgs[0].id;
+        setCursor(newCursor);
+        cursorRef.current = newCursor;
       }
-      if (msgs.length > 0) setCursor(msgs[0].id);
+
+      if (before) {
+        // Loading more - save position and restore
+        const savedScrollHeight = el?.scrollHeight || 0;
+        const savedScrollTop = el?.scrollTop || 0;
+
+        setMessages((prev) => [...msgs, ...prev]);
+
+        // Restore position after render
+        requestAnimationFrame(() => {
+          if (el) {
+            el.scrollTop = savedScrollTop + (el.scrollHeight - savedScrollHeight);
+          }
+        });
+      } else {
+        // Initial load - scroll to bottom after messages load
+        setMessages(msgs);
+        setTimeout(() => scrollToBottomAuto(), 100);
+      }
     } catch (e) {
       console.error("Failed to load messages", e);
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
     }
   }, [id]);
 
   useEffect(() => {
+    // Reset states when session changes
+    setHasMore(true);
+    hasMoreRef.current = true;
+    setCursor(null);
+    cursorRef.current = null;
+    setMessages([]);
+
     loadMessages();
     try {
       const map = JSON.parse(localStorage.getItem("session-read-times") || "{}");
@@ -116,22 +198,28 @@ export default function ChatSession() {
     } catch {}
   }, [id, loadMessages]);
 
-  // Auto scroll to bottom on new messages
-  useEffect(() => {
+  // Helper to scroll to bottom
+  const scrollToBottomAuto = () => {
     const el = messagesContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  };
 
   // Scroll handler: load more + show/hide scroll-to-bottom
   const handleScroll = () => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    // Scroll to bottom button
+
+    // Show/hide scroll to bottom button
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
     setShowScrollBtn(!nearBottom);
-    // Load more
-    if (!hasMore || loading) return;
-    if (el.scrollTop < 50 && cursor) loadMessages(cursor);
+
+    // Load more when scrolled to top
+    if (!hasMoreRef.current || loadingRef.current) return;
+    if (el.scrollTop < 50 && cursorRef.current) {
+      loadMessages(cursorRef.current);
+    }
   };
 
   const scrollToBottom = () => {
@@ -255,7 +343,13 @@ export default function ChatSession() {
     if (!text && attachments.length === 0) return;
     if (streaming) return;
     setInput("");
-    const content = text || (attachments.length > 0 ? "[附件]" : "");
+
+    // Build content with quote if present
+    let content = text || (attachments.length > 0 ? "[附件]" : "");
+    if (quotedMessage) {
+      content = `[引用 ${quotedMessage.senderName} 的消息：${quotedMessage.content}]\n${content}`;
+    }
+
     const userMsg = {
       id: Date.now(),
       role: "user",
@@ -267,6 +361,8 @@ export default function ChatSession() {
     };
     setMessages((prev) => [...prev, userMsg]);
     setAttachments([]);
+    setQuotedMessage(null); // Clear quote after sending
+    setTimeout(() => scrollToBottomAuto(), 50);
 
     setStreaming(true);
     streamContentRef.current = "";
@@ -275,6 +371,7 @@ export default function ChatSession() {
       ...prev,
       { id: aiMsgId, role: "assistant", content: "", created_at: new Date().toISOString() },
     ]);
+    setTimeout(() => scrollToBottomAuto(), 50);
 
     try {
       await apiSSE(
@@ -313,12 +410,236 @@ export default function ChatSession() {
     }
   };
 
+  // Normal mode "收" — ask AI to proactively send a message
+  const receiveNormal = async () => {
+    if (streaming || loading) return;
+    setStreaming(true);
+    streamContentRef.current = "";
+    const aiMsgId = Date.now() + 1;
+    setMessages((prev) => [
+      ...prev,
+      { id: aiMsgId, role: "assistant", content: "", created_at: new Date().toISOString() },
+    ]);
+
+    try {
+      await apiSSE(
+        "/api/chat/completions",
+        { session_id: Number(id), message: "", stream: true },
+        (chunk) => {
+          if (chunk.content) {
+            streamContentRef.current += chunk.content;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === aiMsgId ? { ...m, content: streamContentRef.current } : m
+              )
+            );
+          }
+        },
+        () => {
+          setStreaming(false);
+          const clean = streamContentRef.current.replace(/\[\[used:\d+\]\]/g, "").trim();
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId ? { ...m, content: clean } : m
+            )
+          );
+        }
+      );
+    } catch (e) {
+      console.error("Receive failed", e);
+      setStreaming(false);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId
+            ? { ...m, content: streamContentRef.current || "(请求失败)" }
+            : m
+        )
+      );
+    }
+  };
+
   const stopStream = () => {
     if (abortRef.current) {
       abortRef.current();
       abortRef.current = null;
     }
     setStreaming(false);
+  };
+
+  // Long-press menu handlers
+  const startLongPress = (e, msg) => {
+    const touch = e.touches ? e.touches[0] : e;
+    longPressPos.current = { x: touch.clientX, y: touch.clientY };
+
+    longPressTimer.current = setTimeout(() => {
+      const menuWidth = 210;
+      const menuHeight = 40;
+      let x = longPressPos.current.x - menuWidth / 2;
+      let y = longPressPos.current.y - menuHeight - 10;
+
+      if (x + menuWidth > window.innerWidth - 10) {
+        x = window.innerWidth - menuWidth - 10;
+      }
+      if (x < 10) x = 10;
+      if (y < 10) {
+        y = longPressPos.current.y + 10;
+      }
+      if (y + menuHeight > window.innerHeight - 10) {
+        y = window.innerHeight - menuHeight - 10;
+      }
+
+      setContextMenu({ x, y, message: msg });
+    }, 500);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  // Context menu actions
+  const handleQuote = (msg) => {
+    const senderName = msg.role === "user" ? "我" : assistantName || "AI";
+    setQuotedMessage({ ...msg, senderName });
+    closeContextMenu();
+  };
+
+  const handleCopy = async (msg) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(msg.content);
+      } else {
+        // Fallback for browsers without clipboard API
+        const textArea = document.createElement("textarea");
+        textArea.value = msg.content;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+          document.execCommand("copy");
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+      closeContextMenu();
+    } catch (e) {
+      console.error("Copy failed", e);
+      closeContextMenu();
+    }
+  };
+
+  const handleEdit = (msg) => {
+    setEditingMessage(msg);
+    setEditContent(msg.content);
+    closeContextMenu();
+  };
+
+  const confirmEdit = async () => {
+    if (!editingMessage || !editContent.trim()) return;
+    try {
+      await apiFetch(`/api/sessions/${id}/messages/${editingMessage.id}`, {
+        method: "PUT",
+        body: { content: editContent.trim() },
+      });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === editingMessage.id ? { ...m, content: editContent.trim() } : m
+        )
+      );
+    } catch (e) {
+      console.error("Edit failed", e);
+    }
+    setEditingMessage(null);
+    setEditContent("");
+  };
+
+  const handleDelete = (msg) => {
+    setDeletingMessage(msg);
+    closeContextMenu();
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingMessage) return;
+    try {
+      await apiFetch(`/api/sessions/${id}/messages/${deletingMessage.id}`, {
+        method: "DELETE",
+      });
+      setMessages((prev) => prev.filter((m) => m.id !== deletingMessage.id));
+    } catch (e) {
+      console.error("Delete failed", e);
+    }
+    setDeletingMessage(null);
+  };
+
+  const handleReReply = async (msg) => {
+    if (!msg || msg.role !== "assistant") return;
+    closeContextMenu();
+
+    // Delete current assistant message locally
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+
+    // Delete from backend
+    try {
+      await apiFetch(`/api/sessions/${id}/messages/${msg.id}`, {
+        method: "DELETE",
+      });
+    } catch (e) {
+      console.error("Delete failed during re-reply", e);
+    }
+
+    // Request new AI reply with previous context
+    setStreaming(true);
+    streamContentRef.current = "";
+    const aiMsgId = Date.now();
+    setMessages((prev) => [
+      ...prev,
+      { id: aiMsgId, role: "assistant", content: "", created_at: new Date().toISOString() },
+    ]);
+
+    try {
+      await apiSSE(
+        "/api/chat/completions",
+        { session_id: Number(id), message: "", stream: true },
+        (chunk) => {
+          if (chunk.content) {
+            streamContentRef.current += chunk.content;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === aiMsgId ? { ...m, content: streamContentRef.current } : m
+              )
+            );
+          }
+        },
+        () => {
+          setStreaming(false);
+          const clean = streamContentRef.current.replace(/\[\[used:\d+\]\]/g, "").trim();
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId ? { ...m, content: clean } : m
+            )
+          );
+        }
+      );
+    } catch (e) {
+      console.error("Re-reply failed", e);
+      setStreaming(false);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId
+            ? { ...m, content: streamContentRef.current || "(请求失败)" }
+            : m
+        )
+      );
+    }
   };
 
   const sendShort = () => {
@@ -337,16 +658,18 @@ export default function ChatSession() {
   };
 
   const collectAndSend = async () => {
-    if (pendingMessages.length === 0 || loading) return;
+    if (loading) return;
     setLoading(true);
     try {
+      const body = { session_id: Number(id), stream: false };
+      if (pendingMessages.length > 0) {
+        body.messages = pendingMessages;
+      } else {
+        body.message = "";
+      }
       const data = await apiFetch("/api/chat/completions", {
         method: "POST",
-        body: {
-          session_id: Number(id),
-          messages: pendingMessages,
-          stream: false,
-        },
+        body,
       });
       setPendingMessages([]);
       const responseMessages = data.messages || [];
@@ -375,74 +698,91 @@ export default function ChatSession() {
     setLoading(false);
   };
 
-  // Time separator
-  const shouldShowTime = (msg, prevMsg) => {
-    if (!prevMsg) return true;
-    const t1 = new Date(prevMsg.created_at).getTime();
-    const t2 = new Date(msg.created_at).getTime();
-    return t2 - t1 > 5 * 60 * 1000;
-  };
-
   const formatMsgTime = (ts) => {
     const d = new Date(ts);
-    return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const time = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    if (diffMs > 24 * 60 * 60 * 1000) {
+      const month = d.getMonth() + 1;
+      const day = d.getDate();
+      return `${month}月${day}日 ${time}`;
+    }
+    return time;
   };
 
   const moodIcon = currentMood || "calm";
+  const isGroup = !!(sessionInfo?.assistant_ids && sessionInfo.assistant_ids.length > 1);
+
+  // Prevent flash: show background-matching placeholder until data loaded
+  if (!pageReady) {
+    return (
+      <div className="flex h-full items-center justify-center" style={{ background: "var(--chat-bg)" }}>
+        <div className="h-6 w-6 animate-spin rounded-full border-2" style={{ borderColor: "var(--chat-accent)", borderTopColor: "var(--chat-accent-dark)" }} />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-full flex-col" style={{ background: "var(--chat-bg)" }}>
+    <div className="flex flex-col h-full" style={{ background: "var(--chat-bg)" }}>
       {/* Header */}
       <div
-        className="flex items-center px-3 pt-[calc(0.5rem+env(safe-area-inset-top))] pb-2"
+        className="px-3 pt-[calc(0.5rem+env(safe-area-inset-top))] pb-1"
         style={{ background: "rgba(255,255,255,0.6)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(228,160,184,0.2)" }}
       >
-        <button
-          onClick={() => navigate("/chat/messages", { replace: true })}
-          className="rounded-full p-1.5 active:opacity-60"
-        >
-          <ArrowLeft size={20} style={{ color: "var(--chat-text)" }} />
-        </button>
+        {/* Top row: back / mood / title / mode / search — all vertically centered */}
+        <div className="flex items-center">
+          <button
+            onClick={() => navigate("/chat/messages", { replace: true })}
+            className="rounded-full p-1.5 active:opacity-60"
+          >
+            <ArrowLeft size={20} style={{ color: "var(--chat-text)" }} />
+          </button>
 
-        {/* Mood icon */}
-        <button
-          onClick={() => setShowMoodPicker(!showMoodPicker)}
-          className="ml-1 h-8 w-8 rounded-full overflow-hidden active:scale-90 transition"
-        >
-          <img
-            src={`/assets/mood/${moodIcon}.png`}
-            alt={moodIcon}
-            className="h-full w-full object-contain"
-          />
-        </button>
+          {/* Mood icon */}
+          <button
+            onClick={() => setShowMoodPicker(!showMoodPicker)}
+            className="ml-1 h-8 w-8 rounded-full overflow-hidden active:scale-90 transition"
+          >
+            <img
+              src={`/assets/mood/${moodIcon}.png`}
+              alt={moodIcon}
+              className="h-full w-full object-contain"
+            />
+          </button>
 
-        {/* Title */}
-        <h1
-          className="flex-1 text-center text-base font-semibold truncate px-2"
-          style={{ color: "var(--chat-text)" }}
-        >
-          {sessionInfo?.title || `会话 ${id}`}
-        </h1>
+          {/* Title */}
+          <h1
+            className="flex-1 text-center text-base font-semibold truncate px-2"
+            style={{ color: "var(--chat-text)" }}
+          >
+            {sessionInfo?.title || assistantName || `会话 ${id}`}
+          </h1>
 
-        {/* Mode toggle */}
-        <button
-          onClick={toggleMode}
-          className="rounded-full p-1.5 active:opacity-60"
-          title={mode === "normal" ? "切换到短消息" : "切换到普通模式"}
-        >
-          <Repeat
-            size={17}
-            style={{ color: mode === "short" ? "var(--chat-accent-dark)" : "var(--chat-text-muted)" }}
-          />
-        </button>
+          {/* Mode toggle */}
+          <button
+            onClick={toggleMode}
+            className="rounded-full p-1.5 active:opacity-60"
+            title={mode === "normal" ? "切换到短消息" : "切换到普通模式"}
+          >
+            <Repeat
+              size={17}
+              style={{ color: mode === "short" ? "var(--chat-accent-dark)" : "var(--chat-text-muted)" }}
+            />
+          </button>
 
-        {/* Search */}
-        <button
-          onClick={() => setShowSearch(true)}
-          className="rounded-full p-1.5 active:opacity-60"
-        >
-          <Search size={17} style={{ color: "var(--chat-text-muted)" }} />
-        </button>
+          {/* Search */}
+          <button
+            onClick={() => setShowSearch(true)}
+            className="rounded-full p-1.5 active:opacity-60"
+          >
+            <Search size={17} style={{ color: "var(--chat-text-muted)" }} />
+          </button>
+        </div>
+        {/* Model name row — always rendered for consistent height */}
+        <div className="text-center text-[11px] truncate -mt-0.5" style={{ color: "#c4a0b0", height: 14, lineHeight: "14px" }}>
+          {!isGroup && modelName ? modelName : "\u00A0"}
+        </div>
       </div>
 
       {/* Mood Picker */}
@@ -547,13 +887,16 @@ export default function ChatSession() {
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto px-4 py-3 relative"
+        className="flex-1 overflow-y-auto px-4 pt-6 pb-3 relative"
+        style={{
+          WebkitOverflowScrolling: 'touch',
+        }}
         onScroll={handleScroll}
       >
         {hasMore && messages.length > 0 && (
           <div className="text-center py-2">
             <button
-              onClick={() => cursor && loadMessages(cursor)}
+              onClick={() => cursorRef.current && loadMessages(cursorRef.current)}
               className="text-xs"
               style={{ color: "var(--chat-text-muted)" }}
             >
@@ -562,49 +905,98 @@ export default function ChatSession() {
           </div>
         )}
         {messages.map((msg, i) => {
-          const prevMsg = i > 0 ? messages[i - 1] : null;
-          const showTime = shouldShowTime(msg, prevMsg);
           const isUser = msg.role === "user";
           return (
-            <div key={msg.id || i} id={`msg-${msg.id}`}>
-              {showTime && msg.created_at && (
-                <div className="py-2 text-center text-[10px]" style={{ color: "var(--chat-text-muted)" }}>
-                  {formatMsgTime(msg.created_at)}
-                </div>
-              )}
-              <div className={`mb-2.5 flex ${isUser ? "justify-end" : "justify-start"} animate-bubble`}>
+            <div key={msg.id || i} id={`msg-${msg.id}`} className="mb-3">
+              <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-bubble`}>
+                {/* AI avatar */}
                 {!isUser && (
-                  <div className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full overflow-hidden mt-0.5"
-                    style={{ background: "var(--chat-input-bg)" }}
+                  <div className="mr-2 shrink-0 mt-0.5 flex items-center justify-center overflow-hidden"
+                    style={{
+                      width: 46, height: 46, borderRadius: 14,
+                      background: "linear-gradient(135deg, #ffd1e8, #e8d1ff)",
+                      border: "2px solid #ffb8d9",
+                    }}
                   >
                     {assistantAvatar ? (
                       <img src={assistantAvatar} alt="AI" className="h-full w-full object-cover" />
                     ) : (
-                      <span className="text-xs" style={{ color: "var(--chat-accent-dark)" }}>AI</span>
+                      <span style={{ fontSize: 14, color: "#7a5080", fontWeight: 600 }}>AI</span>
                     )}
                   </div>
                 )}
-                <div
-                  className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                    isUser ? "rounded-br-md" : "rounded-bl-md"
-                  }`}
-                  style={{
-                    background: isUser ? "var(--chat-accent-dark)" : "var(--chat-card-bg)",
-                    color: isUser ? "white" : "var(--chat-text)",
-                  }}
-                >
-                  {/* Attachment images */}
-                  {msg.attachments?.map((att, ai) => (
-                    att.type === "image" || att.type === "sticker" ? (
-                      <img key={ai} src={att.url} alt="" className="max-w-full rounded-lg mb-1" style={{ maxHeight: 200 }} />
-                    ) : att.type === "file" ? (
-                      <div key={ai} className="flex items-center gap-2 rounded-lg px-2 py-1 mb-1 text-xs" style={{ background: "rgba(0,0,0,0.1)" }}>
-                        <File size={14} /> {att.name}
-                      </div>
-                    ) : null
-                  ))}
-                  {msg.content || (streaming && !isUser ? "..." : "")}
+                {/* Bubble + timestamp column */}
+                <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start", marginTop: 6 }}>
+                  {/* Bubble */}
+                  <div
+                    onTouchStart={(e) => startLongPress(e, msg)}
+                    onTouchEnd={cancelLongPress}
+                    onTouchMove={cancelLongPress}
+                    onMouseDown={(e) => startLongPress(e, msg)}
+                    onMouseUp={cancelLongPress}
+                    onMouseLeave={cancelLongPress}
+                    onContextMenu={(e) => e.preventDefault()}
+                    style={isUser ? {
+                      padding: "10px 14px", borderRadius: "16px 4px 16px 16px",
+                      background: "linear-gradient(135deg, #ffe0eb, #ffd1e8)",
+                      border: "2px solid #ffb8d9", boxShadow: "2px 2px 0px #ffb8d9",
+                      fontSize: 14, lineHeight: 1.6, color: "#4a3548",
+                      wordBreak: "break-word",
+                      whiteSpace: "pre-wrap",
+                      userSelect: "none",
+                      WebkitUserSelect: "none",
+                    } : {
+                      padding: "10px 14px", borderRadius: "4px 16px 16px 16px",
+                      background: "#ffffff",
+                      border: "2px solid #e8d1ff", boxShadow: "2px 2px 0px #e0d0f0",
+                      fontSize: 14, lineHeight: 1.6, color: "#4a3548",
+                      wordBreak: "break-word",
+                      whiteSpace: "pre-wrap",
+                      userSelect: "none",
+                      WebkitUserSelect: "none",
+                    }}
+                  >
+                    {/* Attachment images */}
+                    {msg.attachments?.map((att, ai) => (
+                      att.type === "image" || att.type === "sticker" ? (
+                        <img key={ai} src={att.url} alt="" className="max-w-full rounded-lg mb-1" style={{ maxHeight: 200 }} />
+                      ) : att.type === "file" ? (
+                        <div key={ai} className="flex items-center gap-2 rounded-lg px-2 py-1 mb-1 text-xs" style={{ background: "rgba(0,0,0,0.08)" }}>
+                          <File size={14} /> {att.name}
+                        </div>
+                      ) : null
+                    ))}
+                    {msg.content || (streaming && !isUser ? "..." : "")}
+                  </div>
+                  {/* Timestamp below bubble */}
+                  {msg.created_at && (
+                    <span style={{
+                      fontSize: 10, color: "#c4a0b0", marginTop: 3,
+                      paddingLeft: isUser ? 0 : 6,
+                      paddingRight: isUser ? 6 : 0,
+                      userSelect: "none",
+                      WebkitUserSelect: "none",
+                    }}>
+                      {formatMsgTime(msg.created_at)}
+                    </span>
+                  )}
                 </div>
+                {/* User avatar */}
+                {isUser && (
+                  <div className="ml-2 shrink-0 mt-0.5 flex items-center justify-center overflow-hidden"
+                    style={{
+                      width: 46, height: 46, borderRadius: 14,
+                      background: "linear-gradient(135deg, #fff0d0, #ffe0eb)",
+                      border: "2px solid #ffc8a0",
+                    }}
+                  >
+                    {userAvatar ? (
+                      <img src={userAvatar} alt="me" className="h-full w-full object-cover" />
+                    ) : (
+                      <span style={{ fontSize: 14, color: "#8a6040", fontWeight: 600 }}>我</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -676,9 +1068,29 @@ export default function ChatSession() {
 
       {/* Input area */}
       <div
+        ref={inputAreaRef}
         className="px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
         style={{ background: "rgba(255,255,255,0.7)", backdropFilter: "blur(12px)", borderTop: "1px solid rgba(228,160,184,0.2)" }}
       >
+        {/* Quote preview */}
+        {quotedMessage && (
+          <div className="mb-2 rounded-xl p-3 relative" style={{ background: "var(--chat-input-bg)", border: "1px solid var(--chat-accent)" }}>
+            <button
+              onClick={() => setQuotedMessage(null)}
+              className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full text-white text-xs"
+              style={{ background: "var(--chat-accent-dark)" }}
+            >
+              ×
+            </button>
+            <div className="text-xs font-medium mb-1" style={{ color: "var(--chat-accent-dark)" }}>
+              引用 {quotedMessage.senderName} 的消息
+            </div>
+            <div className="text-sm truncate" style={{ color: "var(--chat-text)", opacity: 0.7 }}>
+              {quotedMessage.content}
+            </div>
+          </div>
+        )}
+
         {/* Attachment previews */}
         {attachments.length > 0 && (
           <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
@@ -764,18 +1176,38 @@ export default function ChatSession() {
             }}
           />
 
-          {/* Action buttons */}
+          {/* Action buttons — both modes have 收 + 发送 */}
           {mode === "normal" ? (
-            <button
-              onClick={streaming ? stopStream : sendNormal}
-              disabled={!streaming && !input.trim() && attachments.length === 0}
-              className="mb-1 flex h-9 w-9 items-center justify-center rounded-full text-white disabled:opacity-30 active:scale-90 transition"
-              style={{ background: "var(--chat-accent-dark)" }}
-            >
-              {streaming ? <Square size={14} fill="white" /> : <Send size={14} />}
-            </button>
+            <>
+              <button
+                onClick={receiveNormal}
+                disabled={streaming || loading}
+                className="mb-1 flex h-9 items-center justify-center rounded-full px-3 text-xs text-white disabled:opacity-30 active:scale-90 transition"
+                style={{ background: "var(--chat-accent)" }}
+              >
+                <Inbox size={14} className="mr-1" />
+                {loading ? "..." : "收"}
+              </button>
+              <button
+                onClick={streaming ? stopStream : sendNormal}
+                disabled={!streaming && !input.trim() && attachments.length === 0}
+                className="mb-1 flex h-9 w-9 items-center justify-center rounded-full text-white disabled:opacity-30 active:scale-90 transition"
+                style={{ background: "var(--chat-accent-dark)" }}
+              >
+                {streaming ? <Square size={14} fill="white" /> : <Send size={14} />}
+              </button>
+            </>
           ) : (
             <>
+              <button
+                onClick={collectAndSend}
+                disabled={loading}
+                className="mb-1 flex h-9 items-center justify-center rounded-full px-3 text-xs text-white disabled:opacity-30 active:scale-90 transition"
+                style={{ background: "var(--chat-accent)" }}
+              >
+                <Inbox size={14} className="mr-1" />
+                {loading ? "..." : "收"}
+              </button>
               <button
                 onClick={sendShort}
                 disabled={!input.trim()}
@@ -784,19 +1216,111 @@ export default function ChatSession() {
               >
                 发送
               </button>
-              <button
-                onClick={collectAndSend}
-                disabled={pendingMessages.length === 0 || loading}
-                className="mb-1 flex h-9 items-center justify-center rounded-full px-3 text-xs text-white disabled:opacity-30 active:scale-90 transition"
-                style={{ background: "var(--chat-accent)" }}
-              >
-                <Inbox size={14} className="mr-1" />
-                {loading ? "..." : "收"}
-              </button>
             </>
           )}
         </div>
       </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-[100]"
+            onClick={closeContextMenu}
+          />
+          <div
+            className="fixed z-[101] rounded-full shadow-2xl animate-slide-in flex"
+            style={{
+              left: contextMenu.x,
+              top: contextMenu.y,
+              background: "var(--chat-card-bg)",
+              border: "1px solid var(--chat-accent)",
+            }}
+          >
+            <button
+              onClick={() => handleQuote(contextMenu.message)}
+              className="py-2 text-xs hover:bg-black/5 active:bg-black/10 rounded-l-full"
+              style={{ color: "var(--chat-text)", width: "52px" }}
+            >
+              引用
+            </button>
+            <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
+            <button
+              onClick={() => handleCopy(contextMenu.message)}
+              className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
+              style={{ color: "var(--chat-text)", width: "52px" }}
+            >
+              复制
+            </button>
+            <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
+            {contextMenu.message.role === "user" ? (
+              <>
+                <button
+                  onClick={() => handleEdit(contextMenu.message)}
+                  className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
+                  style={{ color: "var(--chat-text)", width: "52px" }}
+                >
+                  编辑
+                </button>
+                <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => handleReReply(contextMenu.message)}
+                  className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
+                  style={{ color: "var(--chat-text)", width: "52px" }}
+                >
+                  重回
+                </button>
+                <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
+              </>
+            )}
+            <button
+              onClick={() => handleDelete(contextMenu.message)}
+              className="py-2 text-xs hover:bg-black/5 active:bg-black/10 text-red-500 rounded-r-full"
+              style={{ width: "52px" }}
+            >
+              删除
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Edit Modal */}
+      <Modal
+        isOpen={editingMessage !== null}
+        onClose={() => { setEditingMessage(null); setEditContent(""); }}
+        title="编辑消息"
+        onConfirm={confirmEdit}
+        confirmText="确认"
+        cancelText="取消"
+        isConfirmDisabled={!editContent.trim()}
+      >
+        <textarea
+          value={editContent}
+          onChange={(e) => setEditContent(e.target.value)}
+          placeholder="输入消息内容"
+          className="w-full rounded-xl px-4 py-3 text-base outline-none resize-none min-h-24"
+          style={{
+            background: "var(--chat-input-bg)",
+            border: "1px solid var(--chat-accent)",
+            color: "var(--chat-text)",
+          }}
+          autoFocus
+        />
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deletingMessage !== null}
+        onClose={() => setDeletingMessage(null)}
+        onConfirm={confirmDelete}
+        title="删除消息"
+        message="确定要删除这条消息吗？此操作无法撤销。"
+        confirmText="删除"
+        cancelText="取消"
+      />
     </div>
   );
 }

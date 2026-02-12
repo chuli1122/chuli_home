@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Ban, Trash2 } from "lucide-react";
 import { apiFetch } from "../../utils/api";
+import { loadImageUrl } from "../../utils/db";
 import ConfirmModal from "../../components/ConfirmModal";
 
 const ACTION_WIDTH = 140;
@@ -129,11 +130,24 @@ export default function Contacts() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteStep, setDeleteStep] = useState(0);
   const [blockTarget, setBlockTarget] = useState(null);
+  const [avatarUrls, setAvatarUrls] = useState({});
 
   const load = async () => {
     try {
       const data = await apiFetch("/api/assistants");
-      setAssistants(data.assistants || []);
+      const list = data.assistants || [];
+      setAssistants(list);
+      // Load avatar URLs from IndexedDB
+      const urls = {};
+      await Promise.all(list.map(async (a) => {
+        if (a.avatar_url) {
+          try {
+            const url = await loadImageUrl(a.avatar_url);
+            if (url) urls[a.id] = url;
+          } catch {}
+        }
+      }));
+      setAvatarUrls(urls);
     } catch (e) {
       console.error("Failed to load assistants", e);
     }
@@ -218,10 +232,14 @@ export default function Contacts() {
                   onClick={() => navigate(`/chat/assistant/${a.id}`, { replace: true })}
                 >
                   <div
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[15px] font-medium"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full overflow-hidden text-[15px] font-medium"
                     style={{ background: "var(--chat-input-bg)", color: "var(--chat-accent-dark)" }}
                   >
-                    {a.name[0]}
+                    {avatarUrls[a.id] ? (
+                      <img src={avatarUrls[a.id]} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      a.name[0]
+                    )}
                   </div>
                   <span className="text-[15px] font-medium" style={{ color: "var(--chat-text)" }}>{a.name}</span>
                   {isBlocked && (

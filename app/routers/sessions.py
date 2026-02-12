@@ -89,6 +89,15 @@ class SessionSummaryUpdateRequest(BaseModel):
     mood_tag: str
 
 
+class MessageUpdateRequest(BaseModel):
+    content: str
+
+
+class MessageDeleteResponse(BaseModel):
+    status: str
+    id: int
+
+
 @router.get("/sessions", response_model=SessionListResponse)
 def list_sessions(
     assistant_id: int | None = Query(None),
@@ -292,7 +301,66 @@ def delete_session(
         raise HTTPException(status_code=404, detail="Session not found")
 
     db.query(Message).filter(Message.session_id == session_id).delete(synchronize_session=False)
-    db.query(SessionSummary).filter(SessionSummary.session_id == session_id).delete(synchronize_session=False)
     db.delete(row)
     db.commit()
     return SessionDeleteResponse(status="deleted", id=session_id)
+
+
+@router.put("/sessions/{session_id}/messages/{message_id}", response_model=SessionMessageItem)
+def update_message(
+    session_id: int,
+    message_id: int,
+    payload: MessageUpdateRequest,
+    db: Session = Depends(get_db),
+) -> SessionMessageItem:
+    # Verify session exists
+    session_row = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if session_row is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Find and update message
+    message_row = (
+        db.query(Message)
+        .filter(Message.id == message_id, Message.session_id == session_id)
+        .first()
+    )
+    if message_row is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    message_row.content = payload.content
+    db.commit()
+    db.refresh(message_row)
+
+    return SessionMessageItem(
+        id=message_row.id,
+        role=message_row.role,
+        content=message_row.content,
+        meta_info=message_row.meta_info or {},
+        created_at=format_datetime(message_row.created_at),
+    )
+
+
+@router.delete("/sessions/{session_id}/messages/{message_id}", response_model=MessageDeleteResponse)
+def delete_message(
+    session_id: int,
+    message_id: int,
+    db: Session = Depends(get_db),
+) -> MessageDeleteResponse:
+    # Verify session exists
+    session_row = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if session_row is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Find and delete message
+    message_row = (
+        db.query(Message)
+        .filter(Message.id == message_id, Message.session_id == session_id)
+        .first()
+    )
+    if message_row is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    db.delete(message_row)
+    db.commit()
+
+    return MessageDeleteResponse(status="deleted", id=message_id)

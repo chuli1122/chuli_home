@@ -775,7 +775,7 @@ class ChatService:
     ) -> list[dict[str, Any]]:
         if messages:
             last_message = messages[-1]
-            if last_message.get("role") == "user":
+            if last_message.get("role") == "user" and last_message.get("content", "").strip():
                 self._persist_message(
                     session_id, "user", last_message.get("content", ""), {}
                 )
@@ -1039,7 +1039,7 @@ class ChatService:
         """Streaming chat completion. Yields SSE events."""
         if messages:
             last_message = messages[-1]
-            if last_message.get("role") == "user":
+            if last_message.get("role") == "user" and last_message.get("content", "").strip():
                 self._persist_message(
                     session_id, "user", last_message.get("content", ""), {}
                 )
