@@ -206,6 +206,15 @@ export default function ChatSession() {
     }
   };
 
+  // Helper to update read time
+  const updateReadTime = () => {
+    try {
+      const map = JSON.parse(localStorage.getItem("session-read-times") || "{}");
+      map[id] = Date.now();
+      localStorage.setItem("session-read-times", JSON.stringify(map));
+    } catch {}
+  };
+
   // Restore scroll position after loading more messages
   useEffect(() => {
     if (scrollRestoreRef.current && messagesContainerRef.current) {
@@ -425,6 +434,8 @@ export default function ChatSession() {
               m.id === aiMsgId ? { ...m, content: clean } : m
             )
           );
+          // Update read time when assistant message is received
+          updateReadTime();
         }
       );
     } catch (e) {
@@ -473,6 +484,8 @@ export default function ChatSession() {
               m.id === aiMsgId ? { ...m, content: clean } : m
             )
           );
+          // Update read time when assistant message is received
+          updateReadTime();
         }
       );
     } catch (e) {
@@ -657,6 +670,8 @@ export default function ChatSession() {
               m.id === aiMsgId ? { ...m, content: clean } : m
             )
           );
+          // Update read time when assistant message is received
+          updateReadTime();
         }
       );
     } catch (e) {
@@ -721,6 +736,8 @@ export default function ChatSession() {
             },
           ]);
         }
+        // Update read time when assistant messages are received
+        updateReadTime();
       }
     } catch (e) {
       console.error("Collect send failed", e);
