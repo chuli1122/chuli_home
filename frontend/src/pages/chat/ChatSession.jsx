@@ -26,6 +26,25 @@ const MOODS = [
 const isEmptyAssistant = (m) =>
   m.role === "assistant" && (!m.content || !m.content.trim() || m.content.trim() === "EMPTY");
 
+// Split assistant messages containing [NEXT] into separate entries
+const splitNextMessages = (msgs) => {
+  const result = [];
+  for (const m of msgs) {
+    if (m.role === "assistant" && m.content && m.content.includes("[NEXT]")) {
+      m.content.split("[NEXT]").filter((p) => p.trim()).forEach((part, idx) => {
+        result.push({
+          ...m,
+          id: idx === 0 ? m.id : m.id + 0.001 * idx,
+          content: part.replace(/\[\[used:\d+\]\]/g, "").trim(),
+        });
+      });
+    } else {
+      result.push(m);
+    }
+  }
+  return result;
+};
+
 export default function ChatSession() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -166,9 +185,9 @@ export default function ChatSession() {
       if (before) url += `&before_id=${before}`;
 
       const data = await apiFetch(url);
-      const msgs = (data.messages || []).filter(
+      const msgs = splitNextMessages((data.messages || []).filter(
         (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
-      );
+      ));
 
       // Use backend's has_more flag
       const backendHasMore = data.has_more === true;
@@ -454,9 +473,9 @@ export default function ChatSession() {
     // Message not loaded — load messages around the target
     try {
       const data = await apiFetch(`/api/sessions/${id}/messages?limit=50&before_id=${msgId + 1}`);
-      const msgs = (data.messages || []).filter(
+      const msgs = splitNextMessages((data.messages || []).filter(
         (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
-      );
+      ));
       if (msgs.length > 0) {
         setHasMore(data.has_more === true);
         hasMoreRef.current = data.has_more === true;
