@@ -772,6 +772,7 @@ class ChatService:
         tool_calls: Iterable[ToolCall],
         event_callback: Callable[[dict[str, Any]], None] | None = None,
         background_tasks: BackgroundTasks | None = None,
+        short_mode: bool = False,
     ) -> list[dict[str, Any]]:
         # Persist all NEW user messages (those without a DB id)
         for msg in messages:
@@ -785,7 +786,7 @@ class ChatService:
         if tool_calls:
             pending_tool_calls = list(tool_calls)
         else:
-            pending_tool_calls = list(self._fetch_next_tool_calls(messages, session_id))
+            pending_tool_calls = list(self._fetch_next_tool_calls(messages, session_id, short_mode=short_mode))
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
         while pending_tool_calls:
@@ -815,7 +816,7 @@ class ChatService:
                 )
                 self._persist_tool_result(session_id, tool_name, tool_result)
             # All tool results added, now call API again for next response
-            pending_tool_calls = list(self._fetch_next_tool_calls(messages, session_id))
+            pending_tool_calls = list(self._fetch_next_tool_calls(messages, session_id, short_mode=short_mode))
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
         session = self.db.get(ChatSession, session_id)
@@ -938,6 +939,16 @@ class ChatService:
                     recall_text += f"- [{mem['created_at']}] {mem['content']} (source: {source})\n"
                 recall_text += "[If above memories are insufficient, you can use search_memory or search_chat_history to supplement]\n"
                 full_system_prompt += recall_text
+        if short_mode:
+            full_system_prompt += (
+                "\n\n[Short message mode]\n"
+                "The user is sending short messages like texting. "
+                "Reply in short, casual chat-style messages. "
+                "If you want to send multiple messages, separate them with [NEXT] on its own line. "
+                "Each segment should be a short standalone message (1-2 sentences max). "
+                "Do NOT use [NEXT] if a single short reply is enough. "
+                "Keep the tone natural, like real-time chatting."
+            )
         save_memory_description = (
             "Actively store long-term useful information. Use content for memory text and klass for category: identity, relationship, bond, conflict, fact, preference, health, task, ephemeral, other."
             "Timestamp is added by backend automatically. Save when you detect preferences, important facts, or emotional milestones."
@@ -1202,7 +1213,7 @@ class ChatService:
         return {"status": "unknown_tool", "payload": tool_call.arguments}
 
     def _fetch_next_tool_calls(
-        self, messages: list[dict[str, Any]], session_id: int
+        self, messages: list[dict[str, Any]], session_id: int, *, short_mode: bool = False,
     ) -> Iterable[ToolCall]:
         self._trimmed_messages = []
         self._trimmed_message_ids = []

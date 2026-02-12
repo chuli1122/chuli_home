@@ -25,6 +25,7 @@ class ChatCompletionRequest(BaseModel):
     messages: list[dict[str, Any]] = []
     tool_calls: list[ToolCallPayload] = []
     stream: bool = False
+    short_mode: bool = False
 
 
 class ChatCompletionResponse(BaseModel):
@@ -89,6 +90,7 @@ async def chat_completions(
     # Non-streaming path
     tool_calls = [ToolCall(name=call.name, arguments=call.arguments) for call in payload.tool_calls]
     result_messages = chat_service.chat_completion(
-        payload.session_id, messages, tool_calls, background_tasks=background_tasks
+        payload.session_id, messages, tool_calls, background_tasks=background_tasks,
+        short_mode=payload.short_mode,
     )
     return ChatCompletionResponse(messages=result_messages)

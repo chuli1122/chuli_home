@@ -981,7 +981,7 @@ export default function ChatSession() {
     if (pendingMessages.length === 0) return;
     setLoading(true);
     try {
-      const body = { session_id: Number(id), stream: false, messages: pendingMessages };
+      const body = { session_id: Number(id), stream: false, messages: pendingMessages, short_mode: true };
       const data = await apiFetch("/api/chat/completions", {
         method: "POST",
         body,
