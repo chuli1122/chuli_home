@@ -1658,8 +1658,14 @@ class ChatService:
             if used_ids:
                 self.db.commit()
             clean_content = re.sub(r'\[\[used:\d+\]\]', '', choice.content).strip()
-            messages.append({"role": "assistant", "content": clean_content})
-            self._persist_message(session_id, "assistant", clean_content, {})
+            if short_mode and "[NEXT]" in clean_content:
+                parts = [p.strip() for p in clean_content.split("[NEXT]") if p.strip()]
+                for part in parts:
+                    messages.append({"role": "assistant", "content": part})
+                    self._persist_message(session_id, "assistant", part, {})
+            else:
+                messages.append({"role": "assistant", "content": clean_content})
+                self._persist_message(session_id, "assistant", clean_content, {})
         else:
             fallback_content = "(No relevant memory found. Reply based on current prompt.)"
             messages.append({"role": "assistant", "content": fallback_content})
