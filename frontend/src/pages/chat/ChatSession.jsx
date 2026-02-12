@@ -1,13 +1,14 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, Send, Square, Repeat, ChevronDown, Search, X,
-  Image, File, Smile, MessageSquare, Palette, Plus, Inbox,
+  ChevronDown, X,
+  File as FileIcon, Plus,
 } from "lucide-react";
 import { apiFetch, apiSSE } from "../../utils/api";
-import { loadImageUrl, getAllStickers, addSticker, removeSticker } from "../../utils/db";
+import { loadImageUrl, getAllStickers, addSticker, removeSticker, saveImage, getImage, blobToBase64 } from "../../utils/db";
 import Modal from "../../components/Modal";
 import ConfirmModal from "../../components/ConfirmModal";
+import MessageContent from "./MessageContent";
 
 const MOODS = [
   { key: "happy", label: "开心" },
@@ -102,7 +103,12 @@ export default function ChatSession() {
         const data = await apiFetch("/api/sessions");
         const session = (data.sessions || []).find((s) => s.id === Number(id));
         setSessionInfo(session || null);
-        if (session?.mood) setCurrentMood(session.mood);
+        // Load mood from latest summary
+        try {
+          const sumData = await apiFetch(`/api/sessions/${id}/summaries`);
+          const latest = (sumData.summaries || [])[0];
+          if (latest?.mood_tag) setCurrentMood(latest.mood_tag);
+        } catch {}
         // Load assistant avatar + model name + name
         if (session?.assistant_id) {
           try {
@@ -155,7 +161,7 @@ export default function ChatSession() {
 
       const data = await apiFetch(url);
       const msgs = (data.messages || []).filter(
-        (m) => m.role === "user" || m.role === "assistant"
+        (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
       );
 
       // Use backend's has_more flag
@@ -342,15 +348,23 @@ export default function ChatSession() {
     setTimeout(() => setModeTip(""), 2000);
   };
 
-  // Mood
+  // Mood — persist to latest summary's mood_tag
   const selectMood = async (key) => {
     setCurrentMood(key);
     setShowMoodPicker(false);
     try {
-      await apiFetch(`/api/sessions/${id}`, {
-        method: "PUT",
-        body: { mood: key },
-      });
+      const sumData = await apiFetch(`/api/sessions/${id}/summaries`);
+      const latest = (sumData.summaries || [])[0];
+      if (latest) {
+        const res = await apiFetch(`/api/sessions/${id}/summaries/${latest.id}`, {
+          method: "PUT",
+          body: { mood_tag: key },
+        });
+        // Append system message to chat
+        if (res.system_message) {
+          setMessages((prev) => [...prev, res.system_message]);
+        }
+      }
     } catch {}
   };
 
@@ -359,10 +373,9 @@ export default function ChatSession() {
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
-      const data = await apiFetch(`/api/sessions/${id}/messages?limit=50`);
+      const data = await apiFetch(`/api/sessions/${id}/messages?search=${encodeURIComponent(searchQuery.trim())}`);
       const all = (data.messages || []).filter(
-        (m) => (m.role === "user" || m.role === "assistant") &&
-          m.content && m.content.includes(searchQuery.trim())
+        (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
       );
       setSearchResults(all);
     } catch {
@@ -414,7 +427,7 @@ export default function ChatSession() {
   const selectSticker = (stickerKey) => {
     const url = stickerUrls[stickerKey];
     if (url) {
-      setAttachments((prev) => [...prev, { type: "sticker", key: stickerKey, url }]);
+      setAttachments((prev) => [...prev, { type: "sticker", key: stickerKey, url, imageId: stickerKey }]);
     }
     setShowStickerPanel(false);
   };
@@ -425,22 +438,30 @@ export default function ChatSession() {
   };
 
   // Attachments
-  const handleImageSelect = (e) => {
+  const handleImageSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await saveImage(imageId, file);
     const url = URL.createObjectURL(file);
-    setAttachments((prev) => [...prev, { type: "image", file, url, name: file.name }]);
+    setAttachments((prev) => [...prev, { type: "image", file, url, name: file.name, imageId }]);
     setShowToolbar(false);
     e.target.value = "";
   };
 
-  const handleFileSelect = (e) => {
+  const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setAttachments((prev) => [...prev, {
-      type: "file", file, name: file.name,
-      size: (file.size / 1024).toFixed(1) + " KB",
-    }]);
+    const textExts = /\.(txt|md|json|js|jsx|ts|tsx|py|java|c|cpp|h|css|html|xml|yaml|yml|toml|ini|cfg|sh|bat|sql|csv|log|rst|rb|go|rs|swift|kt|scala|r|m|mm|pl|php|lua|zig|asm|s)$/i;
+    if (textExts.test(file.name)) {
+      const text = await file.text();
+      setAttachments((prev) => [...prev, { type: "text-file", content: text, name: file.name }]);
+    } else {
+      const fileId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await saveImage(fileId, file);
+      const url = URL.createObjectURL(file);
+      setAttachments((prev) => [...prev, { type: "binary-file", file, url, name: file.name, fileId }]);
+    }
     setShowToolbar(false);
     e.target.value = "";
   };
@@ -457,23 +478,63 @@ export default function ChatSession() {
     setInput("");
 
     // Build content with quote if present
-    let content = text || (attachments.length > 0 ? "[附件]" : "");
+    let textContent = text;
     if (quotedMessage) {
-      content = `[引用 ${quotedMessage.senderName} 的消息：${quotedMessage.content}]\n${content}`;
+      textContent = `[引用 ${quotedMessage.senderName} 的消息：${quotedMessage.content}]\n${textContent}`;
+    }
+
+    // Prepend text-file contents
+    for (const att of attachments) {
+      if (att.type === "text-file") {
+        textContent = `[文件: ${att.name}]\n${att.content}\n[/文件]\n${textContent}`;
+      }
+    }
+
+    // Check if we have image/binary-file attachments needing multimodal
+    const multimodalAtts = attachments.filter(
+      (a) => a.type === "image" || a.type === "sticker" || a.type === "binary-file"
+    );
+
+    let messageToSend;
+    let displayContent = textContent;
+
+    if (multimodalAtts.length > 0) {
+      const parts = [];
+      const markers = [];
+      for (const att of multimodalAtts) {
+        if (att.type === "image" || att.type === "sticker") {
+          const record = await getImage(att.imageId);
+          if (record?.blob) {
+            const base64 = await blobToBase64(record.blob);
+            parts.push({ type: "image_url", image_url: { url: base64 }, image_id: att.imageId });
+            markers.push(`[图片:${att.imageId}]`);
+          }
+        } else if (att.type === "binary-file") {
+          const record = await getImage(att.fileId);
+          if (record?.blob) {
+            const base64 = await blobToBase64(record.blob);
+            parts.push({ type: "file", file_url: { url: base64 }, file_id: att.fileId, file_name: att.name });
+            markers.push(`[文件:${att.fileId}:${att.name}]`);
+          }
+        }
+      }
+      parts.push({ type: "text", text: textContent });
+      messageToSend = parts;
+      displayContent = markers.join("") + textContent;
+    } else {
+      messageToSend = textContent;
+      displayContent = textContent;
     }
 
     const userMsg = {
       id: Date.now(),
       role: "user",
-      content,
+      content: displayContent || "[附件]",
       created_at: new Date().toISOString(),
-      attachments: attachments.length > 0 ? attachments.map((a) => ({
-        type: a.type, name: a.name, url: a.url,
-      })) : undefined,
     };
     setMessages((prev) => [...prev, userMsg]);
     setAttachments([]);
-    setQuotedMessage(null); // Clear quote after sending
+    setQuotedMessage(null);
     setTimeout(() => scrollToBottomAuto(), 50);
 
     setStreaming(true);
@@ -488,7 +549,7 @@ export default function ChatSession() {
     try {
       await apiSSE(
         "/api/chat/completions",
-        { session_id: Number(id), message: text, stream: true },
+        { session_id: Number(id), message: messageToSend, stream: true },
         (chunk) => {
           if (chunk.content) {
             streamContentRef.current += chunk.content;
@@ -507,7 +568,6 @@ export default function ChatSession() {
               m.id === aiMsgId ? { ...m, content: clean } : m
             )
           );
-          // Update read time when assistant message is received
           updateReadTime();
         }
       );
@@ -678,9 +738,19 @@ export default function ChatSession() {
     setEditContent("");
   };
 
-  const handleDelete = (msg) => {
-    setDeletingMessage(msg);
+  const handleDelete = async (msg) => {
     closeContextMenu();
+    // System messages: delete directly without confirmation
+    if (msg.role === "system") {
+      try {
+        await apiFetch(`/api/sessions/${id}/messages/${msg.id}`, { method: "DELETE" });
+        setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+      } catch (e) {
+        console.error("Delete failed", e);
+      }
+      return;
+    }
+    setDeletingMessage(msg);
   };
 
   const confirmDelete = async () => {
@@ -700,19 +770,75 @@ export default function ChatSession() {
     if (!msg || msg.role !== "assistant") return;
     closeContextMenu();
 
+    // Find the user message right before this assistant message
+    const currentMessages = [...messages];
+    const aiIdx = currentMessages.findIndex((m) => m.id === msg.id);
+    let prevUserMsg = null;
+    if (aiIdx > 0) {
+      for (let j = aiIdx - 1; j >= 0; j--) {
+        if (currentMessages[j].role === "user") {
+          prevUserMsg = currentMessages[j];
+          break;
+        }
+      }
+    }
+
     // Delete current assistant message locally
     setMessages((prev) => prev.filter((m) => m.id !== msg.id));
 
     // Delete from backend
     try {
-      await apiFetch(`/api/sessions/${id}/messages/${msg.id}`, {
-        method: "DELETE",
-      });
+      await apiFetch(`/api/sessions/${id}/messages/${msg.id}`, { method: "DELETE" });
     } catch (e) {
       console.error("Delete failed during re-reply", e);
     }
 
-    // Request new AI reply with previous context
+    // Try to rebuild multimodal content from the previous user message's markers
+    let messageToSend = "";
+    if (prevUserMsg?.content) {
+      const imgMarkers = [...prevUserMsg.content.matchAll(/\[图片:([^\]]+)\]/g)];
+      const fileMarkers = [...prevUserMsg.content.matchAll(/\[文件:([^:]+):([^\]]+)\]/g)];
+
+      if (imgMarkers.length > 0 || fileMarkers.length > 0) {
+        const parts = [];
+        // Load images from IndexedDB
+        for (const m of imgMarkers) {
+          const record = await getImage(m[1]);
+          if (record?.blob) {
+            const base64 = await blobToBase64(record.blob);
+            parts.push({ type: "image_url", image_url: { url: base64 }, image_id: m[1] });
+          }
+        }
+        // Load binary files from IndexedDB
+        for (const m of fileMarkers) {
+          const record = await getImage(m[1]);
+          if (record?.blob) {
+            const base64 = await blobToBase64(record.blob);
+            parts.push({ type: "file", file_url: { url: base64 }, file_id: m[1], file_name: m[2] });
+          }
+        }
+        if (parts.length > 0) {
+          // Strip markers from text and add as text part
+          const textOnly = prevUserMsg.content
+            .replace(/\[图片:[^\]]+\]/g, "")
+            .replace(/\[文件:[^:]+:[^\]]+\]/g, "")
+            .trim();
+          parts.push({ type: "text", text: textOnly });
+          messageToSend = parts;
+
+          // Delete the old user message from backend and resend with multimodal
+          if (prevUserMsg.id) {
+            try {
+              await apiFetch(`/api/sessions/${id}/messages/${prevUserMsg.id}`, { method: "DELETE" });
+            } catch (e) {
+              console.error("Delete user msg failed during re-reply", e);
+            }
+          }
+        }
+      }
+    }
+
+    // Request new AI reply
     setStreaming(true);
     streamContentRef.current = "";
     const aiMsgId = Date.now();
@@ -724,7 +850,7 @@ export default function ChatSession() {
     try {
       await apiSSE(
         "/api/chat/completions",
-        { session_id: Number(id), message: "", stream: true },
+        { session_id: Number(id), message: messageToSend, stream: true },
         (chunk) => {
           if (chunk.content) {
             streamContentRef.current += chunk.content;
@@ -743,7 +869,6 @@ export default function ChatSession() {
               m.id === aiMsgId ? { ...m, content: clean } : m
             )
           );
-          // Update read time when assistant message is received
           updateReadTime();
         }
       );
@@ -844,89 +969,110 @@ export default function ChatSession() {
   }
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "var(--chat-bg)" }}>
+    <div className="flex flex-col h-full chat-polkadot-bg">
       {/* Header */}
       <div
-        className="px-3 pt-[calc(0.5rem+env(safe-area-inset-top))] pb-1"
-        style={{ background: "rgba(255,255,255,0.6)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(228,160,184,0.2)" }}
+        className="pt-[calc(0.5rem+env(safe-area-inset-top))] pb-1"
+        style={{ background: "rgba(255,248,255,0.7)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(200,160,224,0.25)" }}
       >
-        {/* Top row: back / mood / title / mode / search — all vertically centered */}
         <div className="flex items-center">
+          {/* Back — only this moves when marginLeft changes */}
           <button
             onClick={() => navigate("/chat/messages", { replace: true })}
-            className="rounded-full p-1.5 active:opacity-60"
+            className="p-1 shrink-0 active:scale-90 transition"
+            style={{ marginLeft: 20 }}
           >
-            <ArrowLeft size={20} style={{ color: "var(--chat-text)" }} />
+            <img src="/assets/decorations/爱心.png" alt="返回" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
           </button>
 
-          {/* Mood icon */}
+          <div className="w-2" />
+
+          {/* Mood — stays fixed next to frame */}
           <button
             onClick={() => setShowMoodPicker(!showMoodPicker)}
-            className="ml-1 h-8 w-8 rounded-full overflow-hidden active:scale-90 transition"
+            className="h-8 w-8 shrink-0 rounded-full overflow-hidden active:scale-90 transition"
           >
-            <img
-              src={`/assets/mood/${moodIcon}.png`}
-              alt={moodIcon}
-              className="h-full w-full object-contain"
-            />
+            <img src={`/assets/mood/${moodIcon}.png`} alt={moodIcon} className="h-full w-full object-contain" />
           </button>
 
-          {/* Title */}
-          <h1
-            className="flex-1 text-center text-base font-semibold truncate px-2"
-            style={{ color: "var(--chat-text)" }}
-          >
-            {sessionInfo?.title || assistantName || `会话 ${id}`}
-          </h1>
+          {/* Center: title frame */}
+          <div className="title-frame flex-1 text-center min-w-0 relative mx-1.5" style={{ padding: "5px 32px" }}>
+            <img
+              src="/assets/decorations/星星-闪亮.png"
+              alt=""
+              className="absolute animate-float-bounce pixel-icon"
+              style={{ width: 22, height: 22, top: -12, right: 2, opacity: 0.6 }}
+            />
+            <h1
+              className="font-semibold truncate"
+              style={{ color: "#4a2050", fontSize: 15, lineHeight: "20px" }}
+            >
+              {sessionInfo?.title || assistantName || `会话 ${id}`}
+            </h1>
+            <div className="truncate" style={{ color: "#c4a0b0", fontSize: 8, lineHeight: "11px" }}>
+              {!isGroup && modelName ? modelName : "\u00A0"}
+            </div>
+          </div>
 
-          {/* Mode toggle */}
+          {/* Mode toggle — stays fixed next to frame */}
           <button
             onClick={toggleMode}
-            className="rounded-full p-1.5 active:opacity-60"
+            className="p-1 shrink-0 active:scale-90 transition"
             title={mode === "normal" ? "切换到短消息" : "切换到普通模式"}
           >
-            <Repeat
-              size={17}
-              style={{ color: mode === "short" ? "var(--chat-accent-dark)" : "var(--chat-text-muted)" }}
+            <img
+              src="/assets/decorations/星星粉白.png"
+              alt="切换"
+              style={{
+                width: 28, height: 28, imageRendering: "pixelated",
+                opacity: mode === "short" ? 1 : 0.45,
+              }}
             />
           </button>
 
-          {/* Search */}
+          <div className="w-1" />
+
+          {/* Search — only this moves when marginRight changes */}
           <button
             onClick={() => setShowSearch(true)}
-            className="rounded-full p-1.5 active:opacity-60"
+            className="p-1 shrink-0 active:scale-90 transition"
+            style={{ marginRight: 20 }}
           >
-            <Search size={17} style={{ color: "var(--chat-text-muted)" }} />
+            <img src="/assets/decorations/星星.png" alt="搜索" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
           </button>
-        </div>
-        {/* Model name row — always rendered for consistent height */}
-        <div className="text-center text-[11px] truncate -mt-0.5" style={{ color: "#c4a0b0", height: 14, lineHeight: "14px" }}>
-          {!isGroup && modelName ? modelName : "\u00A0"}
         </div>
       </div>
 
       {/* Mood Picker */}
       {showMoodPicker && (
         <div
-          className="absolute top-[calc(3.5rem+env(safe-area-inset-top))] left-3 right-3 z-50 rounded-2xl p-3 animate-slide-in"
-          style={{ background: "var(--chat-card-bg)", boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }}
+          className="absolute z-50 animate-slide-in rounded-2xl overflow-hidden"
+          style={{
+            top: "calc(3.2rem + env(safe-area-inset-top))",
+            left: "calc(50% - 110px)",
+            width: 220,
+            background: "rgba(255,245,250,0.35)",
+            backdropFilter: "blur(12px)",
+            boxShadow: "0 6px 24px rgba(0,0,0,0.1)",
+            border: "1.5px solid #e8c0d8",
+          }}
         >
           <div className="mood-grid">
             {MOODS.map((m) => (
               <button
                 key={m.key}
                 onClick={() => selectMood(m.key)}
-                className="flex flex-col items-center gap-1 rounded-xl p-2 active:scale-90 transition"
+                className="flex flex-col items-center gap-0.5 py-2 px-1 active:scale-90 transition"
                 style={{
-                  background: currentMood === m.key ? "var(--chat-input-bg)" : "transparent",
+                  background: currentMood === m.key ? "rgba(232,160,184,0.15)" : "transparent",
                 }}
               >
                 <img
                   src={`/assets/mood/${m.key}.png`}
                   alt={m.label}
-                  className="h-10 w-10 object-contain"
+                  className="h-8 w-8 object-contain"
                 />
-                <span className="text-[11px]" style={{ color: "var(--chat-text)" }}>
+                <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>
                   {m.label}
                 </span>
               </button>
@@ -946,7 +1092,7 @@ export default function ChatSession() {
               className="flex flex-1 items-center gap-2 rounded-full px-4 py-2.5"
               style={{ background: "var(--chat-card-bg)" }}
             >
-              <Search size={16} style={{ color: "var(--chat-text-muted)" }} />
+              <img src="/assets/decorations/灯泡.png" alt="" style={{ width: 16, height: 16, imageRendering: "pixelated", opacity: 0.6 }} />
               <input
                 type="text"
                 value={searchQuery}
@@ -1004,6 +1150,14 @@ export default function ChatSession() {
         </div>
       )}
 
+      {/* Pixel background decorations */}
+      <img
+        src="/assets/pixel/像素星光散布.png"
+        alt=""
+        className="absolute pixel-icon"
+        style={{ width: 40, height: 40, bottom: 80, right: 8, opacity: 0.12, zIndex: 0 }}
+      />
+
       {/* Messages */}
       <div
         ref={messagesContainerRef}
@@ -1032,6 +1186,30 @@ export default function ChatSession() {
           </div>
         )}
         {messages.map((msg, i) => {
+          // System notification — centered small text
+          if (msg.role === "system") {
+            return (
+              <div key={msg.id || i} id={`msg-${msg.id}`} className="mb-3 flex justify-center">
+                <span
+                  onTouchStart={(e) => startLongPress(e, msg)}
+                  onTouchEnd={cancelLongPress}
+                  onTouchMove={cancelLongPress}
+                  onMouseDown={(e) => startLongPress(e, msg)}
+                  onMouseUp={cancelLongPress}
+                  onMouseLeave={cancelLongPress}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className="px-3 py-1 rounded-full"
+                  style={{
+                    fontSize: 11, color: "#b0a0b8",
+                    background: "rgba(0,0,0,0.04)",
+                    userSelect: "none", WebkitUserSelect: "none",
+                  }}
+                >
+                  {msg.content}
+                </span>
+              </div>
+            );
+          }
           const isUser = msg.role === "user";
           return (
             <div key={msg.id || i} id={`msg-${msg.id}`} className="mb-3">
@@ -1083,17 +1261,14 @@ export default function ChatSession() {
                       WebkitUserSelect: "none",
                     }}
                   >
-                    {/* Attachment images */}
-                    {msg.attachments?.map((att, ai) => (
-                      att.type === "image" || att.type === "sticker" ? (
-                        <img key={ai} src={att.url} alt="" className="max-w-full rounded-lg mb-1" style={{ maxHeight: 200 }} />
-                      ) : att.type === "file" ? (
-                        <div key={ai} className="flex items-center gap-2 rounded-lg px-2 py-1 mb-1 text-xs" style={{ background: "rgba(0,0,0,0.08)" }}>
-                          <File size={14} /> {att.name}
-                        </div>
-                      ) : null
-                    ))}
-                    {msg.content || (streaming && !isUser ? "..." : "")}
+                    {msg.content ? (
+                      <MessageContent
+                        content={msg.content}
+                        isMarkdown={!isUser}
+                      />
+                    ) : (
+                      streaming && !isUser ? "..." : ""
+                    )}
                   </div>
                   {/* Timestamp below bubble */}
                   {msg.created_at && (
@@ -1137,8 +1312,9 @@ export default function ChatSession() {
           onClick={scrollToBottom}
           className="absolute right-4 z-30 flex h-9 w-9 items-center justify-center rounded-full shadow-lg active:scale-90 transition"
           style={{
-            bottom: "calc(5rem + env(safe-area-inset-bottom))",
-            background: "var(--chat-card-bg)",
+            bottom: "calc(6rem + env(safe-area-inset-bottom))",
+            background: "rgba(255,248,240,0.9)",
+            border: "1.5px dashed #c8a0e0",
           }}
         >
           <ChevronDown size={18} style={{ color: "var(--chat-accent-dark)" }} />
@@ -1162,7 +1338,10 @@ export default function ChatSession() {
           style={{ background: "var(--chat-card-bg)", maxHeight: 280 }}
         >
           <div className="flex items-center justify-between px-4 py-2">
-            <span className="text-sm font-medium" style={{ color: "var(--chat-text)" }}>表情包</span>
+            <span className="flex items-center gap-1 text-sm font-medium" style={{ color: "var(--chat-text)" }}>
+              <img src="/assets/decorations/小蝴蝶结.png" alt="" style={{ width: 14, height: 14, imageRendering: "pixelated" }} />
+              表情包
+            </span>
             <button onClick={() => setShowStickerPanel(false)} className="p-1 active:opacity-60">
               <X size={18} style={{ color: "var(--chat-text-muted)" }} />
             </button>
@@ -1270,11 +1449,19 @@ export default function ChatSession() {
         </div>
       )}
 
+      {/* Decorative bar above input */}
+      <div className="deco-bar" style={{ background: "rgba(255,248,255,0.85)" }}>
+        <span className="deco-bar-item" style={{ color: "#b090a0" }}>♥ {assistantName || "Whisper"}</span>
+        <span className="deco-bar-item" style={{ color: "#b090a0" }}>▶| ☆*.{sessionInfo?.title || "聊天中"}.+</span>
+        <span className="deco-bar-item" style={{ color: "#b090a0" }}>♪ ★.*::☆ cute! :*:★</span>
+        <span className="deco-bar-item" style={{ color: "#b090a0" }}>◇ *.+花与星光.* ◇</span>
+      </div>
+
       {/* Input area */}
       <div
         ref={inputAreaRef}
         className="px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
-        style={{ background: "rgba(255,255,255,0.7)", backdropFilter: "blur(12px)", borderTop: "1px solid rgba(228,160,184,0.2)" }}
+        style={{ background: "rgba(255,248,255,0.85)", backdropFilter: "blur(12px)" }}
       >
         {/* Quote preview */}
         {quotedMessage && (
@@ -1305,7 +1492,7 @@ export default function ChatSession() {
                     <img src={att.url} alt="" className="w-full h-full object-cover" />
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-1 w-full h-full px-2 text-xs" style={{ color: "var(--chat-text)" }}>
-                      <File size={20} />
+                      <FileIcon size={20} />
                       <span className="w-full text-center truncate text-[10px]">{att.name}</span>
                     </div>
                   )}
@@ -1326,23 +1513,23 @@ export default function ChatSession() {
         {showToolbar && (
           <div className="flex justify-around py-2 mb-1 rounded-xl animate-panel-expand" style={{ background: "var(--chat-input-bg)" }}>
             <button onClick={() => imageInputRef.current?.click()} className="toolbar-icon-btn flex-1">
-              <Image size={20} style={{ color: "var(--chat-accent-dark)" }} />
+              <img src="/assets/decorations/相框.png" alt="" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
               <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>图片</span>
             </button>
             <button onClick={() => fileInputRef.current?.click()} className="toolbar-icon-btn flex-1">
-              <File size={20} style={{ color: "var(--chat-accent-dark)" }} />
+              <img src="/assets/pixel/像素文件图标.png" alt="" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
               <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>文件</span>
             </button>
             <button onClick={openStickerPanel} className="toolbar-icon-btn flex-1">
-              <Smile size={20} style={{ color: "var(--chat-accent-dark)" }} />
+              <img src="/assets/decorations/笑脸.png" alt="" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
               <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>表情包</span>
             </button>
             <button onClick={() => { setShowToolbar(false); alert("气泡设置开发中"); }} className="toolbar-icon-btn flex-1">
-              <MessageSquare size={20} style={{ color: "var(--chat-accent-dark)" }} />
+              <img src="/assets/pixel/像素输入中气泡.png" alt="" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
               <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>气泡</span>
             </button>
             <button onClick={() => { setShowToolbar(false); alert("背景设置开发中"); }} className="toolbar-icon-btn flex-1">
-              <Palette size={20} style={{ color: "var(--chat-accent-dark)" }} />
+              <img src="/assets/decorations/花朵.png" alt="" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
               <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>背景</span>
             </button>
             <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
@@ -1352,17 +1539,20 @@ export default function ChatSession() {
 
         {/* Input row */}
         <div className="flex items-end gap-2">
-          {/* Toolbar toggle */}
+          {/* Toolbar toggle — bigger cat paw */}
           <button
             onClick={() => { setShowToolbar(!showToolbar); setShowStickerPanel(false); }}
-            className="mb-1 rounded-full p-1.5 active:scale-90 transition"
+            className="mb-1 p-1 active:scale-90 transition"
           >
-            <Plus
-              size={20}
+            <img
+              src="/assets/pixel/像素粉色猫爪.png"
+              alt="+"
               style={{
-                color: showToolbar ? "var(--chat-accent-dark)" : "var(--chat-text-muted)",
+                width: 30, height: 30,
+                imageRendering: "pixelated",
+                opacity: showToolbar ? 1 : 0.5,
                 transform: showToolbar ? "rotate(45deg)" : "none",
-                transition: "transform 0.2s",
+                transition: "transform 0.2s, opacity 0.2s",
               }}
             />
           </button>
@@ -1373,57 +1563,34 @@ export default function ChatSession() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="输入消息..."
             rows={1}
-            className="flex-1 rounded-2xl px-3.5 py-2 text-base outline-none resize-none max-h-24 overflow-y-auto"
+            className="flex-1 dashed-input px-3.5 text-sm outline-none resize-none max-h-24 overflow-y-auto"
             style={{
-              background: "var(--chat-input-bg)",
               color: "var(--chat-text)",
-              border: "1px solid var(--chat-accent)",
               height: Math.min(24 + input.split("\n").length * 20, 96),
+              paddingTop: 10,
+              paddingBottom: 4,
             }}
           />
 
-          {/* Action buttons — both modes have 收 + 发送 */}
-          {mode === "normal" ? (
-            <>
-              <button
-                onClick={receiveNormal}
-                disabled={streaming || loading}
-                className="mb-1 flex h-9 items-center justify-center rounded-full px-3 text-xs text-white disabled:opacity-30 active:scale-90 transition"
-                style={{ background: "var(--chat-accent)" }}
-              >
-                <Inbox size={14} className="mr-1" />
-                {loading ? "..." : "收"}
-              </button>
-              <button
-                onClick={streaming ? stopStream : sendNormal}
-                disabled={!streaming && !input.trim() && attachments.length === 0}
-                className="mb-1 flex h-9 w-9 items-center justify-center rounded-full text-white disabled:opacity-30 active:scale-90 transition"
-                style={{ background: "var(--chat-accent-dark)" }}
-              >
-                {streaming ? <Square size={14} fill="white" /> : <Send size={14} />}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={collectAndSend}
-                disabled={loading}
-                className="mb-1 flex h-9 items-center justify-center rounded-full px-3 text-xs text-white disabled:opacity-30 active:scale-90 transition"
-                style={{ background: "var(--chat-accent)" }}
-              >
-                <Inbox size={14} className="mr-1" />
-                {loading ? "..." : "收"}
-              </button>
-              <button
-                onClick={sendShort}
-                disabled={!input.trim()}
-                className="mb-1 flex h-9 items-center justify-center rounded-full px-3 text-xs text-white disabled:opacity-30 active:scale-90 transition"
-                style={{ background: "var(--chat-accent-dark)" }}
-              >
-                发送
-              </button>
-            </>
-          )}
+          {/* Action buttons — pixel icons, same size as cat paw */}
+          <button
+            onClick={mode === "normal" ? receiveNormal : collectAndSend}
+            disabled={streaming || loading}
+            className="mb-1 p-0.5 disabled:opacity-30 active:scale-90 transition"
+          >
+            <img src="/assets/pixel/像素黄色信封.png" alt="收" style={{ width: 30, height: 30, imageRendering: "pixelated" }} />
+          </button>
+          <button
+            onClick={mode === "normal" ? (streaming ? stopStream : sendNormal) : sendShort}
+            disabled={mode === "normal" ? (!streaming && !input.trim() && attachments.length === 0) : !input.trim()}
+            className="mb-1 p-0.5 disabled:opacity-30 active:scale-90 transition"
+          >
+            {streaming ? (
+              <img src="/assets/pixel/像素沙漏.png" alt="暂停" style={{ width: 30, height: 30, imageRendering: "pixelated" }} />
+            ) : (
+              <img src="/assets/decorations/信封 (2).png" alt="发送" style={{ width: 30, height: 30, imageRendering: "pixelated" }} />
+            )}
+          </button>
         </div>
       </div>
 
@@ -1443,52 +1610,64 @@ export default function ChatSession() {
               border: "1px solid var(--chat-accent)",
             }}
           >
-            <button
-              onClick={() => handleQuote(contextMenu.message)}
-              className="py-2 text-xs hover:bg-black/5 active:bg-black/10 rounded-l-full"
-              style={{ color: "var(--chat-text)", width: "52px" }}
-            >
-              引用
-            </button>
-            <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
-            <button
-              onClick={() => handleCopy(contextMenu.message)}
-              className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
-              style={{ color: "var(--chat-text)", width: "52px" }}
-            >
-              复制
-            </button>
-            <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
-            {contextMenu.message.role === "user" ? (
-              <>
-                <button
-                  onClick={() => handleEdit(contextMenu.message)}
-                  className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
-                  style={{ color: "var(--chat-text)", width: "52px" }}
-                >
-                  编辑
-                </button>
-                <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
-              </>
+            {contextMenu.message.role === "system" ? (
+              <button
+                onClick={() => handleDelete(contextMenu.message)}
+                className="py-2 text-xs hover:bg-black/5 active:bg-black/10 text-red-500 rounded-full"
+                style={{ width: "52px" }}
+              >
+                删除
+              </button>
             ) : (
               <>
                 <button
-                  onClick={() => handleReReply(contextMenu.message)}
+                  onClick={() => handleQuote(contextMenu.message)}
+                  className="py-2 text-xs hover:bg-black/5 active:bg-black/10 rounded-l-full"
+                  style={{ color: "var(--chat-text)", width: "52px" }}
+                >
+                  引用
+                </button>
+                <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
+                <button
+                  onClick={() => handleCopy(contextMenu.message)}
                   className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
                   style={{ color: "var(--chat-text)", width: "52px" }}
                 >
-                  重回
+                  复制
                 </button>
                 <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
+                {contextMenu.message.role === "user" ? (
+                  <>
+                    <button
+                      onClick={() => handleEdit(contextMenu.message)}
+                      className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
+                      style={{ color: "var(--chat-text)", width: "52px" }}
+                    >
+                      编辑
+                    </button>
+                    <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleReReply(contextMenu.message)}
+                      className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
+                      style={{ color: "var(--chat-text)", width: "52px" }}
+                    >
+                      重回
+                    </button>
+                    <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
+                  </>
+                )}
+                <button
+                  onClick={() => handleDelete(contextMenu.message)}
+                  className="py-2 text-xs hover:bg-black/5 active:bg-black/10 text-red-500 rounded-r-full"
+                  style={{ width: "52px" }}
+                >
+                  删除
+                </button>
               </>
             )}
-            <button
-              onClick={() => handleDelete(contextMenu.message)}
-              className="py-2 text-xs hover:bg-black/5 active:bg-black/10 text-red-500 rounded-r-full"
-              style={{ width: "52px" }}
-            >
-              删除
-            </button>
           </div>
         </>
       )}

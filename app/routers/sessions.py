@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.models import ChatSession, Message, SessionSummary
+from app.models.models import ChatSession, Message, SessionSummary, UserProfile
 from app.utils import format_datetime
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,11 @@ class SessionSummaryItem(BaseModel):
 
 class SessionSummariesResponse(BaseModel):
     summaries: list[SessionSummaryItem]
+
+
+class MoodUpdateResponse(BaseModel):
+    summary: SessionSummaryItem
+    system_message: SessionMessageItem
 
 
 class SessionSummaryUpdateRequest(BaseModel):
@@ -161,6 +166,7 @@ def get_session_messages(
     session_id: int,
     limit: int = Query(50, ge=1, le=200),
     before_id: int | None = Query(None, ge=1),
+    search: str | None = Query(None, min_length=1),
     db: Session = Depends(get_db),
 ) -> SessionMessagesResponse:
     session_row = db.query(ChatSession).filter(ChatSession.id == session_id).first()
@@ -173,6 +179,10 @@ def get_session_messages(
     )
     if before_id is not None:
         query = query.filter(Message.id < before_id)
+
+    # Search filter
+    if search:
+        query = query.filter(Message.content.like(f"%{search}%"))
 
     # Query limit + 1 to check if there are more messages
     rows_desc = query.order_by(Message.id.desc()).limit(limit + 1).all()
@@ -230,13 +240,13 @@ def get_session_summaries(
     return SessionSummariesResponse(summaries=items)
 
 
-@router.put("/sessions/{session_id}/summaries/{summary_id}", response_model=SessionSummaryItem)
+@router.put("/sessions/{session_id}/summaries/{summary_id}", response_model=MoodUpdateResponse)
 def update_session_summary_mood(
     session_id: int,
     summary_id: int,
     payload: SessionSummaryUpdateRequest,
     db: Session = Depends(get_db),
-) -> SessionSummaryItem:
+) -> MoodUpdateResponse:
     session_row = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if session_row is None:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -259,17 +269,42 @@ def update_session_summary_mood(
     summary_row.mood_tag = mood_tag
     db.commit()
     db.refresh(summary_row)
-    return SessionSummaryItem(
-        id=summary_row.id,
-        session_id=summary_row.session_id,
-        summary_content=summary_row.summary_content,
-        perspective=summary_row.perspective,
-        msg_id_start=summary_row.msg_id_start,
-        msg_id_end=summary_row.msg_id_end,
-        time_start=format_datetime(summary_row.time_start),
-        time_end=format_datetime(summary_row.time_end),
-        mood_tag=summary_row.mood_tag,
-        created_at=format_datetime(summary_row.created_at),
+
+    # Read user nickname
+    user_profile = db.query(UserProfile).first()
+    nickname = (user_profile.nickname if user_profile and user_profile.nickname else "用户")
+
+    # Insert system message
+    sys_msg = Message(
+        session_id=session_id,
+        role="system",
+        content=f"[{nickname}手动更改心情标签为: {mood_tag}]",
+        meta_info={},
+    )
+    db.add(sys_msg)
+    db.commit()
+    db.refresh(sys_msg)
+
+    return MoodUpdateResponse(
+        summary=SessionSummaryItem(
+            id=summary_row.id,
+            session_id=summary_row.session_id,
+            summary_content=summary_row.summary_content,
+            perspective=summary_row.perspective,
+            msg_id_start=summary_row.msg_id_start,
+            msg_id_end=summary_row.msg_id_end,
+            time_start=format_datetime(summary_row.time_start),
+            time_end=format_datetime(summary_row.time_end),
+            mood_tag=summary_row.mood_tag,
+            created_at=format_datetime(summary_row.created_at),
+        ),
+        system_message=SessionMessageItem(
+            id=sys_msg.id,
+            role=sys_msg.role,
+            content=sys_msg.content,
+            meta_info=sys_msg.meta_info or {},
+            created_at=format_datetime(sys_msg.created_at),
+        ),
     )
 
 

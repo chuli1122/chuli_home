@@ -775,10 +775,10 @@ class ChatService:
     ) -> list[dict[str, Any]]:
         if messages:
             last_message = messages[-1]
-            if last_message.get("role") == "user" and last_message.get("content", "").strip():
-                self._persist_message(
-                    session_id, "user", last_message.get("content", ""), {}
-                )
+            user_content = last_message.get("content", "")
+            has_content = bool(user_content) if isinstance(user_content, list) else bool(user_content and user_content.strip())
+            if last_message.get("role") == "user" and has_content:
+                self._persist_message(session_id, "user", user_content, {})
         all_trimmed_messages: list[dict[str, Any]] = []
         all_trimmed_message_ids: list[int] = []
         if tool_calls:
@@ -862,10 +862,11 @@ class ChatService:
         api_provider = self.db.get(ApiProvider, model_preset.api_provider_id)
         if not api_provider:
             return None
-        latest_user_message = next(
+        raw_latest = next(
             (m.get("content") for m in reversed(messages) if m.get("role") == "user"),
             None,
         )
+        latest_user_message = self._content_to_storage(raw_latest) if isinstance(raw_latest, list) else raw_latest
         base_system_prompt = assistant.system_prompt
         summaries_desc = (
             self.db.query(SessionSummary)
@@ -977,14 +978,18 @@ class ChatService:
         dialogue_token_total = 0
         for message in messages:
             if message.get("role") in ("user", "assistant"):
-                dialogue_token_total += self._estimate_tokens(message.get("content", "") or "")
+                raw_content = message.get("content", "") or ""
+                text_for_tokens = self._content_to_storage(raw_content) if isinstance(raw_content, list) else raw_content
+                dialogue_token_total += self._estimate_tokens(text_for_tokens)
         message_index = 0
         if dialogue_token_total > trigger_threshold:
             while dialogue_token_total > retain_budget and message_index < len(messages):
                 role = messages[message_index].get("role")
                 if role in ("user", "assistant"):
                     trimmed_message = messages.pop(message_index)
-                    dialogue_token_total -= self._estimate_tokens(trimmed_message.get("content", "") or "")
+                    raw_content = trimmed_message.get("content", "") or ""
+                    text_for_tokens = self._content_to_storage(raw_content) if isinstance(raw_content, list) else raw_content
+                    dialogue_token_total -= self._estimate_tokens(text_for_tokens)
                     self._trimmed_messages.append(trimmed_message)
                     trimmed_id = trimmed_message.get("id")
                     if isinstance(trimmed_id, int):
@@ -1003,18 +1008,35 @@ class ChatService:
                 message_index += 1
         # Format api_messages
         api_messages = []
+        first_system_seen = False
         for message in messages:
             role = message.get("role")
             content = message.get("content")
             if role == "system":
-                content = full_system_prompt
+                if not first_system_seen:
+                    content = full_system_prompt
+                    first_system_seen = True
+                else:
+                    # System notification (e.g. mood change) — add timestamp
+                    msg_time = message.get("created_at")
+                    if msg_time:
+                        timestamp = msg_time if isinstance(msg_time, str) else msg_time.strftime("%Y.%m.%d %H:%M")
+                    else:
+                        timestamp = datetime.now(timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
+                    content = f"[{timestamp}] {content}"
             elif role == "user" and content is not None:
                 msg_time = message.get("created_at")
                 if msg_time:
                     timestamp = msg_time if isinstance(msg_time, str) else msg_time.strftime("%Y.%m.%d %H:%M")
                 else:
                     timestamp = datetime.now(timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
-                content = f"[{timestamp}] {content}"
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            part["text"] = f"[{timestamp}] {part.get('text', '')}"
+                            break
+                else:
+                    content = f"[{timestamp}] {content}"
             elif role == "assistant" and content is not None:
                 msg_time = message.get("created_at")
                 if msg_time:
@@ -1039,10 +1061,10 @@ class ChatService:
         """Streaming chat completion. Yields SSE events."""
         if messages:
             last_message = messages[-1]
-            if last_message.get("role") == "user" and last_message.get("content", "").strip():
-                self._persist_message(
-                    session_id, "user", last_message.get("content", ""), {}
-                )
+            user_content = last_message.get("content", "")
+            has_content = bool(user_content) if isinstance(user_content, list) else bool(user_content and user_content.strip())
+            if last_message.get("role") == "user" and has_content:
+                self._persist_message(session_id, "user", user_content, {})
         all_trimmed_message_ids: list[int] = []
         while True:
             params = self._build_api_call_params(messages, session_id)
@@ -1191,10 +1213,11 @@ class ChatService:
         api_provider = self.db.get(ApiProvider, model_preset.api_provider_id)
         if not api_provider:
             return []
-        latest_user_message = next(
+        raw_latest = next(
             (m.get("content") for m in reversed(messages) if m.get("role") == "user"),
             None,
         )
+        latest_user_message = self._content_to_storage(raw_latest) if isinstance(raw_latest, list) else raw_latest
 
         base_system_prompt = assistant.system_prompt
 
@@ -1431,18 +1454,18 @@ class ChatService:
         dialogue_token_total = 0
         for message in messages:
             if message.get("role") in ("user", "assistant"):
-                dialogue_token_total += self._estimate_tokens(
-                    message.get("content", "") or ""
-                )
+                raw_content = message.get("content", "") or ""
+                text_for_tokens = self._content_to_storage(raw_content) if isinstance(raw_content, list) else raw_content
+                dialogue_token_total += self._estimate_tokens(text_for_tokens)
         message_index = 0
         if dialogue_token_total > trigger_threshold:
             while dialogue_token_total > retain_budget and message_index < len(messages):
                 role = messages[message_index].get("role")
                 if role in ("user", "assistant"):
                     trimmed_message = messages.pop(message_index)
-                    dialogue_token_total -= self._estimate_tokens(
-                        trimmed_message.get("content", "") or ""
-                    )
+                    raw_content = trimmed_message.get("content", "") or ""
+                    text_for_tokens = self._content_to_storage(raw_content) if isinstance(raw_content, list) else raw_content
+                    dialogue_token_total -= self._estimate_tokens(text_for_tokens)
                     self._trimmed_messages.append(trimmed_message)
                     trimmed_id = trimmed_message.get("id")
                     if isinstance(trimmed_id, int):
@@ -1460,11 +1483,32 @@ class ChatService:
                     continue
                 message_index += 1
         api_messages = []
+        first_system_seen = False
         for message in messages:
             role = message.get("role")
             content = message.get("content")
-            if role == "system" and user_info:
-                content = full_system_prompt
+            if role == "system":
+                if not first_system_seen and user_info:
+                    content = full_system_prompt
+                    first_system_seen = True
+                else:
+                    if not first_system_seen:
+                        first_system_seen = True
+                    # System notification — add timestamp
+                    msg_time = message.get("created_at")
+                    if msg_time:
+                        timestamp = (
+                            msg_time
+                            if isinstance(msg_time, str)
+                            else msg_time.strftime("%Y.%m.%d %H:%M")
+                        )
+                    else:
+                        timestamp = (
+                            datetime.now(timezone.utc)
+                            .astimezone(TZ_EAST8)
+                            .strftime("%Y.%m.%d %H:%M")
+                        )
+                    content = f"[{timestamp}] {content}"
             elif role == "user" and content is not None:
                 msg_time = message.get("created_at")
                 if msg_time:
@@ -1479,7 +1523,13 @@ class ChatService:
                         .astimezone(TZ_EAST8)
                         .strftime("%Y.%m.%d %H:%M")
                     )
-                content = f"[{timestamp}] {content}"
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            part["text"] = f"[{timestamp}] {part.get('text', '')}"
+                            break
+                else:
+                    content = f"[{timestamp}] {content}"
             elif role == "assistant" and content is not None:
                 msg_time = message.get("created_at")
                 if msg_time:
@@ -1652,13 +1702,38 @@ class ChatService:
         content = json.dumps(tool_result, ensure_ascii=False)
         self._persist_message(session_id, "tool", content, {"tool_name": tool_name})
 
+    @staticmethod
+    def _content_to_storage(content: str | list | None) -> str:
+        """Convert multimodal content to text-only storage format.
+        Image parts are replaced with [图片:imageId] markers.
+        """
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text":
+                parts.append(item.get("text", ""))
+            elif item.get("type") == "image_url":
+                image_id = item.get("image_id", "unknown")
+                parts.append(f"[图片:{image_id}]")
+            elif item.get("type") == "file":
+                file_id = item.get("file_id", "unknown")
+                file_name = item.get("file_name", "")
+                parts.append(f"[文件:{file_id}:{file_name}]")
+        return "".join(parts)
+
     def _persist_message(
-        self, session_id: int, role: str, content: str, metadata: dict[str, Any]
+        self, session_id: int, role: str, content: str | list, metadata: dict[str, Any]
     ) -> None:
+        storage_content = self._content_to_storage(content)
         message = Message(
             session_id=session_id,
             role=role,
-            content=content,
+            content=storage_content,
             meta_info=metadata,
         )
         self.db.add(message)

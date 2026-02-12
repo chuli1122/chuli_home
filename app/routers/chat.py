@@ -21,7 +21,7 @@ class ToolCallPayload(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     session_id: int
-    message: str | None = None
+    message: str | list[dict[str, Any]] | None = None
     messages: list[dict[str, Any]] = []
     tool_calls: list[ToolCallPayload] = []
     stream: bool = False

@@ -136,3 +136,13 @@ export const addSticker = async (file) => {
 export const removeSticker = async (key) => {
   await deleteImage(key);
 };
+
+// ── Base64 helpers ──
+
+export const blobToBase64 = (blob) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
