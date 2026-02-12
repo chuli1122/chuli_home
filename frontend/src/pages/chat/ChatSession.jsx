@@ -175,13 +175,26 @@ export default function ChatSession() {
         // Initial load - scroll flag already set in useEffect
         setMessages(msgs);
 
-        // Also try to scroll immediately after a short delay as fallback
+        // Multiple fallback scroll attempts with different timings
         setTimeout(() => {
-          const container = messagesContainerRef.current;
-          if (container && shouldScrollToBottomRef.current) {
-            container.scrollTop = container.scrollHeight;
+          if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
+          } else if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
           }
-        }, 100);
+        }, 50);
+
+        setTimeout(() => {
+          if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
+          }
+        }, 150);
+
+        setTimeout(() => {
+          if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
+          }
+        }, 300);
       }
     } catch (e) {
       console.error("Failed to load messages", e);
