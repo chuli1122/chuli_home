@@ -42,6 +42,7 @@ export default function ChatSession() {
   const loadingRef = useRef(false);
   const cursorRef = useRef(null);
   const hasMoreRef = useRef(true);
+  const scrollRestoreRef = useRef(null);
 
   // Mood
   const [currentMood, setCurrentMood] = useState(null);
@@ -157,21 +158,17 @@ export default function ChatSession() {
       }
 
       if (before) {
-        // Loading more - save position and restore
+        // Loading more - save position for restoration in useEffect
         const savedScrollHeight = el?.scrollHeight || 0;
         const savedScrollTop = el?.scrollTop || 0;
 
-        setMessages((prev) => [...msgs, ...prev]);
+        // Save scroll restore info
+        scrollRestoreRef.current = {
+          savedScrollHeight,
+          savedScrollTop,
+        };
 
-        // Use setTimeout with requestAnimationFrame for reliable scroll restoration
-        setTimeout(() => {
-          requestAnimationFrame(() => {
-            if (el) {
-              const newScrollTop = savedScrollTop + (el.scrollHeight - savedScrollHeight);
-              el.scrollTop = newScrollTop;
-            }
-          });
-        }, 0);
+        setMessages((prev) => [...msgs, ...prev]);
       } else {
         // Initial load - scroll to bottom after messages load
         setMessages(msgs);
@@ -208,6 +205,23 @@ export default function ChatSession() {
       el.scrollTop = el.scrollHeight;
     }
   };
+
+  // Restore scroll position after loading more messages
+  useEffect(() => {
+    if (scrollRestoreRef.current && messagesContainerRef.current) {
+      const { savedScrollHeight, savedScrollTop } = scrollRestoreRef.current;
+      const el = messagesContainerRef.current;
+
+      // Use requestAnimationFrame to ensure layout is complete
+      requestAnimationFrame(() => {
+        const newScrollTop = savedScrollTop + (el.scrollHeight - savedScrollHeight);
+        el.scrollTop = newScrollTop;
+      });
+
+      // Clear the restore flag
+      scrollRestoreRef.current = null;
+    }
+  }, [messages]);
 
   // Scroll handler: load more + show/hide scroll-to-bottom
   const handleScroll = () => {
