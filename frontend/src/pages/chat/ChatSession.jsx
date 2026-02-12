@@ -1311,9 +1311,8 @@ export default function ChatSession() {
           </div>
         )}
         {messages.map((msg, i) => {
-          // Skip empty/EMPTY assistant messages and tool-call intermediate messages
+          // Skip empty/EMPTY assistant messages (including empty tool-call intermediates)
           if (isEmptyAssistant(msg)) return null;
-          if (msg.role === "assistant" && (msg.meta_info?.tool_calls || msg.meta_info?.tool_call)) return null;
           // System notification — centered inset style
           if (msg.role === "system") {
             // Friendly display for mood change messages
