@@ -191,12 +191,12 @@ def get_session_messages(
 
     # Query limit + 1 to check if there are more messages
     rows_desc = query.order_by(Message.id.desc()).limit(limit + 1).all()
-    rows = list(reversed(rows_desc))
 
     # Check if there are more messages
-    has_more = len(rows) > limit
-    # Only return up to limit messages
-    rows = rows[:limit]
+    has_more = len(rows_desc) > limit
+    # Trim extra BEFORE reversing so we keep the newest messages
+    rows_desc = rows_desc[:limit]
+    rows = list(reversed(rows_desc))
 
     items = [
         SessionMessageItem(

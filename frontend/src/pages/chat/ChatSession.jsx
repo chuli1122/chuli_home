@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ChevronDown, X,
   File as FileIcon, Plus,
+  Quote, Copy, Pencil, RotateCcw, Trash2,
 } from "lucide-react";
 import { apiFetch, apiSSE } from "../../utils/api";
 import { loadImageUrl, getAllStickers, addSticker, removeSticker, saveImage, getImage, blobToBase64 } from "../../utils/db";
@@ -56,6 +57,9 @@ export default function ChatSession() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const searchInputRef = useRef(null);
+  const [pawIndicator, setPawIndicator] = useState(null); // { msgId } for cat paw bounce
 
   // Toolbar & panels
   const [showToolbar, setShowToolbar] = useState(false);
@@ -67,8 +71,7 @@ export default function ChatSession() {
 
   // Attachments
   const [attachments, setAttachments] = useState([]);
-  const imageInputRef = useRef(null);
-  const fileInputRef = useRef(null);
+  const attachmentInputRef = useRef(null);
   const stickerInputRef = useRef(null);
 
   // Avatars + model name + display title
@@ -188,29 +191,8 @@ export default function ChatSession() {
 
         setMessages((prev) => [...msgs, ...prev]);
       } else {
-        // Initial load - scroll flag already set in useEffect
+        // Initial load — useEffect will handle persistent scroll via shouldScrollToBottomRef
         setMessages(msgs);
-
-        // Multiple fallback scroll attempts with different timings
-        setTimeout(() => {
-          if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
-          } else if (messagesContainerRef.current) {
-            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-          }
-        }, 50);
-
-        setTimeout(() => {
-          if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
-          }
-        }, 150);
-
-        setTimeout(() => {
-          if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
-          }
-        }, 300);
       }
     } catch (e) {
       console.error("Failed to load messages", e);
@@ -287,19 +269,62 @@ export default function ChatSession() {
       // Clear the restore flag
       scrollRestoreRef.current = null;
     } else if (shouldScrollToBottomRef.current && messages.length > 0) {
-      // Scroll to bottom on initial load (only if there are messages)
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          el.scrollTop = el.scrollHeight;
-          // Force repaint
-          void el.offsetHeight;
-        });
-      });
-
-      // Clear the flag
+      // Persistent scroll: keep forcing bottom for 1.5s to handle late-rendering content
       shouldScrollToBottomRef.current = false;
+      const startTime = Date.now();
+      const persistScroll = () => {
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+        if (Date.now() - startTime < 1500) {
+          requestAnimationFrame(persistScroll);
+        }
+      };
+      requestAnimationFrame(persistScroll);
     }
-  }, [messages]);
+  }, [messages, pageReady]);
+
+  // visualViewport keyboard detection for search panel
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      setKeyboardHeight(Math.max(0, window.innerHeight - vv.height));
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, []);
+
+  // Delayed focus for search input (avoid iOS viewport push)
+  useEffect(() => {
+    if (showSearch) {
+      const timer = setTimeout(() => searchInputRef.current?.focus(), 350);
+      return () => clearTimeout(timer);
+    }
+  }, [showSearch]);
+
+  // Load all messages when search opens; auto-search with debounce on query change
+  useEffect(() => {
+    if (!showSearch) return;
+    if (!searchQuery.trim()) {
+      // Default: load all messages reverse chronologically
+      (async () => {
+        setSearching(true);
+        try {
+          const data = await apiFetch(`/api/sessions/${id}/messages?limit=200`);
+          const all = (data.messages || []).filter(
+            (m) => m.role === "user" || m.role === "assistant"
+          );
+          setSearchResults(all.reverse());
+        } catch { setSearchResults([]); }
+        setSearching(false);
+      })();
+      return;
+    }
+    const timer = setTimeout(() => {
+      doSearch();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery, showSearch]);
 
   // Scroll handler: load more + show/hide scroll-to-bottom
   const handleScroll = () => {
@@ -359,6 +384,7 @@ export default function ChatSession() {
       });
       if (res.system_message) {
         setMessages((prev) => [...prev, res.system_message]);
+        setTimeout(() => scrollToBottomAuto(), 50);
       }
     } catch {}
   };
@@ -368,29 +394,82 @@ export default function ChatSession() {
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
-      const data = await apiFetch(`/api/sessions/${id}/messages?search=${encodeURIComponent(searchQuery.trim())}`);
+      const data = await apiFetch(`/api/sessions/${id}/messages?limit=200&search=${encodeURIComponent(searchQuery.trim())}`);
       const all = (data.messages || []).filter(
         (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
       );
-      setSearchResults(all);
+      setSearchResults(all.reverse()); // newest first
     } catch {
       setSearchResults([]);
     }
     setSearching(false);
   };
 
-  const jumpToMessage = (msgId) => {
+  // Highlight keyword in search result text
+  const highlightText = (text, keyword) => {
+    if (!keyword) return text;
+    const idx = text.toLowerCase().indexOf(keyword.toLowerCase());
+    if (idx === -1) return text;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <span style={{ color: "var(--chat-accent-dark)", fontWeight: 600 }}>{text.slice(idx, idx + keyword.length)}</span>
+        {text.slice(idx + keyword.length)}
+      </>
+    );
+  };
+
+  const closeSearch = () => {
+    searchInputRef.current?.blur();
     setShowSearch(false);
     setSearchQuery("");
     setSearchResults([]);
-    const el = document.getElementById(`msg-${msgId}`);
-    const container = messagesContainerRef.current;
-    if (el && container) {
-      const offset = el.offsetTop - container.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
-      container.scrollTo({ top: offset, behavior: "smooth" });
-      el.style.background = "var(--chat-accent)";
-      el.style.transition = "background 0.3s";
-      setTimeout(() => { el.style.background = ""; }, 1500);
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  };
+
+  const jumpToMessage = async (msgId) => {
+    closeSearch();
+
+    const tryScroll = () => {
+      const el = document.getElementById(`msg-${msgId}`);
+      const container = messagesContainerRef.current;
+      if (el && container) {
+        const offset = el.offsetTop - container.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
+        container.scrollTo({ top: offset, behavior: "smooth" });
+        // Show cat paw indicator
+        setPawIndicator({ msgId });
+        setTimeout(() => setPawIndicator(null), 2000);
+        return true;
+      }
+      return false;
+    };
+
+    if (tryScroll()) return;
+
+    // Message not loaded — load messages around the target
+    try {
+      const data = await apiFetch(`/api/sessions/${id}/messages?limit=50&before_id=${msgId + 1}`);
+      const msgs = (data.messages || []).filter(
+        (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
+      );
+      if (msgs.length > 0) {
+        setHasMore(data.has_more === true);
+        hasMoreRef.current = data.has_more === true;
+        const newCursor = msgs[0].id;
+        setCursor(newCursor);
+        cursorRef.current = newCursor;
+        setMessages(msgs);
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            tryScroll();
+          });
+        });
+      }
+    } catch (e) {
+      console.error("Failed to load messages around target", e);
     }
   };
 
@@ -433,29 +512,25 @@ export default function ChatSession() {
   };
 
   // Attachments
-  const handleImageSelect = async (e) => {
+  const handleAttachmentSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await saveImage(imageId, file);
-    const url = URL.createObjectURL(file);
-    setAttachments((prev) => [...prev, { type: "image", file, url, name: file.name, imageId }]);
-    setShowToolbar(false);
-    e.target.value = "";
-  };
-
-  const handleFileSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const textExts = /\.(txt|md|json|js|jsx|ts|tsx|py|java|c|cpp|h|css|html|xml|yaml|yml|toml|ini|cfg|sh|bat|sql|csv|log|rst|rb|go|rs|swift|kt|scala|r|m|mm|pl|php|lua|zig|asm|s)$/i;
-    if (textExts.test(file.name)) {
-      const text = await file.text();
-      setAttachments((prev) => [...prev, { type: "text-file", content: text, name: file.name }]);
-    } else {
-      const fileId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await saveImage(fileId, file);
+    if (file.type.startsWith("image/")) {
+      const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await saveImage(imageId, file);
       const url = URL.createObjectURL(file);
-      setAttachments((prev) => [...prev, { type: "binary-file", file, url, name: file.name, fileId }]);
+      setAttachments((prev) => [...prev, { type: "image", file, url, name: file.name, imageId }]);
+    } else {
+      const textExts = /\.(txt|md|json|js|jsx|ts|tsx|py|java|c|cpp|h|css|html|xml|yaml|yml|toml|ini|cfg|sh|bat|sql|csv|log|rst|rb|go|rs|swift|kt|scala|r|m|mm|pl|php|lua|zig|asm|s)$/i;
+      if (textExts.test(file.name)) {
+        const text = await file.text();
+        setAttachments((prev) => [...prev, { type: "text-file", content: text, name: file.name }]);
+      } else {
+        const fileId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await saveImage(fileId, file);
+        const url = URL.createObjectURL(file);
+        setAttachments((prev) => [...prev, { type: "binary-file", file, url, name: file.name, fileId }]);
+      }
     }
     setShowToolbar(false);
     e.target.value = "";
@@ -643,8 +718,9 @@ export default function ChatSession() {
     longPressPos.current = { x: touch.clientX, y: touch.clientY };
 
     longPressTimer.current = setTimeout(() => {
-      const menuWidth = 210;
-      const menuHeight = 40;
+      const itemCount = msg.role === "system" ? 1 : 4;
+      const menuWidth = itemCount * 42 + (itemCount - 1) + 8; // 42px per item + 1px separators + padding
+      const menuHeight = 48;
       let x = longPressPos.current.x - menuWidth / 2;
       let y = longPressPos.current.y - menuHeight - 10;
 
@@ -754,10 +830,11 @@ export default function ChatSession() {
       await apiFetch(`/api/sessions/${id}/messages/${deletingMessage.id}`, {
         method: "DELETE",
       });
-      setMessages((prev) => prev.filter((m) => m.id !== deletingMessage.id));
     } catch (e) {
       console.error("Delete failed", e);
     }
+    // Always remove locally (temp IDs may not exist in DB)
+    setMessages((prev) => prev.filter((m) => m.id !== deletingMessage.id));
     setDeletingMessage(null);
   };
 
@@ -1076,73 +1153,115 @@ export default function ChatSession() {
         </div>
       )}
 
-      {/* Search Overlay */}
+      {/* Search Panel — half-screen bottom sheet */}
       {showSearch && (
-        <div
-          className="absolute inset-0 z-50 flex flex-col animate-slide-up"
-          style={{ background: "var(--chat-bg)" }}
-        >
-          <div className="flex items-center gap-2 px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-3">
-            <div
-              className="flex flex-1 items-center gap-2 rounded-full px-4 py-2.5"
-              style={{ background: "var(--chat-card-bg)" }}
-            >
-              <img src="/assets/decorations/灯泡.png" alt="" style={{ width: 16, height: 16, imageRendering: "pixelated", opacity: 0.6 }} />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && doSearch()}
-                placeholder="搜索聊天记录..."
-                className="flex-1 text-base outline-none bg-transparent"
-                style={{ color: "var(--chat-text)" }}
-                autoFocus
-              />
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-50 animate-fade-in"
+            style={{ background: "rgba(0,0,0,0.2)" }}
+            onClick={closeSearch}
+          />
+          {/* Panel */}
+          <div
+            className="fixed left-0 right-0 bottom-0 z-50 flex flex-col animate-slide-up"
+            style={{
+              height: "70%",
+              borderRadius: "20px 20px 0 0",
+              background: "var(--chat-bg)",
+              boxShadow: "0 -4px 24px rgba(0,0,0,0.1)",
+              paddingBottom: keyboardHeight,
+              transition: "padding-bottom 0.15s ease-out",
+            }}
+          >
+            {/* Drag handle */}
+            <div className="flex justify-center pt-2 pb-1">
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: "var(--chat-accent)", opacity: 0.3 }} />
             </div>
-            <button
-              onClick={() => { setShowSearch(false); setSearchQuery(""); setSearchResults([]); }}
-              className="text-sm px-2 active:opacity-60"
-              style={{ color: "var(--chat-accent-dark)" }}
-            >
-              取消
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto px-4">
-            {searching && (
-              <div className="flex justify-center py-8">
-                <div className="h-5 w-5 animate-spin rounded-full border-2" style={{ borderColor: "var(--chat-accent)", borderTopColor: "var(--chat-accent-dark)" }} />
-              </div>
-            )}
-            {searchResults.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => jumpToMessage(r.id)}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left active:opacity-70"
+            {/* Search input row */}
+            <div className="flex items-center gap-2 px-4 pb-3">
+              <div
+                className="flex flex-1 items-center gap-2 rounded-full px-4 py-2.5"
+                style={{ background: "var(--chat-card-bg)", border: "1px dashed var(--chat-accent)" }}
               >
-                <div
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs"
-                  style={{
-                    background: r.role === "user" ? "var(--chat-accent)" : "var(--chat-input-bg)",
-                    color: r.role === "user" ? "white" : "var(--chat-text)",
-                  }}
-                >
-                  {r.role === "user" ? "我" : "AI"}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="truncate text-sm" style={{ color: "var(--chat-text)" }}>{r.content}</p>
-                  <span className="text-[10px]" style={{ color: "var(--chat-text-muted)" }}>
-                    {formatMsgTime(r.created_at)}
-                  </span>
-                </div>
+                <img src="/assets/decorations/灯泡.png" alt="" style={{ width: 22, height: 22, imageRendering: "pixelated", opacity: 0.6 }} />
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  enterKeyHint="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } }}
+                  placeholder="搜索聊天记录..."
+                  className="flex-1 text-sm outline-none bg-transparent"
+                  style={{ color: "var(--chat-text)", WebkitAppearance: "none" }}
+                />
+                {searchQuery && (
+                  <button onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="active:opacity-60">
+                    <X size={14} style={{ color: "var(--chat-text-muted)" }} />
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={closeSearch}
+                className="active:scale-90 transition shrink-0"
+              >
+                <img src="/assets/pixel/像素猫脸方块.png" alt="关闭" style={{ width: 46, height: 46, imageRendering: "pixelated" }} />
               </button>
-            ))}
-            {!searching && searchResults.length === 0 && searchQuery && (
-              <p className="py-8 text-center text-sm" style={{ color: "var(--chat-text-muted)" }}>
-                未找到匹配的聊天记录
-              </p>
-            )}
+            </div>
+            {/* Results — card list */}
+            <div className="flex-1 overflow-y-auto no-scrollbar px-4">
+              {searching && (
+                <div className="flex justify-center py-8">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2" style={{ borderColor: "var(--chat-accent)", borderTopColor: "var(--chat-accent-dark)" }} />
+                </div>
+              )}
+              {!searching && searchResults.length > 0 && (
+                <p className="text-[10px] pb-1.5" style={{ color: "var(--chat-text-muted)" }}>
+                  {searchQuery.trim() ? `找到 ${searchResults.length} 条结果` : `共 ${searchResults.length} 条消息`}
+                </p>
+              )}
+              {!searching && searchResults.map((r) => {
+                const name = r.role === "user" ? "我" : (assistantName || "AI");
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => jumpToMessage(r.id)}
+                    className="w-full text-left rounded-xl p-3 mb-2 active:scale-[0.98] transition-transform"
+                    style={{
+                      background: "var(--chat-input-bg)",
+                      border: "1px solid var(--chat-accent)",
+                    }}
+                  >
+                    <div className="flex items-baseline justify-between mb-1">
+                      <span className="text-xs font-medium" style={{ color: r.role === "user" ? "var(--chat-accent-dark)" : "var(--chat-text)" }}>
+                        {name}
+                      </span>
+                      <span className="text-[10px] shrink-0 ml-2" style={{ color: "var(--chat-text-muted)" }}>
+                        {formatMsgTime(r.created_at)}
+                      </span>
+                    </div>
+                    <p className="truncate text-sm" style={{ color: "var(--chat-text)", opacity: 0.7 }}>
+                      {searchQuery.trim() ? highlightText(r.content, searchQuery.trim()) : r.content}
+                    </p>
+                  </button>
+                );
+              })}
+              {!searching && searchResults.length === 0 && searchQuery && (
+                <div className="flex flex-col items-center py-6 gap-1">
+                  <img
+                    src="/assets/decorations/MISS.png"
+                    alt="MISS"
+                    style={{ width: 100, height: "auto", imageRendering: "pixelated" }}
+                  />
+                  <p style={{ fontSize: 11, color: "var(--chat-text-muted)", marginTop: 4 }}>
+                    糟糕，没有哦...
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Pixel background decorations */}
@@ -1181,8 +1300,14 @@ export default function ChatSession() {
           </div>
         )}
         {messages.map((msg, i) => {
-          // System notification — centered small text
+          // System notification — centered inset style
           if (msg.role === "system") {
+            // Friendly display for mood change messages
+            let displayText = msg.content;
+            const moodMatch = msg.content.match(/手动更改心情标签为:\s*(\w+)/);
+            if (moodMatch) {
+              displayText = `已更改心情为：${moodMatch[1]}`;
+            }
             return (
               <div key={msg.id || i} id={`msg-${msg.id}`} className="mb-3 flex justify-center">
                 <span
@@ -1195,19 +1320,22 @@ export default function ChatSession() {
                   onContextMenu={(e) => e.preventDefault()}
                   className="px-3 py-1 rounded-full"
                   style={{
-                    fontSize: 11, color: "#b0a0b8",
-                    background: "rgba(0,0,0,0.04)",
+                    fontSize: 10, color: "#b0a0b8",
+                    background: "rgba(0,0,0,0.03)",
+                    boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)",
+                    border: "1px dashed rgba(176,160,184,0.4)",
                     userSelect: "none", WebkitUserSelect: "none",
                   }}
                 >
-                  {msg.content}
+                  {displayText}
                 </span>
               </div>
             );
           }
           const isUser = msg.role === "user";
+          const showPaw = pawIndicator && pawIndicator.msgId === msg.id;
           return (
-            <div key={msg.id || i} id={`msg-${msg.id}`} className="mb-3">
+            <div key={msg.id || i} id={`msg-${msg.id}`} className="mb-3 relative">
               <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-bubble`}>
                 {/* AI avatar */}
                 {!isUser && (
@@ -1238,7 +1366,7 @@ export default function ChatSession() {
                     onContextMenu={(e) => e.preventDefault()}
                     style={isUser ? {
                       padding: "10px 14px", borderRadius: "16px 4px 16px 16px",
-                      background: "linear-gradient(135deg, #ffe0eb, #ffd1e8)",
+                      background: "linear-gradient(135deg, #ffe8f0, #ffddea)",
                       border: "2px solid #ffb8d9", boxShadow: "2px 2px 0px #ffb8d9",
                       fontSize: 14, lineHeight: 1.6, color: "#4a3548",
                       wordBreak: "break-word",
@@ -1247,7 +1375,7 @@ export default function ChatSession() {
                       WebkitUserSelect: "none",
                     } : {
                       padding: "10px 14px", borderRadius: "4px 16px 16px 16px",
-                      background: "#ffffff",
+                      background: "linear-gradient(135deg, #fffef8, #fffaf0)",
                       border: "2px solid #e8d1ff", boxShadow: "2px 2px 0px #e0d0f0",
                       fontSize: 14, lineHeight: 1.6, color: "#4a3548",
                       wordBreak: "break-word",
@@ -1295,6 +1423,22 @@ export default function ChatSession() {
                   </div>
                 )}
               </div>
+              {/* Cat paw locate indicator */}
+              {showPaw && (
+                <div
+                  className="absolute animate-paw-bounce pointer-events-none"
+                  style={{
+                    top: -6,
+                    [isUser ? "right" : "left"]: 56,
+                  }}
+                >
+                  <img
+                    src="/assets/decorations/两个小猫爪.png"
+                    alt=""
+                    style={{ width: 32, height: 32, imageRendering: "pixelated" }}
+                  />
+                </div>
+              )}
             </div>
           );
         })}
@@ -1507,13 +1651,9 @@ export default function ChatSession() {
         {/* Toolbar panel */}
         {showToolbar && (
           <div className="flex justify-around py-2 mb-1 rounded-xl animate-panel-expand" style={{ background: "var(--chat-input-bg)" }}>
-            <button onClick={() => imageInputRef.current?.click()} className="toolbar-icon-btn flex-1">
-              <img src="/assets/decorations/相框.png" alt="" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
-              <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>图片</span>
-            </button>
-            <button onClick={() => fileInputRef.current?.click()} className="toolbar-icon-btn flex-1">
+            <button onClick={() => attachmentInputRef.current?.click()} className="toolbar-icon-btn flex-1">
               <img src="/assets/pixel/像素文件图标.png" alt="" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
-              <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>文件</span>
+              <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>附件</span>
             </button>
             <button onClick={openStickerPanel} className="toolbar-icon-btn flex-1">
               <img src="/assets/decorations/笑脸.png" alt="" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
@@ -1527,8 +1667,7 @@ export default function ChatSession() {
               <img src="/assets/decorations/花朵.png" alt="" style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
               <span className="text-[10px]" style={{ color: "var(--chat-text)" }}>背景</span>
             </button>
-            <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
-            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
+            <input ref={attachmentInputRef} type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.mp3,.mp4,.mov,.avi,.md,.json,.js,.py,.java,.c,.cpp,.css,.html,.xml,.yaml,.yml,.sh,.sql,.log" className="hidden" onChange={handleAttachmentSelect} />
           </div>
         )}
 
@@ -1589,7 +1728,7 @@ export default function ChatSession() {
         </div>
       </div>
 
-      {/* Context Menu */}
+      {/* Context Menu — vertical icon column */}
       {contextMenu && (
         <>
           <div
@@ -1597,72 +1736,50 @@ export default function ChatSession() {
             onClick={closeContextMenu}
           />
           <div
-            className="fixed z-[101] rounded-full shadow-2xl animate-slide-in flex"
+            className="fixed z-[101] animate-slide-in flex items-center py-1 px-1"
             style={{
               left: contextMenu.x,
               top: contextMenu.y,
+              borderRadius: 16,
               background: "var(--chat-card-bg)",
               border: "1px solid var(--chat-accent)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.12)",
             }}
           >
-            {contextMenu.message.role === "system" ? (
-              <button
-                onClick={() => handleDelete(contextMenu.message)}
-                className="py-2 text-xs hover:bg-black/5 active:bg-black/10 text-red-500 rounded-full"
-                style={{ width: "52px" }}
-              >
-                删除
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={() => handleQuote(contextMenu.message)}
-                  className="py-2 text-xs hover:bg-black/5 active:bg-black/10 rounded-l-full"
-                  style={{ color: "var(--chat-text)", width: "52px" }}
-                >
-                  引用
-                </button>
-                <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
-                <button
-                  onClick={() => handleCopy(contextMenu.message)}
-                  className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
-                  style={{ color: "var(--chat-text)", width: "52px" }}
-                >
-                  复制
-                </button>
-                <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
-                {contextMenu.message.role === "user" ? (
-                  <>
-                    <button
-                      onClick={() => handleEdit(contextMenu.message)}
-                      className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
-                      style={{ color: "var(--chat-text)", width: "52px" }}
-                    >
-                      编辑
-                    </button>
-                    <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => handleReReply(contextMenu.message)}
-                      className="py-2 text-xs hover:bg-black/5 active:bg-black/10"
-                      style={{ color: "var(--chat-text)", width: "52px" }}
-                    >
-                      重回
-                    </button>
-                    <div style={{ width: "1px", background: "var(--chat-accent)", opacity: 0.3 }} />
-                  </>
-                )}
-                <button
-                  onClick={() => handleDelete(contextMenu.message)}
-                  className="py-2 text-xs hover:bg-black/5 active:bg-black/10 text-red-500 rounded-r-full"
-                  style={{ width: "52px" }}
-                >
-                  删除
-                </button>
-              </>
-            )}
+            {(() => {
+              const role = contextMenu.message.role;
+              const items = role === "system"
+                ? [{ icon: Trash2, label: "删除", action: () => handleDelete(contextMenu.message), danger: true }]
+                : [
+                    { icon: Quote, label: "引用", action: () => handleQuote(contextMenu.message) },
+                    { icon: Copy, label: "复制", action: () => handleCopy(contextMenu.message) },
+                    role === "user"
+                      ? { icon: Pencil, label: "编辑", action: () => handleEdit(contextMenu.message) }
+                      : { icon: RotateCcw, label: "重回", action: () => handleReReply(contextMenu.message) },
+                    { icon: Trash2, label: "删除", action: () => handleDelete(contextMenu.message), danger: true },
+                  ];
+              return items.map((item, idx) => (
+                <div key={item.label} className="flex items-center">
+                  {idx > 0 && (
+                    <div style={{ width: 1, height: 28, borderLeft: "1px dashed var(--chat-accent)" }} />
+                  )}
+                  <button
+                    onClick={item.action}
+                    className="flex flex-col items-center justify-center active:scale-90 transition-transform"
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 12,
+                      color: item.danger ? "#ef4444" : "var(--chat-text)",
+                      background: "transparent",
+                    }}
+                  >
+                    <item.icon size={17} strokeWidth={1.8} />
+                    <span style={{ fontSize: 9, marginTop: 1, opacity: 0.7 }}>{item.label}</span>
+                  </button>
+                </div>
+              ));
+            })()}
           </div>
         </>
       )}

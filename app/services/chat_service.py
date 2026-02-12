@@ -881,6 +881,8 @@ class ChatService:
         for summary in summaries_desc:
             if latest_mood_tag is None and summary.mood_tag:
                 latest_mood_tag = summary.mood_tag
+            if summary.msg_id_start is None:
+                continue
             summary_content = (summary.summary_content or "").strip()
             if not summary_content:
                 continue
@@ -1234,6 +1236,8 @@ class ChatService:
         for summary in summaries_desc:
             if latest_mood_tag is None and summary.mood_tag:
                 latest_mood_tag = summary.mood_tag
+            if summary.msg_id_start is None:
+                continue
             summary_content = (summary.summary_content or "").strip()
             if not summary_content:
                 continue

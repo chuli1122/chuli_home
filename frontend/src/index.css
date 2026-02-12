@@ -232,6 +232,20 @@ input, textarea {
   animation: float-bounce 2s ease-in-out infinite;
 }
 
+@keyframes paw-bounce {
+  0% { transform: translateY(0) scale(0); opacity: 0; }
+  15% { transform: translateY(-2px) scale(1.1); opacity: 1; }
+  30% { transform: translateY(2px) scale(0.95); }
+  45% { transform: translateY(-3px) scale(1.05); }
+  60% { transform: translateY(1px) scale(1); }
+  75% { transform: translateY(-2px); }
+  90% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0; }
+}
+.animate-paw-bounce {
+  animation: paw-bounce 2s ease-in-out forwards;
+}
+
 /* Chat bubble border-image */
 .bubble-frame {
   border-style: solid;
