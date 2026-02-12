@@ -44,6 +44,7 @@ export default function ChatSession() {
   const hasMoreRef = useRef(true);
   const scrollRestoreRef = useRef(null);
   const shouldScrollToBottomRef = useRef(false);
+  const scrollTimerRef = useRef(null);
 
   // Mood
   const [currentMood, setCurrentMood] = useState(null);
@@ -191,6 +192,9 @@ export default function ChatSession() {
     cursorRef.current = null;
     setMessages([]);
 
+    // Mark to scroll to bottom after loading
+    shouldScrollToBottomRef.current = true;
+
     loadMessages();
     try {
       const map = JSON.parse(localStorage.getItem("session-read-times") || "{}");
@@ -266,9 +270,27 @@ export default function ChatSession() {
     const el = messagesContainerRef.current;
     if (!el) return;
 
-    // Show/hide scroll to bottom button
+    // Show scroll to bottom button while scrolling (if not at bottom)
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-    setShowScrollBtn(!nearBottom);
+    if (!nearBottom) {
+      setShowScrollBtn(true);
+
+      // Clear existing timer
+      if (scrollTimerRef.current) {
+        clearTimeout(scrollTimerRef.current);
+      }
+
+      // Hide button after scrolling stops (1 second)
+      scrollTimerRef.current = setTimeout(() => {
+        setShowScrollBtn(false);
+      }, 1000);
+    } else {
+      // At bottom - hide button immediately
+      setShowScrollBtn(false);
+      if (scrollTimerRef.current) {
+        clearTimeout(scrollTimerRef.current);
+      }
+    }
 
     // Load more when scrolled to top
     if (!hasMoreRef.current || loadingRef.current) return;
