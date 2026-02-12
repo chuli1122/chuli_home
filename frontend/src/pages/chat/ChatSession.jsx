@@ -174,6 +174,14 @@ export default function ChatSession() {
       } else {
         // Initial load - scroll flag already set in useEffect
         setMessages(msgs);
+
+        // Also try to scroll immediately after a short delay as fallback
+        setTimeout(() => {
+          const container = messagesContainerRef.current;
+          if (container && shouldScrollToBottomRef.current) {
+            container.scrollTop = container.scrollHeight;
+          }
+        }, 100);
       }
     } catch (e) {
       console.error("Failed to load messages", e);
