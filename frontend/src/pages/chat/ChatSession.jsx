@@ -978,10 +978,10 @@ export default function ChatSession() {
 
   const collectAndSend = async () => {
     if (loading) return;
-    if (pendingMessages.length === 0) return;
     setLoading(true);
     try {
-      const body = { session_id: Number(id), stream: false, messages: pendingMessages, short_mode: true };
+      const msgsToSend = pendingMessages.length > 0 ? pendingMessages : [{ role: "user", content: "" }];
+      const body = { session_id: Number(id), stream: false, messages: msgsToSend, short_mode: true };
       const data = await apiFetch("/api/chat/completions", {
         method: "POST",
         body,
