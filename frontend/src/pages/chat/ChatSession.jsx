@@ -23,6 +23,9 @@ const MOODS = [
   { key: "calm", label: "平静" },
 ];
 
+const isEmptyAssistant = (m) =>
+  m.role === "assistant" && (!m.content || !m.content.trim() || m.content.trim() === "EMPTY");
+
 export default function ChatSession() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -312,7 +315,7 @@ export default function ChatSession() {
         try {
           const data = await apiFetch(`/api/sessions/${id}/messages?limit=200`);
           const all = (data.messages || []).filter(
-            (m) => m.role === "user" || m.role === "assistant"
+            (m) => (m.role === "user" || m.role === "assistant") && !isEmptyAssistant(m)
           );
           setSearchResults(all.reverse());
         } catch { setSearchResults([]); }
@@ -396,7 +399,7 @@ export default function ChatSession() {
     try {
       const data = await apiFetch(`/api/sessions/${id}/messages?limit=200&search=${encodeURIComponent(searchQuery.trim())}`);
       const all = (data.messages || []).filter(
-        (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
+        (m) => (m.role === "user" || m.role === "assistant" || m.role === "system") && !isEmptyAssistant(m)
       );
       setSearchResults(all.reverse()); // newest first
     } catch {
@@ -1308,6 +1311,8 @@ export default function ChatSession() {
           </div>
         )}
         {messages.map((msg, i) => {
+          // Skip empty/EMPTY assistant messages
+          if (isEmptyAssistant(msg)) return null;
           // System notification — centered inset style
           if (msg.role === "system") {
             // Friendly display for mood change messages

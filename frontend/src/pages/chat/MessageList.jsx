@@ -135,8 +135,11 @@ export default function MessageList() {
             // Load message preview
             const msgData = await apiFetch(`/api/sessions/${s.id}/messages?limit=10`);
             const msgs = msgData.messages || [];
-            // Find last non-system message for preview
-            const lastMsg = [...msgs].reverse().find(m => m.role === "user" || m.role === "assistant");
+            // Find last non-system, non-empty message for preview
+            const lastMsg = [...msgs].reverse().find(m =>
+              (m.role === "user" || m.role === "assistant") &&
+              m.content && m.content.trim() && m.content.trim() !== "EMPTY"
+            );
             if (lastMsg) previewMap[s.id] = lastMsg;
 
             // Load assistant avatar for single chat
