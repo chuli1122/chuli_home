@@ -804,8 +804,19 @@ class ChatService:
                             "arguments": sanitized_args,
                         }
                     )
-                self._persist_tool_call(session_id, tool_call)
-                tool_result = self._execute_tool(tool_call)
+                try:
+                    self._persist_tool_call(session_id, tool_call)
+                except Exception as e:
+                    logger.error("Failed to persist tool call %s: %s", tool_name, e)
+                    try:
+                        self.db.rollback()
+                    except Exception:
+                        pass
+                try:
+                    tool_result = self._execute_tool(tool_call)
+                except Exception as e:
+                    logger.error("Tool execution error (%s): %s", tool_name, e)
+                    tool_result = {"error": str(e)}
                 messages.append(
                     {
                         "role": "tool",
@@ -814,8 +825,16 @@ class ChatService:
                         "tool_call_id": tool_call.id,
                     }
                 )
-                self._persist_tool_result(session_id, tool_name, tool_result)
+                try:
+                    self._persist_tool_result(session_id, tool_name, tool_result)
+                except Exception as e:
+                    logger.error("Failed to persist tool result %s: %s", tool_name, e)
+                    try:
+                        self.db.rollback()
+                    except Exception:
+                        pass
             # All tool results added, now call API again for next response
+            logger.info("[chat_completion] Tool calls done, making follow-up API call (session=%s)", session_id)
             pending_tool_calls = list(self._fetch_next_tool_calls(messages, session_id, short_mode=short_mode))
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
@@ -1083,11 +1102,12 @@ class ChatService:
             try:
                 params = self._build_api_call_params(messages, session_id)
             except Exception as e:
-                logger.error(f"Failed to build API call params: {e}")
+                logger.error("[stream] Failed to build API call params (session=%s): %s", session_id, e)
                 yield f'data: {json.dumps({"error": str(e)})}\n\n'
                 yield 'data: [DONE]\n\n'
                 return
             if params is None:
+                logger.error("[stream] _build_api_call_params returned None (session=%s)", session_id)
                 yield 'data: [DONE]\n\n'
                 return
             client, model_name, api_messages, tools, preset_temperature, preset_top_p = params
@@ -1146,30 +1166,56 @@ class ChatService:
                         "id": tc["id"], "type": "function",
                         "function": {"name": tc["name"], "arguments": tc["arguments"]},
                     })
-                    parsed_tool_calls.append(ToolCall(
-                        name=tc["name"],
-                        arguments=json.loads(tc["arguments"] or "{}"),
-                        id=tc["id"],
-                    ))
+                    try:
+                        parsed_tool_calls.append(ToolCall(
+                            name=tc["name"],
+                            arguments=json.loads(tc["arguments"] or "{}"),
+                            id=tc["id"],
+                        ))
+                    except json.JSONDecodeError as e:
+                        logger.error("Failed to parse tool call arguments for %s: %s", tc["name"], e)
+                        parsed_tool_calls.append(ToolCall(name=tc["name"], arguments={}, id=tc["id"]))
                 full_content = "".join(content_chunks)
                 messages.append({
                     "role": "assistant", "content": full_content,
                     "tool_calls": tool_calls_payload,
                 })
-                self._persist_message(session_id, "assistant", full_content, {"tool_calls": tool_calls_payload})
+                try:
+                    self._persist_message(session_id, "assistant", full_content, {"tool_calls": tool_calls_payload})
+                except Exception as e:
+                    logger.error("Failed to persist assistant tool_calls message: %s", e)
+                    try:
+                        self.db.rollback()
+                    except Exception:
+                        pass
                 for tc in parsed_tool_calls:
-                    self._persist_tool_call(session_id, tc)
+                    try:
+                        self._persist_tool_call(session_id, tc)
+                    except Exception as e:
+                        logger.error("Failed to persist tool call %s: %s", tc.name, e)
+                        try:
+                            self.db.rollback()
+                        except Exception:
+                            pass
                     try:
                         tool_result = self._execute_tool(tc)
                     except Exception as e:
-                        logger.error(f"Tool execution error ({tc.name}): {e}")
+                        logger.error("Tool execution error (%s): %s", tc.name, e)
                         tool_result = {"error": str(e)}
                     messages.append({
                         "role": "tool", "name": tc.name,
                         "content": json.dumps(tool_result, ensure_ascii=False),
                         "tool_call_id": tc.id,
                     })
-                    self._persist_tool_result(session_id, tc.name, tool_result)
+                    try:
+                        self._persist_tool_result(session_id, tc.name, tool_result)
+                    except Exception as e:
+                        logger.error("Failed to persist tool result %s: %s", tc.name, e)
+                        try:
+                            self.db.rollback()
+                        except Exception:
+                            pass
+                logger.info("[stream] Tool calls done, making follow-up API call (session=%s)", session_id)
                 continue
             # Final text response
             full_content = "".join(content_chunks)
@@ -1592,7 +1638,8 @@ class ChatService:
             if "tool_call_id" in message:
                 api_message["tool_call_id"] = message["tool_call_id"]
             api_messages.append(api_message)
-        print(f"[DEBUG] Calling model: {model_preset.model_name}")
+        logger.info("[_fetch_next_tool_calls] Calling model: %s (session=%s, msg_count=%d)",
+                    model_preset.model_name, session_id, len(api_messages))
         try:
             call_params: dict[str, Any] = {
                 "model": model_preset.model_name,
@@ -1606,10 +1653,20 @@ class ChatService:
                 call_params["top_p"] = model_preset.top_p
             response = client.chat.completions.create(**call_params)
         except Exception as e:
-            print(f"[API ERROR] Request failed: {str(e)}")
+            logger.error("[_fetch_next_tool_calls] API request FAILED (session=%s): %s", session_id, e)
+            # Persist error as assistant message so user sees something
+            error_content = f"(API调用失败: {e})"
+            messages.append({"role": "assistant", "content": error_content})
+            try:
+                self._persist_message(session_id, "assistant", error_content, {})
+            except Exception:
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
             return []
         if not response.choices:
-            logger.warning("LLM response contained no choices.")
+            logger.warning("[_fetch_next_tool_calls] LLM response had no choices (session=%s)", session_id)
             return []
         choice = response.choices[0].message
         tool_calls = []
