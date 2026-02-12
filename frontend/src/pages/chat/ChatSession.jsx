@@ -24,10 +24,7 @@ const MOODS = [
 ];
 
 const isEmptyAssistant = (m) =>
-  m.role === "assistant" && (
-    !m.content || !m.content.trim() || m.content.trim() === "EMPTY" ||
-    m.meta_info?.tool_calls || m.meta_info?.tool_call
-  );
+  m.role === "assistant" && (!m.content || !m.content.trim() || m.content.trim() === "EMPTY");
 
 export default function ChatSession() {
   const { id } = useParams();
@@ -170,7 +167,7 @@ export default function ChatSession() {
 
       const data = await apiFetch(url);
       const msgs = (data.messages || []).filter(
-        (m) => (m.role === "user" || m.role === "assistant" || m.role === "system") && !isEmptyAssistant(m)
+        (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
       );
 
       // Use backend's has_more flag
@@ -458,7 +455,7 @@ export default function ChatSession() {
     try {
       const data = await apiFetch(`/api/sessions/${id}/messages?limit=50&before_id=${msgId + 1}`);
       const msgs = (data.messages || []).filter(
-        (m) => (m.role === "user" || m.role === "assistant" || m.role === "system") && !isEmptyAssistant(m)
+        (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
       );
       if (msgs.length > 0) {
         setHasMore(data.has_more === true);
@@ -1314,8 +1311,9 @@ export default function ChatSession() {
           </div>
         )}
         {messages.map((msg, i) => {
-          // Skip empty/EMPTY assistant messages
+          // Skip empty/EMPTY assistant messages and tool-call intermediate messages
           if (isEmptyAssistant(msg)) return null;
+          if (msg.role === "assistant" && (msg.meta_info?.tool_calls || msg.meta_info?.tool_call)) return null;
           // System notification — centered inset style
           if (msg.role === "system") {
             // Friendly display for mood change messages
