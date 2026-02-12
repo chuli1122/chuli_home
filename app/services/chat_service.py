@@ -843,7 +843,7 @@ class ChatService:
         return messages
 
     def _build_api_call_params(
-        self, messages: list[dict[str, Any]], session_id: int
+        self, messages: list[dict[str, Any]], session_id: int, *, short_mode: bool = False,
     ) -> tuple | None:
         """Build all params needed for an API call.
         Returns (client, model_name, api_messages, tools) or None.
@@ -1080,7 +1080,13 @@ class ChatService:
                 self._persist_message(session_id, "user", user_content, {})
         all_trimmed_message_ids: list[int] = []
         while True:
-            params = self._build_api_call_params(messages, session_id)
+            try:
+                params = self._build_api_call_params(messages, session_id)
+            except Exception as e:
+                logger.error(f"Failed to build API call params: {e}")
+                yield f'data: {json.dumps({"error": str(e)})}\n\n'
+                yield 'data: [DONE]\n\n'
+                return
             if params is None:
                 yield 'data: [DONE]\n\n'
                 return
@@ -1106,25 +1112,31 @@ class ChatService:
                 return
             content_chunks: list[str] = []
             tool_calls_acc: dict[int, dict] = {}
-            for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                if getattr(delta, "content", None):
-                    content_chunks.append(delta.content)
-                    yield f'data: {json.dumps({"content": delta.content})}\n\n'
-                if getattr(delta, "tool_calls", None):
-                    for tc_delta in delta.tool_calls:
-                        idx = tc_delta.index
-                        if idx not in tool_calls_acc:
-                            tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
-                        if tc_delta.id:
-                            tool_calls_acc[idx]["id"] = tc_delta.id
-                        if tc_delta.function:
-                            if tc_delta.function.name:
-                                tool_calls_acc[idx]["name"] += tc_delta.function.name
-                            if tc_delta.function.arguments:
-                                tool_calls_acc[idx]["arguments"] += tc_delta.function.arguments
+            try:
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if getattr(delta, "content", None):
+                        content_chunks.append(delta.content)
+                        yield f'data: {json.dumps({"content": delta.content})}\n\n'
+                    if getattr(delta, "tool_calls", None):
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            if idx not in tool_calls_acc:
+                                tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                            if tc_delta.id:
+                                tool_calls_acc[idx]["id"] = tc_delta.id
+                            if tc_delta.function:
+                                if tc_delta.function.name:
+                                    tool_calls_acc[idx]["name"] += tc_delta.function.name
+                                if tc_delta.function.arguments:
+                                    tool_calls_acc[idx]["arguments"] += tc_delta.function.arguments
+            except Exception as e:
+                logger.error(f"Stream iteration error: {e}")
+                yield f'data: {json.dumps({"error": str(e)})}\n\n'
+                yield 'data: [DONE]\n\n'
+                return
             if tool_calls_acc:
                 tool_calls_payload = []
                 parsed_tool_calls = []
@@ -1147,7 +1159,11 @@ class ChatService:
                 self._persist_message(session_id, "assistant", full_content, {"tool_calls": tool_calls_payload})
                 for tc in parsed_tool_calls:
                     self._persist_tool_call(session_id, tc)
-                    tool_result = self._execute_tool(tc)
+                    try:
+                        tool_result = self._execute_tool(tc)
+                    except Exception as e:
+                        logger.error(f"Tool execution error ({tc.name}): {e}")
+                        tool_result = {"error": str(e)}
                     messages.append({
                         "role": "tool", "name": tc.name,
                         "content": json.dumps(tool_result, ensure_ascii=False),
