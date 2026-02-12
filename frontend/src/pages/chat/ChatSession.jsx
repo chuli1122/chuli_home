@@ -1345,12 +1345,16 @@ export default function ChatSession() {
           })();
           const showDateDivider = curDate && curDate !== prevDate;
           // System notification — centered inset style
-          // Date divider element
+          // Date divider element — same style as system mood tags
           const dateDividerEl = showDateDivider ? (
-            <div className="flex items-center my-4" style={{ userSelect: "none", WebkitUserSelect: "none" }}>
-              <div className="flex-1" style={{ height: 1, background: "linear-gradient(to right, transparent, rgba(176,160,184,0.35), rgba(176,160,184,0.35))" }} />
-              <span className="px-3" style={{ fontSize: 11, color: "#b0a0b8", whiteSpace: "nowrap" }}>{curDate}</span>
-              <div className="flex-1" style={{ height: 1, background: "linear-gradient(to left, transparent, rgba(176,160,184,0.35), rgba(176,160,184,0.35))" }} />
+            <div className="my-3 flex justify-center">
+              <span className="px-3 py-1 rounded-full" style={{
+                fontSize: 10, color: "#b0a0b8",
+                background: "rgba(0,0,0,0.03)",
+                boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)",
+                border: "1px dashed rgba(176,160,184,0.4)",
+                userSelect: "none", WebkitUserSelect: "none",
+              }}>{curDate}</span>
             </div>
           ) : null;
           if (msg.role === "system") {
@@ -1363,7 +1367,7 @@ export default function ChatSession() {
             return (
               <Fragment key={msg.id || i}>
               {dateDividerEl}
-              <div id={`msg-${msg.id}`} className="mb-3 flex justify-center">
+              <div id={`msg-${msg.id}`} className="my-3 flex justify-center">
                 <span
                   onTouchStart={(e) => startLongPress(e, msg)}
                   onTouchEnd={cancelLongPress}
@@ -1401,7 +1405,7 @@ export default function ChatSession() {
           return (
             <Fragment key={msg.id || i}>
             {dateDividerEl}
-            <div id={`msg-${msg.id}`} className={`${showAvatar ? "mt-4" : "mt-1"} relative animate-bubble`}>
+            <div id={`msg-${msg.id}`} className={`${showAvatar ? "mt-5" : "mt-2"} relative animate-bubble`} style={{ paddingLeft: 4, paddingRight: 4 }}>
               {/* Avatar row — only when showAvatar */}
               {showAvatar && (
                 <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1`}>
@@ -1458,8 +1462,8 @@ export default function ChatSession() {
                   onMouseLeave={cancelLongPress}
                   onContextMenu={(e) => e.preventDefault()}
                   style={{
-                    maxWidth: "85%",
-                    padding: "10px 14px",
+                    maxWidth: "88%",
+                    padding: "7px 14px",
                     borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
                     background: isUser
                       ? "linear-gradient(135deg, #ffe8f0, #ffddea)"
