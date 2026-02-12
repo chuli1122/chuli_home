@@ -43,6 +43,7 @@ export default function ChatSession() {
   const cursorRef = useRef(null);
   const hasMoreRef = useRef(true);
   const scrollRestoreRef = useRef(null);
+  const shouldScrollToBottomRef = useRef(false);
 
   // Mood
   const [currentMood, setCurrentMood] = useState(null);
@@ -170,9 +171,9 @@ export default function ChatSession() {
 
         setMessages((prev) => [...msgs, ...prev]);
       } else {
-        // Initial load - scroll to bottom after messages load
+        // Initial load - mark to scroll to bottom in useEffect
+        shouldScrollToBottomRef.current = true;
         setMessages(msgs);
-        setTimeout(() => scrollToBottomAuto(), 100);
       }
     } catch (e) {
       console.error("Failed to load messages", e);
@@ -215,11 +216,14 @@ export default function ChatSession() {
     } catch {}
   };
 
-  // Restore scroll position after loading more messages
+  // Restore scroll position after loading more messages OR scroll to bottom on initial load
   useEffect(() => {
-    if (scrollRestoreRef.current && messagesContainerRef.current) {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+
+    if (scrollRestoreRef.current) {
+      // Restore scroll position after loading more
       const { savedScrollHeight, savedScrollTop } = scrollRestoreRef.current;
-      const el = messagesContainerRef.current;
 
       // Use multiple RAF to ensure rendering is complete
       requestAnimationFrame(() => {
@@ -242,6 +246,18 @@ export default function ChatSession() {
 
       // Clear the restore flag
       scrollRestoreRef.current = null;
+    } else if (shouldScrollToBottomRef.current) {
+      // Scroll to bottom on initial load
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          el.scrollTop = el.scrollHeight;
+          // Force repaint
+          void el.offsetHeight;
+        });
+      });
+
+      // Clear the flag
+      shouldScrollToBottomRef.current = false;
     }
   }, [messages]);
 
