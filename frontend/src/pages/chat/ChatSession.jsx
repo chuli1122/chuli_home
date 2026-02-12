@@ -24,7 +24,10 @@ const MOODS = [
 ];
 
 const isEmptyAssistant = (m) =>
-  m.role === "assistant" && (!m.content || !m.content.trim() || m.content.trim() === "EMPTY");
+  m.role === "assistant" && (
+    !m.content || !m.content.trim() || m.content.trim() === "EMPTY" ||
+    m.meta_info?.tool_calls || m.meta_info?.tool_call
+  );
 
 export default function ChatSession() {
   const { id } = useParams();
@@ -167,7 +170,7 @@ export default function ChatSession() {
 
       const data = await apiFetch(url);
       const msgs = (data.messages || []).filter(
-        (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
+        (m) => (m.role === "user" || m.role === "assistant" || m.role === "system") && !isEmptyAssistant(m)
       );
 
       // Use backend's has_more flag
@@ -455,7 +458,7 @@ export default function ChatSession() {
     try {
       const data = await apiFetch(`/api/sessions/${id}/messages?limit=50&before_id=${msgId + 1}`);
       const msgs = (data.messages || []).filter(
-        (m) => m.role === "user" || m.role === "assistant" || m.role === "system"
+        (m) => (m.role === "user" || m.role === "assistant" || m.role === "system") && !isEmptyAssistant(m)
       );
       if (msgs.length > 0) {
         setHasMore(data.has_more === true);
