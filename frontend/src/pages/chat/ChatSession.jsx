@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { Fragment, useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ChevronDown, X,
@@ -1361,7 +1361,7 @@ export default function ChatSession() {
               displayText = `已更改心情为：${moodMatch[1]}`;
             }
             return (
-              <React.Fragment key={msg.id || i}>
+              <Fragment key={msg.id || i}>
               {dateDividerEl}
               <div id={`msg-${msg.id}`} className="mb-3 flex justify-center">
                 <span
@@ -1384,7 +1384,7 @@ export default function ChatSession() {
                   {displayText}
                 </span>
               </div>
-              </React.Fragment>
+              </Fragment>
             );
           }
           const isUser = msg.role === "user";
@@ -1399,7 +1399,7 @@ export default function ChatSession() {
             return true;
           })();
           return (
-            <React.Fragment key={msg.id || i}>
+            <Fragment key={msg.id || i}>
             {dateDividerEl}
             <div id={`msg-${msg.id}`} className={`${showAvatar ? "mt-4" : "mt-1"} relative animate-bubble`}>
               {/* Avatar row — only when showAvatar */}
@@ -1509,7 +1509,7 @@ export default function ChatSession() {
                 </div>
               )}
             </div>
-            </React.Fragment>
+            </Fragment>
           );
         })}
         <div ref={messagesEndRef} />
