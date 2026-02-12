@@ -90,6 +90,11 @@ class MoodUpdateResponse(BaseModel):
     system_message: SessionMessageItem
 
 
+class MoodSetResponse(BaseModel):
+    mood_tag: str
+    system_message: SessionMessageItem
+
+
 class SessionSummaryUpdateRequest(BaseModel):
     mood_tag: str
 
@@ -298,6 +303,67 @@ def update_session_summary_mood(
             mood_tag=summary_row.mood_tag,
             created_at=format_datetime(summary_row.created_at),
         ),
+        system_message=SessionMessageItem(
+            id=sys_msg.id,
+            role=sys_msg.role,
+            content=sys_msg.content,
+            meta_info=sys_msg.meta_info or {},
+            created_at=format_datetime(sys_msg.created_at),
+        ),
+    )
+
+
+@router.put("/sessions/{session_id}/mood", response_model=MoodSetResponse)
+def set_session_mood(
+    session_id: int,
+    payload: SessionSummaryUpdateRequest,
+    db: Session = Depends(get_db),
+) -> MoodSetResponse:
+    session_row = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if session_row is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    mood_tag = (payload.mood_tag or "").strip().lower()
+    if mood_tag not in VALID_MOOD_TAGS:
+        raise HTTPException(status_code=400, detail="Invalid mood_tag")
+
+    # Find latest summary for this session, or create a placeholder
+    latest_summary = (
+        db.query(SessionSummary)
+        .filter(SessionSummary.session_id == session_id)
+        .order_by(SessionSummary.created_at.desc(), SessionSummary.id.desc())
+        .first()
+    )
+    if latest_summary:
+        latest_summary.mood_tag = mood_tag
+    else:
+        latest_summary = SessionSummary(
+            session_id=session_id,
+            assistant_id=session_row.assistant_id,
+            summary_content="(手动设置心情)",
+            perspective="user",
+            mood_tag=mood_tag,
+        )
+        db.add(latest_summary)
+    db.flush()
+
+    # Read user nickname
+    user_profile = db.query(UserProfile).first()
+    nickname = user_profile.nickname if user_profile and user_profile.nickname else "用户"
+
+    # Insert system message
+    sys_msg = Message(
+        session_id=session_id,
+        role="system",
+        content=f"[{nickname}手动更改心情标签为: {mood_tag}]",
+        meta_info={},
+    )
+    db.add(sys_msg)
+    db.commit()
+    db.refresh(sys_msg)
+
+    return MoodSetResponse(
+        mood_tag=mood_tag,
         system_message=SessionMessageItem(
             id=sys_msg.id,
             role=sys_msg.role,

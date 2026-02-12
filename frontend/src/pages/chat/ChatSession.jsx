@@ -353,17 +353,12 @@ export default function ChatSession() {
     setCurrentMood(key);
     setShowMoodPicker(false);
     try {
-      const sumData = await apiFetch(`/api/sessions/${id}/summaries`);
-      const latest = (sumData.summaries || [])[0];
-      if (latest) {
-        const res = await apiFetch(`/api/sessions/${id}/summaries/${latest.id}`, {
-          method: "PUT",
-          body: { mood_tag: key },
-        });
-        // Append system message to chat
-        if (res.system_message) {
-          setMessages((prev) => [...prev, res.system_message]);
-        }
+      const res = await apiFetch(`/api/sessions/${id}/mood`, {
+        method: "PUT",
+        body: { mood_tag: key },
+      });
+      if (res.system_message) {
+        setMessages((prev) => [...prev, res.system_message]);
       }
     } catch {}
   };
