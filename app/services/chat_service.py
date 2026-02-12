@@ -1329,6 +1329,13 @@ class ChatService:
                     recall_text += f"- [{mem['created_at']}] {mem['content']} (source: {source})\n"
                 recall_text += "[If above memories are insufficient, you can use search_memory or search_chat_history to supplement]\n"
                 full_system_prompt += recall_text
+        if short_mode:
+            full_system_prompt += (
+                "\n\n[短消息模式]\n"
+                "像真人发微信一样回复。用多条短消息，每条一个想法或一句话。"
+                "可以很短（一个字、一个标点都行），可以中途补充，语气自然口语化。"
+                "不需要完整句子，不需要Markdown。用[NEXT]分隔每条消息。"
+            )
         save_memory_description = (
             "Actively store long-term useful information. Use content for memory text and klass for category: identity, relationship, bond, conflict, fact, preference, health, task, ephemeral, other."
             "Timestamp is added by backend automatically. Save when you detect preferences, important facts, or emotional milestones."
