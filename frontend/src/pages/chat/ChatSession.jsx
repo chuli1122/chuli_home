@@ -121,6 +121,11 @@ export default function ChatSession() {
   // Delete confirmation
   const [deletingMessage, setDeletingMessage] = useState(null);
 
+  // Multi-select batch delete
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedMsgIds, setSelectedMsgIds] = useState(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
+
   // Input ref for scroll into view
   const inputAreaRef = useRef(null);
 
@@ -739,6 +744,7 @@ export default function ChatSession() {
 
   // Long-press menu handlers
   const startLongPress = (e, msg) => {
+    if (selectMode) return;
     const touch = e.touches ? e.touches[0] : e;
     longPressPos.current = { x: touch.clientX, y: touch.clientY };
 
@@ -834,33 +840,42 @@ export default function ChatSession() {
     setEditContent("");
   };
 
-  const handleDelete = async (msg) => {
+  const handleDelete = (msg) => {
     closeContextMenu();
-    // System messages: delete directly without confirmation
-    if (msg.role === "system") {
-      try {
-        await apiFetch(`/api/sessions/${id}/messages/${msg.id}`, { method: "DELETE" });
-        setMessages((prev) => prev.filter((m) => m.id !== msg.id));
-      } catch (e) {
-        console.error("Delete failed", e);
-      }
-      return;
-    }
-    setDeletingMessage(msg);
+    setSelectMode(true);
+    setSelectedMsgIds(new Set([msg.id]));
   };
 
-  const confirmDelete = async () => {
-    if (!deletingMessage) return;
+  const toggleSelectMsg = (msgId) => {
+    setSelectedMsgIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(msgId)) next.delete(msgId);
+      else next.add(msgId);
+      return next;
+    });
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedMsgIds(new Set());
+  };
+
+  const confirmBatchDelete = async () => {
+    const ids = [...selectedMsgIds];
     try {
-      await apiFetch(`/api/sessions/${id}/messages/${deletingMessage.id}`, {
-        method: "DELETE",
-      });
+      await Promise.all(
+        ids.map((msgId) =>
+          apiFetch(`/api/sessions/${id}/messages/${msgId}`, { method: "DELETE" }).catch((e) =>
+            console.error("Delete failed", msgId, e)
+          )
+        )
+      );
     } catch (e) {
-      console.error("Delete failed", e);
+      console.error("Batch delete failed", e);
     }
-    // Always remove locally (temp IDs may not exist in DB)
-    setMessages((prev) => prev.filter((m) => m.id !== deletingMessage.id));
-    setDeletingMessage(null);
+    setMessages((prev) => prev.filter((m) => !selectedMsgIds.has(m.id)));
+    setBatchDeleting(false);
+    exitSelectMode();
   };
 
   const handleReReply = async (msg) => {
@@ -1372,11 +1387,29 @@ export default function ChatSession() {
             if (moodMatch) {
               displayText = `已更改心情为：${moodMatch[1]}`;
             }
+            const sysSelected = selectMode && selectedMsgIds.has(msg.id);
             return (
               <Fragment key={msg.id || i}>
               {dateDividerEl}
-              <div id={`msg-${msg.id}`} className="my-3 flex justify-center">
+              <div id={`msg-${msg.id}`} className="my-3 flex items-center justify-center gap-2">
+                {selectMode && (
+                  <button
+                    onClick={() => toggleSelectMsg(msg.id)}
+                    className="shrink-0 flex items-center justify-center"
+                    style={{
+                      width: 22, height: 22, borderRadius: 11,
+                      background: sysSelected ? "var(--chat-accent-dark)" : "transparent",
+                      border: sysSelected ? "none" : "2px solid var(--chat-text-muted)",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {sysSelected && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    )}
+                  </button>
+                )}
                 <span
+                  onClick={selectMode ? () => toggleSelectMsg(msg.id) : undefined}
                   onTouchStart={(e) => startLongPress(e, msg)}
                   onTouchEnd={cancelLongPress}
                   onTouchMove={cancelLongPress}
@@ -1401,6 +1434,7 @@ export default function ChatSession() {
           }
           const isUser = msg.role === "user";
           const showPaw = pawIndicator && pawIndicator.msgId === msg.id;
+          const msgSelected = selectMode && selectedMsgIds.has(msg.id);
           // Show avatar only on first message in a consecutive run from the same role
           const showAvatar = (() => {
             for (let j = i - 1; j >= 0; j--) {
@@ -1410,13 +1444,31 @@ export default function ChatSession() {
             }
             return true;
           })();
+
+          const checkboxEl = selectMode ? (
+            <button
+              onClick={() => toggleSelectMsg(msg.id)}
+              className="shrink-0 flex items-center justify-center self-center"
+              style={{
+                width: 22, height: 22, borderRadius: 11,
+                background: msgSelected ? "var(--chat-accent-dark)" : "transparent",
+                border: msgSelected ? "none" : "2px solid var(--chat-text-muted)",
+                transition: "all 0.15s",
+              }}
+            >
+              {msgSelected && (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              )}
+            </button>
+          ) : null;
+
           return (
             <Fragment key={msg.id || i}>
             {dateDividerEl}
             <div id={`msg-${msg.id}`} className={`${showAvatar ? "mt-5" : "mt-2"} relative animate-bubble`} style={{ paddingLeft: 4, paddingRight: 4 }}>
               {/* Avatar row — only when showAvatar */}
               {showAvatar && (
-                <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1`}>
+                <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1`} style={selectMode ? { marginLeft: 30 } : undefined}>
                   {!isUser && (
                     <div className="shrink-0 flex items-center justify-center overflow-hidden"
                       style={{
@@ -1450,9 +1502,11 @@ export default function ChatSession() {
                 </div>
               )}
               {/* Bubble row — flush to edge, timestamp on opposite side */}
-              <div className={`flex items-end ${isUser ? "justify-end" : "justify-start"}`}>
+              <div className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
+                {/* Checkbox on left for non-user messages */}
+                {!isUser && checkboxEl}
                 {/* Timestamp on left of user bubble */}
-                {isUser && msg.created_at && (
+                {isUser && msg.created_at && !selectMode && (
                   <span className="shrink-0" style={{
                     fontSize: 10, color: "#c4a0b0", marginRight: 6, marginBottom: 2,
                     userSelect: "none", WebkitUserSelect: "none",
@@ -1462,6 +1516,7 @@ export default function ChatSession() {
                 )}
                 {/* Bubble */}
                 <div
+                  onClick={selectMode ? () => toggleSelectMsg(msg.id) : undefined}
                   onTouchStart={(e) => startLongPress(e, msg)}
                   onTouchEnd={cancelLongPress}
                   onTouchMove={cancelLongPress}
@@ -1470,7 +1525,7 @@ export default function ChatSession() {
                   onMouseLeave={cancelLongPress}
                   onContextMenu={(e) => e.preventDefault()}
                   style={{
-                    maxWidth: "88%",
+                    maxWidth: selectMode ? "80%" : "88%",
                     padding: "7px 14px",
                     borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
                     background: isUser
@@ -1495,7 +1550,7 @@ export default function ChatSession() {
                   )}
                 </div>
                 {/* Timestamp on right of AI bubble */}
-                {!isUser && msg.created_at && (
+                {!isUser && msg.created_at && !selectMode && (
                   <span className="shrink-0" style={{
                     fontSize: 10, color: "#c4a0b0", marginLeft: 6, marginBottom: 2,
                     userSelect: "none", WebkitUserSelect: "none",
@@ -1503,6 +1558,8 @@ export default function ChatSession() {
                     {formatMsgTime(msg.created_at)}
                   </span>
                 )}
+                {/* Checkbox on right for user messages */}
+                {isUser && checkboxEl}
               </div>
               {/* Cat paw locate indicator */}
               {showPaw && (
@@ -1553,7 +1610,7 @@ export default function ChatSession() {
       )}
 
       {/* Sticker Panel */}
-      {showStickerPanel && (
+      {showStickerPanel && !selectMode && (
         <div
           className="animate-slide-up rounded-t-2xl relative"
           style={{ background: "var(--chat-card-bg)", maxHeight: 280 }}
@@ -1671,14 +1728,39 @@ export default function ChatSession() {
       )}
 
       {/* Decorative bar above input */}
-      <div className="deco-bar" style={{ background: "rgba(255,248,255,0.85)" }}>
+      {!selectMode && <div className="deco-bar" style={{ background: "rgba(255,248,255,0.85)" }}>
         <span className="deco-bar-item" style={{ color: "#b090a0" }}>♥ {assistantName || "Whisper"}</span>
         <span className="deco-bar-item" style={{ color: "#b090a0" }}>▶| ☆*.{sessionInfo?.title || "聊天中"}.+</span>
         <span className="deco-bar-item" style={{ color: "#b090a0" }}>♪ ★.*::☆ cute! :*:★</span>
         <span className="deco-bar-item" style={{ color: "#b090a0" }}>◇ *.+花与星光.* ◇</span>
-      </div>
+      </div>}
 
       {/* Input area */}
+      {selectMode ? (
+        <div
+          className="px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex items-center justify-between"
+          style={{ background: "rgba(255,248,255,0.92)", backdropFilter: "blur(12px)", borderTop: "1px solid rgba(200,160,224,0.25)" }}
+        >
+          <button
+            onClick={exitSelectMode}
+            className="text-sm px-4 py-2 rounded-full active:scale-95 transition"
+            style={{ color: "var(--chat-text)", background: "var(--chat-input-bg)" }}
+          >
+            取消
+          </button>
+          <span className="text-xs" style={{ color: "var(--chat-text-muted)" }}>
+            已选择 {selectedMsgIds.size} 条
+          </span>
+          <button
+            onClick={() => setBatchDeleting(true)}
+            disabled={selectedMsgIds.size === 0}
+            className="text-sm px-4 py-2 rounded-full active:scale-95 transition disabled:opacity-30"
+            style={{ color: "#fff", background: "#ef4444" }}
+          >
+            删除
+          </button>
+        </div>
+      ) : (
       <div
         ref={inputAreaRef}
         className="px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
@@ -1809,6 +1891,7 @@ export default function ChatSession() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Context Menu — vertical icon column */}
       {contextMenu && (
@@ -1890,13 +1973,13 @@ export default function ChatSession() {
         />
       </Modal>
 
-      {/* Delete Confirmation Modal */}
+      {/* Batch Delete Confirmation Modal */}
       <ConfirmModal
-        isOpen={deletingMessage !== null}
-        onClose={() => setDeletingMessage(null)}
-        onConfirm={confirmDelete}
+        isOpen={batchDeleting}
+        onClose={() => setBatchDeleting(false)}
+        onConfirm={confirmBatchDelete}
         title="删除消息"
-        message="确定要删除这条消息吗？此操作无法撤销。"
+        message={`确定要删除选中的 ${selectedMsgIds.size} 条消息吗？此操作无法撤销。`}
         confirmText="删除"
         cancelText="取消"
       />
