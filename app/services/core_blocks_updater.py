@@ -335,6 +335,7 @@ class CoreBlocksUpdater:
             "将 core memory block 重写为简洁一致的文本。"
             "只返回 JSON：{\"content\": \"...\"}，不要 markdown。"
             "human block 用 AI 的视角写对用户的理解，persona block 用 AI 的视角写对自己的认知。"
+            "控制在 500 字以内。"
         )
         user_prompt = (
             f"Target block_type: {block_type}\n"
@@ -352,6 +353,14 @@ class CoreBlocksUpdater:
         if payload and isinstance(payload, dict):
             rewritten = str(payload.get("content", "")).strip()
             if rewritten:
+                char_count = len(rewritten)
+                if char_count > 600:
+                    logger.warning(
+                        "Core block rewrite exceeded 600 chars (block_type=%s, assistant_id=%s, chars=%d).",
+                        block_type,
+                        assistant.id if assistant else None,
+                        char_count,
+                    )
                 return rewritten
         merged = [current_content.strip()] + [item.strip() for item in candidate_contents]
         return "\n".join(item for item in merged if item)
