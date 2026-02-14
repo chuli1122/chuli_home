@@ -200,15 +200,12 @@ class CoreBlocksUpdater:
         current_persona = (persona_block.content if persona_block else "") or ""
 
         system_prompt = (
-            "You extract stable core-block update signals from summary text. "
-            "Return JSON only in the format: "
-            '{"candidates":[{"block_type":"human|persona","content":"..."}]}. '
-            "Only include durable updates that should persist across sessions. "
-            "Skip temporary chatter. "
-            "For human block, include only AI-perspective understanding about the user: "
-            "behavior patterns, emotional habits, communication style, and interaction traits. "
-            "Do not include fixed profile facts (birthday, gender, zodiac sign, dietary restrictions) "
-            "because those belong to basic info. "
+            "从摘要文本中提取稳定的 core-block 更新信号。"
+            "只返回 JSON，格式：{\"candidates\":[{\"block_type\":\"human|persona\",\"content\":\"...\"}]}。"
+            "只提取跨会话持久有效的更新，跳过临时闲聊。"
+            "human block：AI 视角下对用户的理解——行为模式、情绪习惯、沟通风格、互动特点。"
+            "不要包含固定档案信息（生日、性别、星座、饮食禁忌等），那些属于 basic info。"
+            "persona block：AI 在相处中形成的自我认知——自己的性格特点、行为倾向、情绪模式，以及与用户之间形成的默契和不言而喻的共识。"
         )
         user_prompt = (
             f"Assistant name: {assistant.name}\n"
@@ -335,8 +332,9 @@ class CoreBlocksUpdater:
             return "\n".join(item for item in merged if item)
 
         system_prompt = (
-            "You rewrite a core memory block into a concise, consistent note. "
-            "Return JSON only with {'content': '...'} and no markdown."
+            "将 core memory block 重写为简洁一致的文本。"
+            "只返回 JSON：{\"content\": \"...\"}，不要 markdown。"
+            "human block 用 AI 的视角写对用户的理解，persona block 用 AI 的视角写对自己的认知。"
         )
         user_prompt = (
             f"Target block_type: {block_type}\n"
@@ -375,8 +373,8 @@ class CoreBlocksUpdater:
             return "duplicate"
 
         system_prompt = (
-            "Classify relation between two short profile statements. "
-            "Return JSON only: {'relation': 'duplicate|conflict|different'}."
+            "判断两条信息之间的关系。"
+            "只返回 JSON：{\"relation\": \"duplicate|conflict|different\"}。"
         )
         user_prompt = f"statement_a: {first_text}\nstatement_b: {second_text}"
         payload = self._call_json_with_fallback(

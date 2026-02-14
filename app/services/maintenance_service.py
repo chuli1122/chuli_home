@@ -62,7 +62,7 @@ class MaintenanceService:
         self.db.commit()
         return deleted_count
 
-    def merge_similar_memories(self, similarity_threshold: float = 0.92) -> int:
+    def merge_similar_memories(self, similarity_threshold: float = 0.90) -> int:
         pair_rows = self.db.execute(
             text(
                 """

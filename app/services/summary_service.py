@@ -22,6 +22,7 @@ from app.models.models import (
 )
 from app.services.embedding_service import EmbeddingService
 from app.services.core_blocks_updater import CoreBlocksUpdater
+from app.constants import KLASS_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,14 @@ class SummaryService:
 只返回JSON，不要markdown代码块，不要多余文字。
 
 任务一：摘要
-用第一人称写这段对话的摘要。
+用第一人称写这段对话的摘要，按以下结构：
+
+【话题】关键词1、关键词2、关键词3（短关键词列表，3-6个）
+【人物】涉及的人物名字（没有就不写这行）
+【情绪】情绪变化（可写 A→B，如"焦虑→平静"）
+【摘要】
+摘要正文
+
 重点记录：聊了什么、做了什么决定、情绪变化、新暴露的信息。
 时间用具体描述如"2.5晚上20点左右"，不要用"刚才""昨天"这类相对时间。
 亲密场景：只记场景设定、她表达的偏好、情绪变化，不记具体行为描写。
@@ -81,7 +89,8 @@ class SummaryService:
 
 任务二：记忆提取
 提取值得长期记住的信息。不要提取闲聊和临时上下文。
-每条记忆包含content（内容）和klass（分类）。
+每条记忆包含 content（内容）、klass（分类）、tags（主题标签，可选）。
+tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方便检索，不放 klass 已覆盖的大类词。
 分类说明：
 - identity：关于她或我的稳定身份信息
 - relationship：长期的人际关系定义
@@ -95,7 +104,7 @@ class SummaryService:
 - other：以上都不合适时使用
 
 任务三：情绪标签
-判断这段对话中{user_name}的情绪状态，从以下选一个：
+判断这段对话结束时{user_name}的情绪状态（取最后落点，不是整体或平均情绪），从以下选一个：
 - sad：难过、失落、想哭
 - angry：生气、骂人、炸了
 - anxious：焦虑、不安、怕失去
@@ -106,7 +115,7 @@ class SummaryService:
 - proud：被夸之后、有成就感
 - calm：平静、正常聊天、情绪稳定
 输出格式：
-{{"summary": "...", "memories": [{{"content": "...", "klass": "..."}}], "mood_tag": "..."}}
+{{"summary": "...", "memories": [{{"content": "...", "klass": "...", "tags": {{"topic": ["..."]}}}}], "mood_tag": "..."}}
 """.strip()
 
             group_prompt = f"""
@@ -115,7 +124,14 @@ class SummaryService:
 只返回JSON，不要markdown代码块，不要多余文字。
 
 任务一：摘要
-用第一人称写这段对话的摘要。
+用第一人称写这段对话的摘要，按以下结构：
+
+【话题】关键词1、关键词2、关键词3（短关键词列表，3-6个）
+【人物】涉及的人物名字（没有就不写这行）
+【情绪】情绪变化（可写 A→B，如"焦虑→平静"）
+【摘要】
+摘要正文
+
 重点记录：聊了什么、做了什么决定、情绪变化、新暴露的信息。
 时间用具体描述如"2.5晚上20点左右"，不要用"刚才""昨天"这类相对时间。
 亲密场景：只记场景设定、她表达的偏好、情绪变化，不记具体行为描写。
@@ -123,7 +139,8 @@ class SummaryService:
 
 任务二：记忆提取
 提取值得长期记住的信息。不要提取闲聊和临时上下文。
-每条记忆包含content（内容）和klass（分类）。
+每条记忆包含 content（内容）、klass（分类）、tags（主题标签，可选）。
+tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方便检索，不放 klass 已覆盖的大类词。
 分类说明：
 - identity：关于她或我的稳定身份信息
 - relationship：长期的人际关系定义
@@ -137,7 +154,7 @@ class SummaryService:
 - other：以上都不合适时使用
 
 输出格式：
-{{"summary": "...", "memories": [{{"content": "...", "klass": "..."}}]}}
+{{"summary": "...", "memories": [{{"content": "...", "klass": "...", "tags": {{"topic": ["..."]}}}}]}}
 """.strip()
 
             system_prompt = chat_prompt if is_chat_session else group_prompt
@@ -232,18 +249,6 @@ class SummaryService:
                     synchronize_session=False,
                 )
 
-            klass_defaults = {
-                "identity": {"importance": 0.9, "halflife_days": 365.0},
-                "relationship": {"importance": 0.9, "halflife_days": 365.0},
-                "bond": {"importance": 0.85, "halflife_days": 365.0},
-                "conflict": {"importance": 0.85, "halflife_days": 365.0},
-                "fact": {"importance": 0.8, "halflife_days": 180.0},
-                "preference": {"importance": 0.6, "halflife_days": 120.0},
-                "health": {"importance": 0.8, "halflife_days": 120.0},
-                "task": {"importance": 0.5, "halflife_days": 30.0},
-                "ephemeral": {"importance": 0.3, "halflife_days": 7.0},
-                "other": {"importance": 0.5, "halflife_days": 60.0},
-            }
             memory_candidates = parsed_payload.get("memories", [])
             if not isinstance(memory_candidates, list):
                 memory_candidates = []
@@ -260,8 +265,8 @@ class SummaryService:
                     continue
 
                 raw_klass = str(item.get("klass", "other")).strip().lower()
-                klass = raw_klass if raw_klass in klass_defaults else "other"
-                klass_config = klass_defaults[klass]
+                klass = raw_klass if raw_klass in KLASS_DEFAULTS else "other"
+                klass_config = KLASS_DEFAULTS[klass]
                 memory_content = f"[{anchor_text}] {raw_content}"
 
                 embedding = embedding_service.get_embedding(memory_content)
@@ -280,16 +285,21 @@ LIMIT 1
                         ),
                         {
                             "query_embedding": str(embedding),
-                            "threshold": 0.9,
+                            "threshold": 0.88,
                         },
                     ).first()
                     if duplicate:
                         continue
 
+                # Read tags from model response, fallback to empty dict
+                tags = item.get("tags", {})
+                if not isinstance(tags, dict):
+                    tags = {}
+
                 memory = Memory(
                     content=memory_content,
-                    tags={},
-                    source="auto_extract",
+                    tags=tags,
+                    source=f"auto_extract:{assistant_name}",
                     embedding=embedding,
                     klass=klass,
                     importance=klass_config["importance"],

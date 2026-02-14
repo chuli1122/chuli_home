@@ -78,7 +78,7 @@ class CoreBlocksService:
         persona_block = self.get_block("persona", assistant_id)
         if persona_block and persona_block.content and persona_block.content.strip():
             sections.append(
-                f"[About our relationship]\n{persona_block.content.strip()}"
+                f"[About myself - who I am]\n{persona_block.content.strip()}"
             )
 
         return "\n\n".join(sections)
