@@ -68,6 +68,16 @@ function NumberField({ label, hint, value, onChange, min, max, step }) {
   );
 }
 
+// ── Anthropic preset models ──
+
+const ANTHROPIC_MODELS = [
+  "claude-opus-4-6",
+  "claude-opus-4-5-20250129",
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-5-20250514",
+  "claude-haiku-4-5-20251001",
+];
+
 // ── Model Selector Dropdown ──
 
 function ModelSelector({ value, onChange, options }) {
@@ -98,6 +108,57 @@ function ModelSelector({ value, onChange, options }) {
       {open && options.length > 0 && (
         <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-[200px] overflow-y-auto rounded-xl bg-white shadow-lg border border-gray-100">
           {options.map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => { onChange(m); setOpen(false); }}
+              className={`flex w-full px-4 py-2.5 text-left text-[14px] transition-colors ${
+                m === value ? "bg-[#F5F5F5] font-medium text-black" : "text-gray-700 active:bg-[#F5F5F5]"
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Anthropic Model Combo (manual input + preset dropdown) ──
+
+function AnthropicModelInput({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <input
+        type="text"
+        placeholder="输入或选择模型名称"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl bg-[#F5F5F5] px-4 py-3 pr-10 text-[14px] text-black outline-none placeholder:text-gray-400"
+      />
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+      >
+        <ChevronDown size={16} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-[200px] overflow-y-auto rounded-xl bg-white shadow-lg border border-gray-100">
+          {ANTHROPIC_MODELS.map((m) => (
             <button
               key={m}
               type="button"
@@ -436,11 +497,11 @@ export default function ApiSettings() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[14px] font-medium text-black">认证方式</span>
-                <div className="flex rounded-lg bg-[#F5F5F5] p-0.5">
+                <div className="flex rounded-2xl bg-[#F5F5F5] p-0.5">
                   <button
                     type="button"
                     onClick={() => setAuthType("api_key")}
-                    className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                    className={`px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors ${
                       authType === "api_key" ? "bg-white text-black shadow-sm" : "text-gray-400"
                     }`}
                   >
@@ -452,7 +513,7 @@ export default function ApiSettings() {
                       setAuthType("oauth_token");
                       setBaseUrl("https://api.anthropic.com/v1");
                     }}
-                    className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                    className={`px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors ${
                       authType === "oauth_token" ? "bg-white text-black shadow-sm" : "text-gray-400"
                     }`}
                   >
@@ -465,14 +526,14 @@ export default function ApiSettings() {
             {/* ── Card 2: Model Selection ── */}
             <div className="rounded-[24px] bg-white p-5 shadow-sm space-y-4">
               <span className="text-[14px] font-medium text-black">模型名称</span>
-              <ModelSelector
-                value={modelName}
-                onChange={setModelName}
-                options={modelOptions}
-              />
+              {authType === "oauth_token" ? (
+                <AnthropicModelInput value={modelName} onChange={setModelName} />
+              ) : (
+                <ModelSelector value={modelName} onChange={setModelName} options={modelOptions} />
+              )}
               <button
                 onClick={handleFetchModels}
-                disabled={fetchingModels}
+                disabled={fetchingModels || authType === "oauth_token"}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#F5F5F5] py-3 text-[14px] font-medium text-gray-600 transition active:scale-[0.98] disabled:opacity-50"
               >
                 {fetchingModels ? (
