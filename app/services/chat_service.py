@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks
 from typing import Any
 
 from openai import OpenAI
+import anthropic
 import requests
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import func, text
@@ -762,6 +763,130 @@ class MemoryService:
         return results
 
 
+# ── Anthropic format converters ──
+
+def _oai_tools_to_anthropic(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert OpenAI-format tool definitions to Anthropic format."""
+    result = []
+    for tool in tools:
+        if tool.get("type") == "function":
+            fn = tool["function"]
+            result.append({
+                "name": fn["name"],
+                "description": fn.get("description", ""),
+                "input_schema": fn.get("parameters", {"type": "object", "properties": {}}),
+            })
+    return result
+
+
+def _oai_messages_to_anthropic(api_messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    """Extract system prompt and convert messages to Anthropic format.
+
+    OpenAI roles handled:
+    - system (first)  → system= parameter
+    - system (others) → converted to user messages
+    - user            → user (with multimodal support)
+    - assistant       → assistant (with tool_use blocks if tool_calls present)
+    - tool            → user with tool_result blocks (consecutive merged)
+    """
+    system_prompt = ""
+    raw: list[dict[str, Any]] = []
+
+    for msg in api_messages:
+        role = msg.get("role")
+        content = msg.get("content")
+
+        if role == "system":
+            if not system_prompt:
+                system_prompt = content or ""
+            else:
+                raw.append({"role": "user", "content": content or ""})
+            continue
+
+        if role == "tool":
+            block: dict[str, Any] = {
+                "type": "tool_result",
+                "tool_use_id": msg.get("tool_call_id", ""),
+                "content": content or "",
+            }
+            # Merge consecutive tool results into one user message
+            if (raw and raw[-1]["role"] == "user"
+                    and isinstance(raw[-1]["content"], list)
+                    and raw[-1]["content"]
+                    and isinstance(raw[-1]["content"][0], dict)
+                    and raw[-1]["content"][0].get("type") == "tool_result"):
+                raw[-1]["content"].append(block)
+            else:
+                raw.append({"role": "user", "content": [block]})
+            continue
+
+        if role == "assistant":
+            oai_tool_calls = msg.get("tool_calls")
+            if oai_tool_calls:
+                blocks: list[dict[str, Any]] = []
+                if content:
+                    blocks.append({"type": "text", "text": content})
+                for tc in oai_tool_calls:
+                    fn = tc.get("function", {})
+                    args = fn.get("arguments", "{}")
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except json.JSONDecodeError:
+                            args = {}
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": fn.get("name", ""),
+                        "input": args,
+                    })
+                raw.append({"role": "assistant", "content": blocks})
+            else:
+                raw.append({"role": "assistant", "content": content or ""})
+            continue
+
+        if role == "user":
+            if isinstance(content, list):
+                anth_parts: list[dict[str, Any]] = []
+                for part in content:
+                    ptype = part.get("type")
+                    if ptype == "text":
+                        anth_parts.append({"type": "text", "text": part.get("text", "")})
+                    elif ptype == "image_url":
+                        url = part.get("image_url", {}).get("url", "")
+                        if url.startswith("data:"):
+                            try:
+                                meta, data = url.split(",", 1)
+                                media_type = meta.split(":")[1].split(";")[0]
+                                anth_parts.append({
+                                    "type": "image",
+                                    "source": {"type": "base64", "media_type": media_type, "data": data},
+                                })
+                            except Exception:
+                                pass
+                raw.append({"role": "user", "content": anth_parts})
+            else:
+                raw.append({"role": "user", "content": content or ""})
+            continue
+
+    # Merge consecutive same-role messages (can happen when system notifications
+    # are converted to user messages adjacent to real user messages)
+    messages: list[dict[str, Any]] = []
+    for msg in raw:
+        if (messages and messages[-1]["role"] == msg["role"] == "user"
+                and isinstance(messages[-1]["content"], str)
+                and isinstance(msg["content"], str)):
+            messages[-1]["content"] = messages[-1]["content"] + "\n" + msg["content"]
+        else:
+            messages.append(dict(msg))
+
+    # Anthropic requires last message to be from user (e.g. receive-mode has no trailing user msg)
+    if messages and messages[-1]["role"] != "user":
+        messages.append({"role": "user", "content": "."})
+
+    return system_prompt, messages
+
+
 class ChatService:
     interactive_tools = {
         "save_memory",
@@ -1093,9 +1218,8 @@ class ChatService:
             if not base_url.endswith("/v1"):
                 base_url = f"{base_url.rstrip('/')}/v1"
         if api_provider.auth_type == "oauth_token":
-            client = OpenAI(
-                api_key=api_provider.api_key,
-                base_url=base_url,
+            client = anthropic.Anthropic(
+                auth_token=api_provider.api_key,
                 default_headers={
                     "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
                     "user-agent": "claude-cli/2.1.2 (external, cli)",
@@ -1182,7 +1306,8 @@ class ChatService:
             if "tool_call_id" in message:
                 api_message["tool_call_id"] = message["tool_call_id"]
             api_messages.append(api_message)
-        return (client, model_preset.model_name, api_messages, tools, model_preset.temperature, model_preset.top_p)
+        return (client, model_preset.model_name, api_messages, tools, model_preset.temperature, model_preset.top_p,
+                api_provider.auth_type == "oauth_token", model_preset.max_tokens)
 
     def stream_chat_completion(
         self,
@@ -1210,53 +1335,88 @@ class ChatService:
                 logger.error("[stream] _build_api_call_params returned None (session=%s)", session_id)
                 yield 'data: [DONE]\n\n'
                 return
-            client, model_name, api_messages, tools, preset_temperature, preset_top_p = params
+            client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens = params
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
-            try:
-                stream_params: dict[str, Any] = {
-                    "model": model_name,
-                    "messages": api_messages,
-                    "tools": tools,
-                    "tool_choice": "auto",
-                    "stream": True,
-                }
-                if preset_temperature is not None:
-                    stream_params["temperature"] = preset_temperature
-                if preset_top_p is not None:
-                    stream_params["top_p"] = preset_top_p
-                stream = client.chat.completions.create(**stream_params)
-            except Exception as e:
-                logger.error(f"Streaming request failed: {e}")
-                yield f'data: {json.dumps({"error": str(e)})}\n\n'
-                yield 'data: [DONE]\n\n'
-                return
             content_chunks: list[str] = []
             tool_calls_acc: dict[int, dict] = {}
-            try:
-                for chunk in stream:
-                    if not chunk.choices:
-                        continue
-                    delta = chunk.choices[0].delta
-                    if getattr(delta, "content", None):
-                        content_chunks.append(delta.content)
-                        yield f'data: {json.dumps({"content": delta.content})}\n\n'
-                    if getattr(delta, "tool_calls", None):
-                        for tc_delta in delta.tool_calls:
-                            idx = tc_delta.index
-                            if idx not in tool_calls_acc:
-                                tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
-                            if tc_delta.id:
-                                tool_calls_acc[idx]["id"] = tc_delta.id
-                            if tc_delta.function:
-                                if tc_delta.function.name:
-                                    tool_calls_acc[idx]["name"] += tc_delta.function.name
-                                if tc_delta.function.arguments:
-                                    tool_calls_acc[idx]["arguments"] += tc_delta.function.arguments
-            except Exception as e:
-                logger.error(f"Stream iteration error: {e}")
-                yield f'data: {json.dumps({"error": str(e)})}\n\n'
-                yield 'data: [DONE]\n\n'
-                return
+            if use_anthropic:
+                anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
+                anth_tools = _oai_tools_to_anthropic(tools)
+                try:
+                    anth_kwargs: dict[str, Any] = {
+                        "model": model_name,
+                        "max_tokens": preset_max_tokens,
+                        "messages": anth_msgs,
+                    }
+                    if anth_system:
+                        anth_kwargs["system"] = anth_system
+                    if anth_tools:
+                        anth_kwargs["tools"] = anth_tools
+                        anth_kwargs["tool_choice"] = {"type": "auto"}
+                    if preset_temperature is not None:
+                        anth_kwargs["temperature"] = preset_temperature
+                    if preset_top_p is not None:
+                        anth_kwargs["top_p"] = preset_top_p
+                    with client.messages.stream(**anth_kwargs) as anth_stream:
+                        for text in anth_stream.text_stream:
+                            content_chunks.append(text)
+                            yield f'data: {json.dumps({"content": text})}\n\n'
+                        final_msg = anth_stream.get_final_message()
+                    for idx, block in enumerate(b for b in final_msg.content if b.type == "tool_use"):
+                        tool_calls_acc[idx] = {
+                            "id": block.id,
+                            "name": block.name,
+                            "arguments": json.dumps(block.input),
+                        }
+                except Exception as e:
+                    logger.error(f"Anthropic streaming error: {e}")
+                    yield f'data: {json.dumps({"error": str(e)})}\n\n'
+                    yield 'data: [DONE]\n\n'
+                    return
+            else:
+                try:
+                    stream_params: dict[str, Any] = {
+                        "model": model_name,
+                        "messages": api_messages,
+                        "tools": tools,
+                        "tool_choice": "auto",
+                        "stream": True,
+                    }
+                    if preset_temperature is not None:
+                        stream_params["temperature"] = preset_temperature
+                    if preset_top_p is not None:
+                        stream_params["top_p"] = preset_top_p
+                    stream = client.chat.completions.create(**stream_params)
+                except Exception as e:
+                    logger.error(f"Streaming request failed: {e}")
+                    yield f'data: {json.dumps({"error": str(e)})}\n\n'
+                    yield 'data: [DONE]\n\n'
+                    return
+                try:
+                    for chunk in stream:
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta
+                        if getattr(delta, "content", None):
+                            content_chunks.append(delta.content)
+                            yield f'data: {json.dumps({"content": delta.content})}\n\n'
+                        if getattr(delta, "tool_calls", None):
+                            for tc_delta in delta.tool_calls:
+                                idx = tc_delta.index
+                                if idx not in tool_calls_acc:
+                                    tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                                if tc_delta.id:
+                                    tool_calls_acc[idx]["id"] = tc_delta.id
+                                if tc_delta.function:
+                                    if tc_delta.function.name:
+                                        tool_calls_acc[idx]["name"] += tc_delta.function.name
+                                    if tc_delta.function.arguments:
+                                        tool_calls_acc[idx]["arguments"] += tc_delta.function.arguments
+                except Exception as e:
+                    logger.error(f"Stream iteration error: {e}")
+                    yield f'data: {json.dumps({"error": str(e)})}\n\n'
+                    yield 'data: [DONE]\n\n'
+                    return
             if tool_calls_acc:
                 tool_calls_payload = []
                 parsed_tool_calls = []
@@ -1381,9 +1541,90 @@ class ChatService:
         params = self._build_api_call_params(messages, session_id, short_mode=short_mode)
         if params is None:
             return []
-        client, model_name, api_messages, tools, preset_temperature, preset_top_p = params
-        logger.info("[_fetch_next_tool_calls] Calling model: %s (session=%s, msg_count=%d)",
-                    model_name, session_id, len(api_messages))
+        client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens = params
+        logger.info("[_fetch_next_tool_calls] Calling model: %s (session=%s, msg_count=%d, anthropic=%s)",
+                    model_name, session_id, len(api_messages), use_anthropic)
+
+        def _persist_error(err: Exception) -> None:
+            error_content = f"(API调用失败: {err})"
+            messages.append({"role": "assistant", "content": error_content})
+            try:
+                self._persist_message(session_id, "assistant", error_content, {})
+            except Exception:
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
+
+        def _persist_text(raw_content: str) -> None:
+            used_ids = re.findall(r'\[\[used:(\d+)\]\]', raw_content)
+            now_utc = datetime.now(timezone.utc)
+            for memory_id in used_ids:
+                memory = self.db.get(Memory, int(memory_id))
+                if memory:
+                    memory.hits += 1
+                    memory.last_access_ts = now_utc
+            if used_ids:
+                self.db.commit()
+            clean_content = re.sub(r'\[\[used:\d+\]\]', '', raw_content).strip()
+            if short_mode and "[NEXT]" in clean_content:
+                parts = [p.strip() for p in clean_content.split("[NEXT]") if p.strip()]
+                for part in parts:
+                    messages.append({"role": "assistant", "content": part})
+                    self._persist_message(session_id, "assistant", part, {})
+            else:
+                messages.append({"role": "assistant", "content": clean_content})
+                self._persist_message(session_id, "assistant", clean_content, {})
+
+        if use_anthropic:
+            anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
+            anth_tools = _oai_tools_to_anthropic(tools)
+            try:
+                anth_kwargs: dict[str, Any] = {
+                    "model": model_name,
+                    "max_tokens": preset_max_tokens,
+                    "messages": anth_msgs,
+                }
+                if anth_system:
+                    anth_kwargs["system"] = anth_system
+                if anth_tools:
+                    anth_kwargs["tools"] = anth_tools
+                    anth_kwargs["tool_choice"] = {"type": "auto"}
+                if preset_temperature is not None:
+                    anth_kwargs["temperature"] = preset_temperature
+                if preset_top_p is not None:
+                    anth_kwargs["top_p"] = preset_top_p
+                response = client.messages.create(**anth_kwargs)
+            except Exception as e:
+                logger.error("[_fetch_next_tool_calls] Anthropic API FAILED (session=%s): %s", session_id, e)
+                _persist_error(e)
+                return []
+            text_content = ""
+            tool_calls_payload: list[dict] = []
+            tool_calls: list[ToolCall] = []
+            for block in response.content:
+                if block.type == "text":
+                    text_content += block.text
+                elif block.type == "tool_use":
+                    tool_calls_payload.append({
+                        "id": block.id,
+                        "type": "function",
+                        "function": {"name": block.name, "arguments": json.dumps(block.input)},
+                    })
+                    tool_calls.append(ToolCall(name=block.name, arguments=block.input, id=block.id))
+            if tool_calls:
+                messages.append({"role": "assistant", "content": text_content, "tool_calls": tool_calls_payload})
+                self._persist_message(session_id, "assistant", text_content, {"tool_calls": tool_calls_payload})
+                return tool_calls
+            if text_content:
+                _persist_text(text_content)
+            else:
+                fallback = "(No relevant memory found. Reply based on current prompt.)"
+                messages.append({"role": "assistant", "content": fallback})
+                self._persist_message(session_id, "assistant", fallback, {})
+            return []
+
+        # OpenAI path
         try:
             call_params: dict[str, Any] = {
                 "model": model_name,
@@ -1398,16 +1639,7 @@ class ChatService:
             response = client.chat.completions.create(**call_params)
         except Exception as e:
             logger.error("[_fetch_next_tool_calls] API request FAILED (session=%s): %s", session_id, e)
-            # Persist error as assistant message so user sees something
-            error_content = f"(API调用失败: {e})"
-            messages.append({"role": "assistant", "content": error_content})
-            try:
-                self._persist_message(session_id, "assistant", error_content, {})
-            except Exception:
-                try:
-                    self.db.rollback()
-                except Exception:
-                    pass
+            _persist_error(e)
             return []
         if not response.choices:
             logger.warning("[_fetch_next_tool_calls] LLM response had no choices (session=%s)", session_id)
@@ -1417,56 +1649,21 @@ class ChatService:
         if getattr(choice, "tool_calls", None):
             tool_calls_payload = []
             for tool_call in choice.tool_calls:
-                tool_calls_payload.append(
-                    {
-                        "id": tool_call.id,
-                        "type": "function",
-                        "function": {
-                            "name": tool_call.function.name,
-                            "arguments": tool_call.function.arguments,
-                        },
-                    }
-                )
-                tool_calls.append(
-                    ToolCall(
-                        name=tool_call.function.name,
-                        arguments=json.loads(tool_call.function.arguments or "{}"),
-                        id=tool_call.id,
-                    )
-                )
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": choice.content or "",
-                    "tool_calls": tool_calls_payload,
-                }
-            )
-            self._persist_message(
-                session_id,
-                "assistant",
-                choice.content or "",
-                {"tool_calls": tool_calls_payload},
-            )
+                tool_calls_payload.append({
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {"name": tool_call.function.name, "arguments": tool_call.function.arguments},
+                })
+                tool_calls.append(ToolCall(
+                    name=tool_call.function.name,
+                    arguments=json.loads(tool_call.function.arguments or "{}"),
+                    id=tool_call.id,
+                ))
+            messages.append({"role": "assistant", "content": choice.content or "", "tool_calls": tool_calls_payload})
+            self._persist_message(session_id, "assistant", choice.content or "", {"tool_calls": tool_calls_payload})
             return tool_calls
         if choice.content is not None and choice.content != "":
-            used_ids = re.findall(r'\[\[used:(\d+)\]\]', choice.content)
-            now_utc = datetime.now(timezone.utc)
-            for memory_id in used_ids:
-                memory = self.db.get(Memory, int(memory_id))
-                if memory:
-                    memory.hits += 1
-                    memory.last_access_ts = now_utc
-            if used_ids:
-                self.db.commit()
-            clean_content = re.sub(r'\[\[used:\d+\]\]', '', choice.content).strip()
-            if short_mode and "[NEXT]" in clean_content:
-                parts = [p.strip() for p in clean_content.split("[NEXT]") if p.strip()]
-                for part in parts:
-                    messages.append({"role": "assistant", "content": part})
-                    self._persist_message(session_id, "assistant", part, {})
-            else:
-                messages.append({"role": "assistant", "content": clean_content})
-                self._persist_message(session_id, "assistant", clean_content, {})
+            _persist_text(choice.content)
         else:
             fallback_content = "(No relevant memory found. Reply based on current prompt.)"
             messages.append({"role": "assistant", "content": fallback_content})

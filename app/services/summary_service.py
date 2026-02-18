@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from openai import OpenAI
+import anthropic
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -376,34 +377,47 @@ LIMIT 1
             if not base_url.endswith("/v1"):
                 base_url = f"{base_url.rstrip('/')}/v1"
         if api_provider.auth_type == "oauth_token":
-            client = OpenAI(
-                api_key=api_provider.api_key,
-                base_url=base_url,
+            anth_client = anthropic.Anthropic(
+                auth_token=api_provider.api_key,
                 default_headers={
                     "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
                     "user-agent": "claude-cli/2.1.2 (external, cli)",
                     "x-app": "cli",
                 },
             )
+            anth_kwargs: dict[str, Any] = {
+                "model": preset.model_name,
+                "max_tokens": preset.max_tokens,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": conversation_text}],
+            }
+            if preset.temperature is not None:
+                anth_kwargs["temperature"] = preset.temperature
+            if preset.top_p is not None:
+                anth_kwargs["top_p"] = preset.top_p
+            anth_response = anth_client.messages.create(**anth_kwargs)
+            content = ""
+            for block in anth_response.content:
+                if block.type == "text":
+                    content += block.text
         else:
-            client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
-
-        params: dict[str, Any] = {
-            "model": preset.model_name,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": conversation_text},
-            ],
-            "max_tokens": preset.max_tokens,
-        }
-        if preset.temperature is not None:
-            params["temperature"] = preset.temperature
-        if preset.top_p is not None:
-            params["top_p"] = preset.top_p
-        response = client.chat.completions.create(**params)
-        if not response.choices:
-            raise ValueError("Summary response contained no choices.")
-        content = response.choices[0].message.content or ""
+            oai_client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
+            params: dict[str, Any] = {
+                "model": preset.model_name,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": conversation_text},
+                ],
+                "max_tokens": preset.max_tokens,
+            }
+            if preset.temperature is not None:
+                params["temperature"] = preset.temperature
+            if preset.top_p is not None:
+                params["top_p"] = preset.top_p
+            oai_response = oai_client.chat.completions.create(**params)
+            if not oai_response.choices:
+                raise ValueError("Summary response contained no choices.")
+            content = oai_response.choices[0].message.content or ""
         cleaned_content = content.strip()
         if cleaned_content.startswith("```json"):
             cleaned_content = cleaned_content[len("```json") :]

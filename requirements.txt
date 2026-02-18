@@ -5,6 +5,7 @@ sqlalchemy
 psycopg2-binary
 pgvector
 openai
+anthropic
 httpx
 requests
 PyJWT
