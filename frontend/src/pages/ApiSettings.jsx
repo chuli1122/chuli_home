@@ -128,6 +128,7 @@ export default function ApiSettings() {
   // Form state
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [authType, setAuthType] = useState("api_key");
   const [showKey, setShowKey] = useState(false);
   const [modelName, setModelName] = useState("");
   const [modelOptions, setModelOptions] = useState([]);
@@ -156,7 +157,7 @@ export default function ApiSettings() {
 
   // Refs to always read latest form values in async callbacks
   const formRef = useRef({});
-  formRef.current = { baseUrl, apiKey, modelName, temperature, tempEnabled, topP, topPEnabled, maxTokens, editingPreset, providers };
+  formRef.current = { baseUrl, apiKey, authType, modelName, temperature, tempEnabled, topP, topPEnabled, maxTokens, editingPreset, providers };
 
   const showToast = useCallback((message) => {
     setToast({ show: true, message });
@@ -205,6 +206,7 @@ export default function ApiSettings() {
     if (provider) {
       setBaseUrl(provider.base_url);
       setApiKey(provider.api_key);
+      setAuthType(provider.auth_type || "api_key");
     }
   };
 
@@ -212,6 +214,7 @@ export default function ApiSettings() {
     setEditingPreset(null);
     setBaseUrl("");
     setApiKey("");
+    setAuthType("api_key");
     setModelName("");
     setTemperature(1.0);
     setTempEnabled(false);
@@ -252,16 +255,17 @@ export default function ApiSettings() {
   const resolveProvider = async (currentProviders) => {
     const url = formRef.current.baseUrl.trim();
     const key = formRef.current.apiKey.trim();
+    const at = formRef.current.authType;
     const existing = currentProviders.find((p) => p.base_url === url);
     if (existing) {
-      if (existing.api_key !== key) {
-        await apiFetch(`/api/providers/${existing.id}`, { method: "PUT", body: { api_key: key } });
+      if (existing.api_key !== key || existing.auth_type !== at) {
+        await apiFetch(`/api/providers/${existing.id}`, { method: "PUT", body: { api_key: key, auth_type: at } });
       }
       return existing.id;
     }
     const res = await apiFetch("/api/providers", {
       method: "POST",
-      body: { name: domainFromUrl(url), base_url: url, api_key: key },
+      body: { name: domainFromUrl(url), base_url: url, api_key: key, auth_type: at },
     });
     return res.id;
   };
@@ -410,13 +414,14 @@ export default function ApiSettings() {
                 placeholder="https://api.openai.com/v1"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                className="w-full rounded-xl bg-[#F5F5F5] px-4 py-3 text-[14px] text-black outline-none placeholder:text-gray-400"
+                disabled={authType === "oauth_token"}
+                className={`w-full rounded-xl bg-[#F5F5F5] px-4 py-3 text-[14px] text-black outline-none placeholder:text-gray-400 ${authType === "oauth_token" ? "opacity-40 cursor-not-allowed" : ""}`}
               />
               <span className="text-[14px] font-medium text-black">API Key</span>
               <div className="relative">
                 <input
                   type={showKey ? "text" : "password"}
-                  placeholder="sk-..."
+                  placeholder={authType === "oauth_token" ? "sk-ant-oat01-..." : "sk-..."}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   className="w-full rounded-xl bg-[#F5F5F5] px-4 py-3 pr-12 text-[14px] text-black outline-none placeholder:text-gray-400"
@@ -428,6 +433,32 @@ export default function ApiSettings() {
                 >
                   {showKey ? <Eye size={18} /> : <EyeOff size={18} />}
                 </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[14px] font-medium text-black">认证方式</span>
+                <div className="flex rounded-lg bg-[#F5F5F5] p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setAuthType("api_key")}
+                    className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                      authType === "api_key" ? "bg-white text-black shadow-sm" : "text-gray-400"
+                    }`}
+                  >
+                    标准 API Key
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthType("oauth_token");
+                      setBaseUrl("https://api.anthropic.com/v1");
+                    }}
+                    className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                      authType === "oauth_token" ? "bg-white text-black shadow-sm" : "text-gray-400"
+                    }`}
+                  >
+                    Setup Token
+                  </button>
+                </div>
               </div>
             </div>
 
