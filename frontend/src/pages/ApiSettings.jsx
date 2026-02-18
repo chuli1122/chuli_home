@@ -204,7 +204,8 @@ export default function ApiSettings() {
   const [editingPreset, setEditingPreset] = useState(null);
 
   // UI
-  const [toast, setToast] = useState({ show: false, message: "" });
+  const [toast, setToast] = useState({ show: false, message: "", success: false });
+  const [testingConnection, setTestingConnection] = useState(false);
   const [nameModalOpen, setNameModalOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
   const [saveAsNew, setSaveAsNew] = useState(false);
@@ -220,9 +221,9 @@ export default function ApiSettings() {
   const formRef = useRef({});
   formRef.current = { baseUrl, apiKey, authType, modelName, temperature, tempEnabled, topP, topPEnabled, maxTokens, editingPreset, providers };
 
-  const showToast = useCallback((message) => {
-    setToast({ show: true, message });
-    setTimeout(() => setToast({ show: false, message: "" }), 2000);
+  const showToast = useCallback((message, success = false) => {
+    setToast({ show: true, message, success });
+    setTimeout(() => setToast({ show: false, message: "", success: false }), 2000);
   }, []);
 
   // ── Load data ──
@@ -308,6 +309,46 @@ export default function ApiSettings() {
       showToast("拉取失败: " + e.message);
     } finally {
       setFetchingModels(false);
+    }
+  };
+
+  // ── Test connection ──
+
+  const handleTestConnection = async () => {
+    if (!baseUrl.trim() || !apiKey.trim() || !modelName.trim()) {
+      showToast("请先填写 API 地址、Key 和模型名称");
+      return;
+    }
+    setTestingConnection(true);
+    try {
+      const url = baseUrl.trim().replace(/\/+$/, "");
+      const reqHeaders = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey.trim()}`,
+      };
+      if (authType === "oauth_token") {
+        reqHeaders["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14";
+        reqHeaders["anthropic-dangerous-direct-browser-access"] = "true";
+        reqHeaders["x-app"] = "cli";
+      }
+      const res = await fetch(`${url}/chat/completions`, {
+        method: "POST",
+        headers: reqHeaders,
+        body: JSON.stringify({
+          model: modelName.trim(),
+          max_tokens: 10,
+          messages: [{ role: "user", content: "Hi" }],
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || err.message || `HTTP ${res.status}`);
+      }
+      showToast("连接成功", true);
+    } catch (e) {
+      showToast("连接失败: " + e.message);
+    } finally {
+      setTestingConnection(false);
     }
   };
 
@@ -497,11 +538,11 @@ export default function ApiSettings() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[14px] font-medium text-black">认证方式</span>
-                <div className="flex rounded-2xl bg-[#F5F5F5] p-0.5">
+                <div className="flex rounded-xl bg-[#F5F5F5] p-0.5">
                   <button
                     type="button"
                     onClick={() => setAuthType("api_key")}
-                    className={`px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors ${
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
                       authType === "api_key" ? "bg-white text-black shadow-sm" : "text-gray-400"
                     }`}
                   >
@@ -513,7 +554,7 @@ export default function ApiSettings() {
                       setAuthType("oauth_token");
                       setBaseUrl("https://api.anthropic.com/v1");
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors ${
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
                       authType === "oauth_token" ? "bg-white text-black shadow-sm" : "text-gray-400"
                     }`}
                   >
@@ -531,18 +572,24 @@ export default function ApiSettings() {
               ) : (
                 <ModelSelector value={modelName} onChange={setModelName} options={modelOptions} />
               )}
-              <button
-                onClick={handleFetchModels}
-                disabled={fetchingModels || authType === "oauth_token"}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#F5F5F5] py-3 text-[14px] font-medium text-gray-600 transition active:scale-[0.98] disabled:opacity-50"
-              >
-                {fetchingModels ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <RefreshCw size={16} />
-                )}
-                拉取模型列表
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleTestConnection}
+                  disabled={testingConnection}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#F5F5F5] py-3 text-[14px] font-medium text-gray-600 transition active:scale-[0.98] disabled:opacity-50"
+                >
+                  {testingConnection ? <Loader2 size={16} className="animate-spin" /> : <span className="text-[13px]">⚡</span>}
+                  测试连接
+                </button>
+                <button
+                  onClick={handleFetchModels}
+                  disabled={fetchingModels || authType === "oauth_token"}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#F5F5F5] py-3 text-[14px] font-medium text-gray-600 transition active:scale-[0.98] disabled:opacity-50"
+                >
+                  {fetchingModels ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                  拉取模型列表
+                </button>
+              </div>
             </div>
 
             {/* ── Card 3: Parameters ── */}
@@ -787,7 +834,7 @@ export default function ApiSettings() {
       {/* Toast */}
       {toast.show && (
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[200] animate-in fade-in zoom-in duration-200">
-          <div className="bg-black/80 backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-lg font-medium text-sm">
+          <div className={`backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-lg font-medium text-sm ${toast.success ? "bg-green-500/90" : "bg-black/80"}`}>
             {toast.message}
           </div>
         </div>
