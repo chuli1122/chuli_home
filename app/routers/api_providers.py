@@ -19,6 +19,7 @@ class ProviderItem(BaseModel):
     name: str
     base_url: str
     api_key: str
+    auth_type: str
     created_at: str | None
 
 
@@ -30,12 +31,14 @@ class ProviderCreateRequest(BaseModel):
     name: str
     base_url: str
     api_key: str
+    auth_type: str = "api_key"
 
 
 class ProviderUpdateRequest(BaseModel):
     name: str | None = None
     base_url: str | None = None
     api_key: str | None = None
+    auth_type: str | None = None
 
 
 def _to_item(row: ApiProvider) -> ProviderItem:
@@ -44,6 +47,7 @@ def _to_item(row: ApiProvider) -> ProviderItem:
         name=row.name,
         base_url=row.base_url,
         api_key=row.api_key,
+        auth_type=row.auth_type,
         created_at=format_datetime(row.created_at),
     )
 
@@ -63,6 +67,7 @@ def create_provider(
         name=payload.name,
         base_url=payload.base_url,
         api_key=payload.api_key,
+        auth_type=payload.auth_type,
     )
     db.add(provider)
     db.commit()

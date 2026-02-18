@@ -375,7 +375,18 @@ LIMIT 1
             base_url = base_url[: -len("/chat/completions")]
             if not base_url.endswith("/v1"):
                 base_url = f"{base_url.rstrip('/')}/v1"
-        client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
+        if api_provider.auth_type == "oauth_token":
+            client = OpenAI(
+                api_key=api_provider.api_key,
+                base_url=base_url,
+                default_headers={
+                    "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
+                    "user-agent": "claude-cli/2.1.2 (external, cli)",
+                    "x-app": "cli",
+                },
+            )
+        else:
+            client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
 
         params: dict[str, Any] = {
             "model": preset.model_name,

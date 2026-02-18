@@ -136,6 +136,7 @@ class ApiProvider(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     base_url: Mapped[str] = mapped_column(String(255), nullable=False)
     api_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth_type: Mapped[str] = mapped_column(String(50), nullable=False, default="api_key")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
