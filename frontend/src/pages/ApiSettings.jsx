@@ -578,7 +578,7 @@ export default function ApiSettings() {
                   disabled={testingConnection}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#F5F5F5] py-3 text-[14px] font-medium text-gray-600 transition active:scale-[0.98] disabled:opacity-50"
                 >
-                  {testingConnection ? <Loader2 size={16} className="animate-spin" /> : <span className="text-[13px]">⚡</span>}
+                  {testingConnection && <Loader2 size={16} className="animate-spin" />}
                   测试连接
                 </button>
                 <button
