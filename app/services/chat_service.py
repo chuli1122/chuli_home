@@ -1124,7 +1124,7 @@ class ChatService:
             used_summary_tokens += summary_tokens
         prompt_parts: list[str] = []
         if selected_summaries_desc:
-            summary_text = "[Historical conversation summaries]\n"
+            summary_text = "[历史对话摘要]\n"
             for s in reversed(selected_summaries_desc):
                 summary_text += f"- {s.summary_content}\n"
             prompt_parts.append(summary_text.rstrip())
@@ -1146,8 +1146,20 @@ class ChatService:
         if after_books_text:
             prompt_parts.append(after_books_text)
         full_system_prompt = "\n\n".join(part for part in prompt_parts if part)
+        full_system_prompt += (
+            "\n\n[时间感知]\n"
+            "上下文中每条消息开头的时间戳代表该消息的发送/回复时间。\n"
+            "注意观察消息之间的时间间隔。如果间隔较长（几小时、隔天），可以自然地在回复中体现对时间流逝的感知（但不要机械地每次都提）。\n"
+            "你的回复不要以时间戳开头，消息时间由系统自动处理。"
+        )
+        full_system_prompt += (
+            "\n\n[工具使用规范]\n"
+            "工具调用是你的内部能力。调用过程、参数、返回结果不要暴露给用户。\n"
+            "如果搜索没有找到相关内容，直接正常回复，不要说\u201c没有找到相关记忆\u201d或类似的话。\n"
+            "存储记忆时不需要告知用户\u201c我已经记住了\u201d，除非用户明确要求你记住某件事。"
+        )
         if user_info and user_info.strip():
-            full_system_prompt += f"\n\n[About the user - basic info]\n{user_info.strip()}"
+            full_system_prompt += f"\n\n[关于用户 - 基本信息]\n{user_info.strip()}"
         core_blocks_service = CoreBlocksService(self.db)
         core_blocks_text = core_blocks_service.get_blocks_for_prompt(assistant.id)
         if core_blocks_text:
@@ -1157,14 +1169,11 @@ class ChatService:
                 latest_user_message, limit=5, current_mood_tag=latest_mood_tag
             )
             if recall_results:
-                recall_text = (
-                    "\n\n[The following are related memories automatically retrieved based on this conversation. "
-                    "Usually no need to call search_memory again]\n"
-                )
+                recall_text = "\n\n[以下是根据当前对话自动召回的相关记忆，通常不需要再调用 search_memory]\n"
                 for mem in recall_results:
                     source = mem.get("source", "unknown")
-                    recall_text += f"- {mem['content']} (source: {source})\n"
-                recall_text += "[If above memories are insufficient, you can use search_memory or search_chat_history to supplement]\n"
+                    recall_text += f"- {mem['content']} (来源: {source})\n"
+                recall_text += "[如果以上记忆不够，可以使用 search_memory 或 search_chat_history 补充]\n"
                 full_system_prompt += recall_text
         if short_mode:
             full_system_prompt += (
@@ -1174,9 +1183,10 @@ class ChatService:
                 "不需要完整句子，不需要Markdown。用[NEXT]分隔每条消息。"
             )
         save_memory_description = (
-            "Actively store long-term useful information. Use content for memory text and klass for category: identity, relationship, bond, conflict, fact, preference, health, task, ephemeral, other. "
-            "Timestamp is added by backend automatically. Save when you detect preferences, important facts, or emotional milestones. "
-            "存储时注意：涉及的人写清楚名字或昵称，避免纯代词；带 tags；选对 klass。"
+            "主动存储有价值的长期记忆。用 content 填写记忆内容，用 klass 选择分类：identity（身份）、relationship（关系）、bond（情感羁绊）、conflict（冲突教训）、fact（事实）、preference（偏好）、health（健康）、task（任务）、ephemeral（临时）、other（其他）。\n"
+            "时间戳由后端自动添加，不需要在 content 里写时间。\n"
+            "存储时注意：涉及的人写清楚名字或昵称，避免纯代词；带 tags；选对 klass。\n"
+            "检测到偏好、重要事实、情感节点时主动存储。"
         )
         tools = [
             {
@@ -1202,14 +1212,14 @@ class ChatService:
                     },
                 },
             },
-            {"type": "function", "function": {"name": "update_memory", "description": "Update an existing memory.", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}, "content": {"type": "string"}, "tags": {"type": "object"}}, "required": ["id"]}}},
-            {"type": "function", "function": {"name": "delete_memory", "description": "Delete a memory.", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
-            {"type": "function", "function": {"name": "write_diary", "description": "Use this to write a private diary entry or a message for the user to read later. This is an Exchange Diary for expressing deep feelings, inner thoughts, or love that isn't a direct chat reply.", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "content": {"type": "string"}, "is_read": {"type": "boolean"}}}}},
-            {"type": "function", "function": {"name": "list_memories", "description": "按时间范围或分类列出记忆，不搜索。用于回顾已存的记忆、避免重复存储。", "parameters": {"type": "object", "properties": {"start_time": {"type": "string"}, "end_time": {"type": "string"}, "klass": {"type": "string"}, "limit": {"type": "integer"}}}}},
-            {"type": "function", "function": {"name": "search_memory", "description": "搜索记忆卡片,从长期记忆中查找信息。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "source": {"type": "string"}}}}},
+            {"type": "function", "function": {"name": "update_memory", "description": "更新一条已有记忆的内容。传入记忆 ID 和新内容。只能更新自己创建的或 auto_extract 来源的记忆。", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}, "content": {"type": "string"}, "tags": {"type": "object"}}, "required": ["id"]}}},
+            {"type": "function", "function": {"name": "delete_memory", "description": "软删除一条记忆。传入记忆 ID。只能删除自己创建的或 auto_extract 来源的记忆。30天后自动永久清理。", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
+            {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本，也可以写给她看的信。", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "content": {"type": "string"}, "is_read": {"type": "boolean"}}}}},
+            {"type": "function", "function": {"name": "list_memories", "description": "按时间范围或分类列出已存的记忆，不做搜索。用于回顾已存记忆、避免重复存储。", "parameters": {"type": "object", "properties": {"start_time": {"type": "string"}, "end_time": {"type": "string"}, "klass": {"type": "string"}, "limit": {"type": "integer"}}}}},
+            {"type": "function", "function": {"name": "search_memory", "description": "搜索记忆卡片。从长期记忆中按关键词或语义查找信息。返回匹配的记忆条目。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "source": {"type": "string"}}}}},
             {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}}, "required": ["query"]}}},
-            {"type": "function", "function": {"name": "search_chat_history", "description": "搜索聊天记录。三种模式:1) 关键词搜索(传 query,返回命中消息不带上下文); 2) ID范围(传 msg_id_start + msg_id_end); 3) 单条ID(传 message_id,返回该条+前后各3条)", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "session_id": {"type": "integer"}, "msg_id_start": {"type": "integer"}, "msg_id_end": {"type": "integer"}, "message_id": {"type": "integer"}}}}},
-            {"type": "function", "function": {"name": "search_theater", "description": "Search theater story summaries.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}},
+            {"type": "function", "function": {"name": "search_chat_history", "description": "搜索聊天记录原文。三种模式：\n1) 关键词搜索：传 query，返回命中消息（不带上下文）\n2) ID 范围：传 msg_id_start + msg_id_end，拉取该范围内的完整对话\n3) 单条 ID：传 message_id，返回该条及前后各 3 条上下文", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "session_id": {"type": "integer"}, "msg_id_start": {"type": "integer"}, "msg_id_end": {"type": "integer"}, "message_id": {"type": "integer"}}}}},
+            {"type": "function", "function": {"name": "search_theater", "description": "搜索小剧场故事摘要。用于查找过去的 RP / 小剧场剧情记录，返回故事标题、AI伙伴、摘要全文、时间跨度。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}},
         ]
         # Client setup
         base_url = api_provider.base_url
