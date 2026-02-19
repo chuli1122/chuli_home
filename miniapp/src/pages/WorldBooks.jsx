@@ -236,7 +236,7 @@ export default function WorldBooks() {
       await apiFetch(`/api/world-books/${book.id}`, { method: "DELETE" });
       setBooks((prev) => prev.filter((b) => b.id !== book.id));
       showToast("已删除");
-    } catch {
+    } catch (_e) {
       showToast("删除失败");
     }
   };

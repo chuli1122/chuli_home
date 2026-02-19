@@ -69,7 +69,7 @@ export default function Home() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState(() => {
     try { return JSON.parse(localStorage.getItem("whisper_profile") || "null"); }
-    catch { return null; }
+    catch (_e) { return null; }
   });
   const [avatarUrl, setAvatarUrl] = useState(null);
 
@@ -78,7 +78,7 @@ export default function Home() {
       setProfile(d);
       localStorage.setItem("whisper_profile", JSON.stringify(d));
     }).catch(() => {});
-    getAvatar("user-avatar").then((b64) => { if (b64) setAvatarUrl(b64); });
+    getAvatar("user-avatar").then((b64) => { if (b64) setAvatarUrl(b64); }).catch(function() {});
   }, []);
   const nickname = profile?.nickname || "阿怀";
   const signature = profile?.background_url || "今晚的月亮很圆";

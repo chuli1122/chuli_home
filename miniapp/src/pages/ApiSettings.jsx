@@ -23,7 +23,7 @@ const ANTHROPIC_MODELS = [
 ];
 
 function domainFromUrl(url) {
-  try { return new URL(url).hostname; } catch { return url; }
+  try { return new URL(url).hostname; } catch (_e) { return url; }
 }
 
 // ── NM Input ──
@@ -475,7 +475,7 @@ export default function ApiSettings() {
       await apiFetch(`/api/presets/${renameTarget.id}`, { method: "PUT", body: { name } });
       showToast("已重命名");
       fetchAll();
-    } catch { showToast("重命名失败"); }
+    } catch (_e) { showToast("重命名失败"); }
     setRenameTarget(null);
   };
 

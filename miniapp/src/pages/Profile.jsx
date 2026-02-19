@@ -68,7 +68,7 @@ export default function Profile() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-    getAvatar("user-avatar").then((b64) => { if (b64) setAvatarUrl(b64); });
+    getAvatar("user-avatar").then((b64) => { if (b64) setAvatarUrl(b64); }).catch(function() {});
   }, []);
 
   const handleAvatarUpload = (e) => {
@@ -80,7 +80,7 @@ export default function Profile() {
       try {
         await saveAvatar("user-avatar", base64);
         setAvatarUrl(base64);
-      } catch {
+      } catch (_e) {
         showToast("头像保存失败");
       }
     };
@@ -111,9 +111,9 @@ export default function Profile() {
       try {
         const cached = JSON.parse(localStorage.getItem("whisper_profile") || "{}");
         localStorage.setItem("whisper_profile", JSON.stringify({ ...cached, ...body }));
-      } catch {}
+      } catch (_e) {}
       showToast("已保存");
-    } catch {
+    } catch (_e) {
       showToast("保存失败");
     } finally {
       setSaving(false);

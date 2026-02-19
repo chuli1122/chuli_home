@@ -193,7 +193,7 @@ export default function Assistants() {
       await apiFetch(`/api/assistants/${a.id}`, { method: "DELETE" });
       setAssistants((prev) => prev.filter((x) => x.id !== a.id));
       showToast("已删除");
-    } catch {
+    } catch (_e) {
       showToast("删除失败");
     }
   };

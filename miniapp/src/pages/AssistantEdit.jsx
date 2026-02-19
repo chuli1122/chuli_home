@@ -591,7 +591,7 @@ export default function AssistantEdit() {
             apiFetch(`/api/core-blocks?assistant_id=${id}`).catch(() => ({ blocks: [] })),
           ]);
           setName(assistantData.name || "");
-          getAvatar(`assistant-avatar-${id}`).then((b64) => { if (b64) setAvatarUrl(b64); });
+          getAvatar(`assistant-avatar-${id}`).then((b64) => { if (b64) setAvatarUrl(b64); }).catch(function() {});
           setSystemPrompt(assistantData.system_prompt || "");
           setChatPresetId(assistantData.model_preset_id || null);
           setSummaryPresetId(assistantData.summary_model_preset_id || null);
@@ -629,7 +629,7 @@ export default function AssistantEdit() {
       try {
         await saveAvatar(key, base64);
         setAvatarUrl(base64);
-      } catch {
+      } catch (_e) {
         showToast("头像保存失败");
       }
     };

@@ -150,7 +150,7 @@ export default function Settings() {
         body: { retain_budget: retainBudget, trigger_threshold: triggerThreshold },
       });
       showToast("上下文预算已保存");
-    } catch {
+    } catch (_e) {
       showToast("保存失败");
     } finally {
       setBudgetSaving(false);
