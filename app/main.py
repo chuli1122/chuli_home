@@ -25,8 +25,8 @@ from app.routers import (
 )
 from app.routers.auth import require_auth_token
 from app.telegram.router import router as telegram_router
-from app.telegram.bot_instance import bot, dp
-from app.telegram.config import WEBHOOK_URL
+from app.telegram.bot_instance import bots
+from app.telegram.config import BOTS_CONFIG, WEBHOOK_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -35,23 +35,26 @@ app = FastAPI(title="Chuli Home Backend")
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    try:
-        await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
-        logger.info("Telegram webhook set: %s", WEBHOOK_URL)
-    except Exception as exc:
-        logger.warning("Failed to set Telegram webhook: %s", exc)
+    for key, bot in bots.items():
+        webhook_url = f"{WEBHOOK_BASE_URL}{BOTS_CONFIG[key]['webhook_path']}"
+        try:
+            await bot.set_webhook(webhook_url, drop_pending_updates=True)
+            logger.info("Telegram webhook set for %s: %s", key, webhook_url)
+        except Exception as exc:
+            logger.warning("Failed to set webhook for %s: %s", key, exc)
 
 
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
-    try:
-        await bot.delete_webhook()
-    except Exception:
-        pass
-    try:
-        await bot.session.close()
-    except Exception:
-        pass
+    for key, bot in bots.items():
+        try:
+            await bot.delete_webhook()
+        except Exception:
+            pass
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
 
 app.add_middleware(
     CORSMiddleware,

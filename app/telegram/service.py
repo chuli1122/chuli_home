@@ -27,48 +27,48 @@ async def get_setting(key: str, default: str = "") -> str:
 
 # ── Session / Assistant lookup ────────────────────────────────────────────────
 
-def _get_session_info_sync() -> tuple[int, str]:
+def _get_session_info_sync(assistant_id: int) -> tuple[int, str]:
     """
-    Returns (session_id, assistant_name).
-    Reads 'telegram_session_id' from settings, falls back to most recent session.
+    Returns (session_id, assistant_name) for the given assistant.
+    Finds the most recently updated session belonging to that assistant.
     """
     db = SessionLocal()
     try:
-        setting = db.query(Settings).filter(Settings.key == "telegram_session_id").first()
-        if setting and setting.value.strip().isdigit():
-            session_id = int(setting.value.strip())
-            session = db.get(ChatSession, session_id)
-            if session:
-                assistant = (
-                    db.get(Assistant, session.assistant_id)
-                    if session.assistant_id
-                    else None
-                )
-                return session_id, assistant.name if assistant else "unknown"
+        # Look up assistant name
+        assistant = db.get(Assistant, assistant_id)
+        name = assistant.name if assistant else "unknown"
 
-        # Fall back to most recently updated session
+        # Find most recent session for this assistant
+        session = (
+            db.query(ChatSession)
+            .filter(ChatSession.assistant_id == assistant_id)
+            .order_by(ChatSession.updated_at.desc())
+            .first()
+        )
+        if session:
+            return session.id, name
+
+        # No session exists — fall back to any recent session
         session = (
             db.query(ChatSession)
             .order_by(ChatSession.updated_at.desc())
             .first()
         )
         if session:
-            assistant = (
-                db.get(Assistant, session.assistant_id)
-                if session.assistant_id
-                else None
+            logger.warning(
+                "No session for assistant_id=%d, falling back to session %d",
+                assistant_id, session.id,
             )
-            return session.id, assistant.name if assistant else "unknown"
+            return session.id, name
 
-        # No session found — default to ID 1
         logger.warning("No chat session found; defaulting to session_id=1")
-        return 1, "unknown"
+        return 1, name
     finally:
         db.close()
 
 
-async def get_session_info() -> tuple[int, str]:
-    return await asyncio.to_thread(_get_session_info_sync)
+async def get_session_info(assistant_id: int) -> tuple[int, str]:
+    return await asyncio.to_thread(_get_session_info_sync, assistant_id)
 
 
 # ── Chat completion ───────────────────────────────────────────────────────────
