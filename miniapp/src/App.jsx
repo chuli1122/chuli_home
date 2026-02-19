@@ -11,6 +11,7 @@ import CotViewer from "./pages/CotViewer";
 import Profile from "./pages/Profile";
 
 export default function App() {
+  console.log('APP MOUNTED');
   useEffect(() => {
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.ready();
