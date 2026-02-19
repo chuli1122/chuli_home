@@ -189,7 +189,7 @@ function SortableBookItem({ item, book, position, sectionList, onRemove, onChang
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-2 rounded-[14px] px-3 py-2.5 mb-2"
+      className="flex items-center gap-2 rounded-[14px] px-3 py-2.5"
     >
       <div
         {...attributes}
