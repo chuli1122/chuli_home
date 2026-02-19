@@ -9,3 +9,4 @@ anthropic
 httpx
 requests
 PyJWT
+aiogram

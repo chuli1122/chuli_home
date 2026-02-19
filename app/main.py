@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
@@ -19,8 +21,34 @@ from app.routers import (
     world_books,
 )
 from app.routers.auth import require_auth_token
+from app.telegram.router import router as telegram_router
+from app.telegram.bot_instance import bot, dp
+from app.telegram.config import WEBHOOK_URL
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Chuli Home Backend")
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    try:
+        await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
+        logger.info("Telegram webhook set: %s", WEBHOOK_URL)
+    except Exception as exc:
+        logger.warning("Failed to set Telegram webhook: %s", exc)
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    try:
+        await bot.delete_webhook()
+    except Exception:
+        pass
+    try:
+        await bot.session.close()
+    except Exception:
+        pass
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,6 +76,7 @@ app.include_router(api_providers.router, prefix="/api", tags=["api_providers"], 
 app.include_router(model_presets.router, prefix="/api", tags=["model_presets"], dependencies=auth_deps)
 app.include_router(cot.router, prefix="/api", tags=["cot"], dependencies=auth_deps)
 app.include_router(auth.router, prefix="/api", tags=["auth"])
+app.include_router(telegram_router, tags=["telegram"])
 
 @app.get("/")
 async def root():
