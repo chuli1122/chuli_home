@@ -509,7 +509,7 @@ export default function ApiSettings() {
         <div className="w-10" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 pb-10">
+      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-2">
         {loading ? (
           <div className="flex justify-center py-20">
             <div className="h-8 w-8 animate-spin rounded-full border-2" style={{ borderColor: S.accent, borderTopColor: "transparent" }} />

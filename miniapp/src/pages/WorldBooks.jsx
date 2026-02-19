@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Plus, ChevronDown, ChevronRight, Globe } from "lucide-react";
+import { ChevronLeft, Plus, ChevronDown, ChevronRight, Globe, Trash2 } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -29,87 +29,145 @@ function ActivationBadge({ activation }) {
   );
 }
 
-function WorldBookItem({ book, onDelete, onTap }) {
-  const pressTimer = useRef(null);
-  const didLongPress = useRef(false);
-  const moved = useRef(false);
+// ── Swipe-to-delete row ──
+const SWIPE_WIDTH = 80;
+const SNAP_THRESHOLD = 40;
 
-  const onPressStart = () => {
-    didLongPress.current = false;
-    moved.current = false;
-    pressTimer.current = setTimeout(() => {
-      didLongPress.current = true;
-      onDelete(book);
-    }, 600);
+function SwipeRow({ children, onDelete }) {
+  const rowRef = useRef(null);
+  const actRef = useRef(null);
+  const state = useRef({
+    startX: 0, startY: 0, base: 0, current: 0,
+    dragging: false, locked: false, isH: false,
+  });
+
+  const translate = (x, animate) => {
+    const el = rowRef.current;
+    const act = actRef.current;
+    if (!el) return;
+    const ease = animate ? "all 0.25s cubic-bezier(.4,0,.2,1)" : "none";
+    el.style.transition = ease;
+    el.style.transform = `translateX(${x}px)`;
+    if (act) {
+      const p = Math.min(1, Math.abs(x) / SWIPE_WIDTH);
+      act.style.transition = ease;
+      act.style.opacity = `${p}`;
+    }
+    state.current.current = x;
   };
 
-  const onPressMove = () => {
-    moved.current = true;
-    clearTimeout(pressTimer.current);
+  const close = () => translate(0, true);
+
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    const s = state.current;
+    s.startX = t.clientX; s.startY = t.clientY;
+    s.base = s.current; s.dragging = true;
+    s.locked = false; s.isH = false;
+    if (rowRef.current) rowRef.current.style.transition = "none";
+    if (actRef.current) actRef.current.style.transition = "none";
   };
 
-  const onPressEnd = () => {
-    clearTimeout(pressTimer.current);
-    if (!didLongPress.current && !moved.current) onTap(book);
-    didLongPress.current = false;
-    moved.current = false;
+  const onTouchMove = (e) => {
+    const s = state.current;
+    if (!s.dragging) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.startX;
+    const dy = t.clientY - s.startY;
+    if (!s.locked) {
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      s.locked = true;
+      s.isH = Math.abs(dx) > Math.abs(dy);
+    }
+    if (!s.isH) { s.dragging = false; return; }
+    e.preventDefault();
+    const next = Math.max(-SWIPE_WIDTH, Math.min(0, s.base + dx));
+    if (rowRef.current) rowRef.current.style.transform = `translateX(${next}px)`;
+    if (actRef.current) actRef.current.style.opacity = `${Math.min(1, Math.abs(next) / SWIPE_WIDTH)}`;
+    s.current = next;
+  };
+
+  const onTouchEnd = () => {
+    state.current.dragging = false;
+    if (state.current.current < -SNAP_THRESHOLD) translate(-SWIPE_WIDTH, true);
+    else translate(0, true);
   };
 
   return (
-    <div className="mb-3">
+    <div className="relative mb-3 overflow-hidden rounded-[18px]">
       <div
-        className="flex items-center gap-3 rounded-[18px] p-4"
-        style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", userSelect: "none" }}
-        onTouchStart={onPressStart}
-        onTouchMove={onPressMove}
-        onTouchEnd={onPressEnd}
-        onMouseDown={onPressStart}
-        onMouseMove={onPressMove}
-        onMouseUp={onPressEnd}
-        onMouseLeave={() => clearTimeout(pressTimer.current)}
+        ref={actRef}
+        className="absolute right-0 top-0 bottom-0 flex items-center pr-2"
+        style={{ opacity: 0 }}
       >
-        <div
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-          style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
+        <button
+          className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]"
+          style={{ background: "#ff4d6d" }}
+          onClick={() => { close(); onDelete(); }}
         >
-          <Globe size={18} style={{ color: S.accentDark }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-[14px] font-semibold" style={{ color: S.text }}>
-              {book.name}
-            </span>
-            <ActivationBadge activation={book.activation} />
-          </div>
-          {book.folder && (
-            <div className="mt-0.5 text-[11px]" style={{ color: S.textMuted }}>
-              {book.folder}
-            </div>
-          )}
-          {book.activation === "keyword" && book.keywords?.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {book.keywords.slice(0, 3).map((kw, i) => (
-                <span
-                  key={i}
-                  className="rounded-full px-1.5 py-0.5 text-[10px]"
-                  style={{
-                    background: "rgba(232,160,191,0.15)",
-                    color: S.accentDark,
-                  }}
-                >
-                  {kw}
-                </span>
-              ))}
-              {book.keywords.length > 3 && (
-                <span className="text-[10px]" style={{ color: S.textMuted }}>
-                  +{book.keywords.length - 3}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-        <ChevronRight size={16} style={{ color: S.textMuted, flexShrink: 0 }} />
+          <Trash2 size={16} color="white" />
+          <span className="text-[11px] font-medium text-white">删除</span>
+        </button>
       </div>
+      <div
+        ref={rowRef}
+        className="relative z-10"
+        style={{ transform: "translateX(0px)", willChange: "transform" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function WorldBookItem({ book, onTap }) {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-[18px] p-4"
+      style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", userSelect: "none" }}
+      onClick={() => onTap(book)}
+    >
+      <div
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+        style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
+      >
+        <Globe size={18} style={{ color: S.accentDark }} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-[14px] font-semibold" style={{ color: S.text }}>
+            {book.name}
+          </span>
+          <ActivationBadge activation={book.activation} />
+        </div>
+        {book.folder && (
+          <div className="mt-0.5 text-[11px]" style={{ color: S.textMuted }}>
+            {book.folder}
+          </div>
+        )}
+        {book.activation === "keyword" && book.keywords?.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {book.keywords.slice(0, 3).map((kw, i) => (
+              <span
+                key={i}
+                className="rounded-full px-1.5 py-0.5 text-[10px]"
+                style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}
+              >
+                {kw}
+              </span>
+            ))}
+            {book.keywords.length > 3 && (
+              <span className="text-[10px]" style={{ color: S.textMuted }}>
+                +{book.keywords.length - 3}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <ChevronRight size={16} style={{ color: S.textMuted, flexShrink: 0 }} />
     </div>
   );
 }
@@ -139,7 +197,9 @@ function FolderGroup({ folder, books, onDelete, onTap }) {
         </span>
       </button>
       {open && books.map((b) => (
-        <WorldBookItem key={b.id} book={b} onDelete={onDelete} onTap={onTap} />
+        <SwipeRow key={b.id} onDelete={() => onDelete(b)}>
+          <WorldBookItem book={b} onTap={onTap} />
+        </SwipeRow>
       ))}
     </div>
   );
@@ -203,9 +263,7 @@ export default function WorldBooks() {
         >
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
-        <h1 className="text-[17px] font-bold" style={{ color: S.text }}>
-          世界书
-        </h1>
+        <h1 className="text-[17px] font-bold" style={{ color: S.text }}>世界书</h1>
         <button
           className="flex h-10 w-10 items-center justify-center rounded-full"
           style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
@@ -256,11 +314,8 @@ export default function WorldBooks() {
             <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>
               删除世界书
             </p>
-            <p className="mb-2 text-center text-[13px]" style={{ color: S.textMuted }}>
+            <p className="mb-6 text-center text-[13px]" style={{ color: S.textMuted }}>
               确定要删除「{deleteTarget.name}」吗？
-            </p>
-            <p className="mb-6 text-center text-[11px]" style={{ color: S.textMuted }}>
-              长按条目触发删除
             </p>
             <div className="flex gap-3">
               <button

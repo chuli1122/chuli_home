@@ -7,12 +7,14 @@ import AssistantEdit from "./pages/AssistantEdit";
 import Settings from "./pages/Settings";
 import ApiSettings from "./pages/ApiSettings";
 import CotViewer from "./pages/CotViewer";
+import Profile from "./pages/Profile";
 
 export default function App() {
   return (
     <HashRouter>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/profile" element={<Profile />} />
         <Route path="/world-books" element={<WorldBooks />} />
         <Route path="/world-books/new" element={<WorldBookEdit />} />
         <Route path="/world-books/:id" element={<WorldBookEdit />} />

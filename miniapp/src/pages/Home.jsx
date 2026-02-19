@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, Brain, Bot, Settings, BookMarked, Theater, Heart, Camera } from "lucide-react";
+import { BookOpen, Brain, Bot, Settings, BookMarked, Theater, Heart, ChevronRight } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -11,7 +11,6 @@ const S = {
   textMuted: "var(--text-muted)",
 };
 
-// Demo-style grid card: left-aligned, square icon with accent gradient
 function GridCard({ icon, label, desc, disabled, onClick }) {
   const [pressed, setPressed] = useState(false);
 
@@ -40,7 +39,6 @@ function GridCard({ icon, label, desc, disabled, onClick }) {
       onMouseUp={end}
       onMouseLeave={() => setPressed(false)}
     >
-      {/* Square icon box with accent gradient */}
       <div
         className="flex h-10 w-10 items-center justify-center rounded-[12px]"
         style={{ background: "linear-gradient(135deg, #f0c4d8, var(--accent))" }}
@@ -69,43 +67,14 @@ function SectionLabel({ children }) {
 export default function Home() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef(null);
 
   useEffect(() => {
     apiFetch("/api/user/profile").then((d) => setProfile(d)).catch(() => {});
   }, []);
 
-  const handleAvatarUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const token = localStorage.getItem("whisper_token");
-      const res = await fetch("https://chat.chuli.win/api/upload-image", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      const updated = await apiFetch("/api/user/profile", {
-        method: "PUT",
-        body: { ...(profile || {}), avatar_url: data.url },
-      });
-      setProfile(updated);
-    } catch {
-      // silent
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
-  };
-
   const avatarUrl = profile?.avatar_url;
   const nickname = profile?.nickname || "阿怀";
+  const signature = profile?.background_url || "今晚的月亮很圆";
 
   return (
     <div
@@ -124,21 +93,20 @@ export default function Home() {
           W H I S P E R
         </h1>
 
-        {/* Profile card */}
-        <div
-          className="mb-5 flex items-center gap-4 rounded-[20px] p-5"
+        {/* Profile card — clickable, no avatar upload */}
+        <button
+          className="mb-5 flex w-full items-center gap-4 rounded-[20px] p-5 text-left"
           style={{ background: S.bg, boxShadow: "6px 6px 14px rgba(174,176,182,0.5), -6px -6px 14px #ffffff" }}
+          onClick={() => navigate("/profile")}
         >
-          {/* Avatar — clickable to upload */}
-          <button
-            className="relative shrink-0 rounded-full"
+          {/* Avatar — display only */}
+          <div
+            className="shrink-0 rounded-full"
             style={{
               width: 52, height: 52,
               background: "linear-gradient(135deg, #f0c4d8, var(--accent))",
-              boxShadow: "3px 3px 8px rgba(174,176,182,0.5), -3px -3px 8px #ffffff",
               padding: 3,
             }}
-            onClick={() => fileRef.current?.click()}
           >
             <div
               className="flex h-full w-full items-center justify-center overflow-hidden rounded-full"
@@ -150,29 +118,18 @@ export default function Home() {
                 <span style={{ fontSize: 22 }}>🐰</span>
               )}
             </div>
-            {uploading && (
-              <div className="absolute inset-0 flex items-center justify-center rounded-full" style={{ background: "rgba(232,160,191,0.7)" }}>
-                <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              </div>
-            )}
-            {!uploading && (
-              <div
-                className="absolute bottom-0 right-0 flex h-4 w-4 items-center justify-center rounded-full"
-                style={{ background: S.accentDark }}
-              >
-                <Camera size={8} color="white" />
-              </div>
-            )}
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+          </div>
 
           <div className="flex-1 min-w-0">
-            <div className="text-[17px] font-bold truncate" style={{ color: S.text }}>{nickname}</div>
+            <div className="text-[17px] font-bold truncate" style={{ color: S.text }}>
+              @{nickname}
+            </div>
             <div className="mt-0.5 text-[11px] italic" style={{ color: S.textMuted }}>
-              今晚的月亮很圆
+              "{signature}"
             </div>
           </div>
-        </div>
+          <ChevronRight size={16} style={{ color: S.textMuted, flexShrink: 0 }} />
+        </button>
 
         {/* 管理 section */}
         <SectionLabel>管理</SectionLabel>
@@ -220,10 +177,11 @@ export default function Home() {
           />
         </div>
 
-        {/* Heart widget */}
-        <div
-          className="flex items-center justify-center rounded-[18px] py-4"
+        {/* Heart widget — click to open COT */}
+        <button
+          className="flex w-full items-center justify-center rounded-[18px] py-4"
           style={{ background: S.bg, boxShadow: "5px 5px 12px rgba(174,176,182,0.5), -5px -5px 12px #ffffff" }}
+          onClick={() => navigate("/cot")}
         >
           <Heart
             size={32}
@@ -233,7 +191,7 @@ export default function Home() {
               animation: "heartbeat 2s ease-in-out infinite",
             }}
           />
-        </div>
+        </button>
       </div>
 
       <style>{`

@@ -1,6 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, ChevronUp, ChevronDown, Plus, X, Check, Maximize2, Minimize2, FileText } from "lucide-react";
+import {
+  ChevronLeft, Plus, X, Check,
+  Maximize2, Minimize2, FileText, GripVertical,
+} from "lucide-react";
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor,
+  useSensor, useSensors, DragOverlay,
+} from "@dnd-kit/core";
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -12,26 +23,6 @@ const S = {
 };
 
 // ── Small helpers ──
-
-function NmTextarea({ label, value, onChange, placeholder, rows }) {
-  return (
-    <div className="mb-4">
-      {label && (
-        <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
-          {label}
-        </label>
-      )}
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        rows={rows || 6}
-        className="w-full rounded-[14px] px-4 py-3 text-[14px] resize-none outline-none"
-        style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text }}
-      />
-    </div>
-  );
-}
 
 function NmInput({ label, value, onChange, placeholder }) {
   return (
@@ -47,6 +38,33 @@ function NmInput({ label, value, onChange, placeholder }) {
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="w-full rounded-[14px] px-4 py-3 text-[14px] outline-none"
+        style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text }}
+      />
+    </div>
+  );
+}
+
+function NmTextareaWithExpand({ label, value, onChange, placeholder, rows, onExpand }) {
+  return (
+    <div className="mb-4">
+      <div className="mb-1.5 flex items-center justify-between">
+        <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
+          {label}
+        </label>
+        <button
+          className="flex h-7 w-7 items-center justify-center rounded-full"
+          style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+          onClick={onExpand}
+        >
+          <Maximize2 size={13} style={{ color: S.accentDark }} />
+        </button>
+      </div>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={rows || 6}
+        className="w-full rounded-[14px] px-4 py-3 text-[14px] resize-none outline-none"
         style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text }}
       />
     </div>
@@ -71,7 +89,10 @@ function PresetSelect({ label, value, onChange, presets }) {
           <span style={{ color: selected ? S.text : S.textMuted }}>
             {selected ? selected.name : "未选择"}
           </span>
-          <ChevronDown size={16} style={{ color: S.textMuted, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            style={{ color: S.textMuted, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </button>
         {open && (
           <div
@@ -104,7 +125,6 @@ function PresetSelect({ label, value, onChange, presets }) {
 }
 
 // ── Fullscreen Editor ──
-
 function FullscreenEditor({ value, onChange, onClose, title, placeholder }) {
   return (
     <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: S.bg }}>
@@ -133,7 +153,7 @@ function FullscreenEditor({ value, onChange, onClose, title, placeholder }) {
   );
 }
 
-// ── World Book Mount Tab ──
+// ── World Book Mount Tab (drag-and-drop) ──
 
 function activationLabel(a) {
   if (a === "always") return "常驻";
@@ -141,7 +161,6 @@ function activationLabel(a) {
   return "情绪";
 }
 
-/** Normalise: accept either flat [id, ...] or [{id, position, sort_order}, ...] */
 function normalizeItems(raw) {
   if (!raw || !Array.isArray(raw)) return [];
   return raw.map((item, i) =>
@@ -151,10 +170,63 @@ function normalizeItems(raw) {
   );
 }
 
+function SortableBookItem({ item, book, position, sectionList, onRemove, onChangePosition }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: String(item.id),
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.35 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
+  if (!book) return null;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 rounded-[14px] px-3 py-2.5 mb-2"
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className="cursor-grab touch-none p-1"
+        style={{ cursor: isDragging ? "grabbing" : "grab" }}
+      >
+        <GripVertical size={14} style={{ color: S.textMuted }} />
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="truncate text-[13px] font-semibold" style={{ color: S.text }}>
+          {book.name}
+        </div>
+        <div className="text-[10px]" style={{ color: S.textMuted }}>
+          {activationLabel(book.activation)}
+          {book.folder ? ` · ${book.folder}` : ""}
+        </div>
+      </div>
+
+      <button
+        className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+        style={{ background: "rgba(136,136,160,0.1)", color: S.textMuted }}
+        onClick={() => onChangePosition(item.id, position === "before" ? "after" : "before")}
+      >
+        {position === "before" ? "→后" : "→前"}
+      </button>
+
+      <button onClick={() => onRemove(item.id)}>
+        <X size={14} style={{ color: S.textMuted }} />
+      </button>
+    </div>
+  );
+}
+
 function AddWorldBooksModal({ allBooks, mountedIds, onClose, onConfirm }) {
   const [selected, setSelected] = useState(new Set(mountedIds));
 
-  // Group books by folder
   const groups = {};
   allBooks.forEach((book) => {
     const f = book.folder || "未分组";
@@ -276,26 +348,49 @@ function AddWorldBooksModal({ allBooks, mountedIds, onClose, onConfirm }) {
 
 function WorldBookMountTab({ ruleSetIds, onChange, allBooks }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [activeId, setActiveId] = useState(null);
 
   const items = normalizeItems(ruleSetIds);
   const beforeItems = items.filter((i) => i.position === "before").sort((a, b) => a.sort_order - b.sort_order);
   const afterItems = items.filter((i) => i.position === "after").sort((a, b) => a.sort_order - b.sort_order);
 
-  const getBook = (id) => allBooks.find((b) => b.id === id);
+  const getBook = (id) => allBooks.find((b) => b.id === id || b.id === Number(id));
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  );
+
+  const handleDragStart = ({ active }) => setActiveId(active.id);
+
+  const handleDragOver = ({ active, over }) => {
+    if (!over) return;
+    const activeItem = items.find((i) => String(i.id) === String(active.id));
+    const overItem = items.find((i) => String(i.id) === String(over.id));
+    if (!activeItem || !overItem) return;
+    if (activeItem.position !== overItem.position) {
+      const newItems = items.map((i) =>
+        String(i.id) === String(activeItem.id) ? { ...i, position: overItem.position } : i
+      );
+      onChange(newItems);
+    }
+  };
+
+  const handleDragEnd = ({ active, over }) => {
+    setActiveId(null);
+    if (!over || active.id === over.id) return;
+    const activeItem = items.find((i) => String(i.id) === String(active.id));
+    const overItem = items.find((i) => String(i.id) === String(over.id));
+    if (!activeItem || !overItem || activeItem.position !== overItem.position) return;
+    const section = activeItem.position === "before" ? [...beforeItems] : [...afterItems];
+    const fromIdx = section.findIndex((i) => String(i.id) === String(active.id));
+    const toIdx = section.findIndex((i) => String(i.id) === String(over.id));
+    const reordered = arrayMove(section, fromIdx, toIdx).map((item, idx) => ({ ...item, sort_order: idx }));
+    const other = items.filter((i) => i.position !== activeItem.position);
+    onChange([...other, ...reordered]);
+  };
 
   const removeItem = (id) => onChange(items.filter((i) => i.id !== id));
-
-  const moveItem = (id, direction, position) => {
-    const section = position === "before" ? [...beforeItems] : [...afterItems];
-    const idx = section.findIndex((i) => i.id === id);
-    if (direction === "up" && idx === 0) return;
-    if (direction === "down" && idx === section.length - 1) return;
-    const newIdx = direction === "up" ? idx - 1 : idx + 1;
-    [section[idx], section[newIdx]] = [section[newIdx], section[idx]];
-    const updated = section.map((item, i) => ({ ...item, sort_order: i }));
-    const other = items.filter((i) => i.position !== position);
-    onChange([...other, ...updated]);
-  };
 
   const changePosition = (id, newPos) => {
     const targetSection = newPos === "before" ? beforeItems : afterItems;
@@ -324,89 +419,42 @@ function WorldBookMountTab({ ruleSetIds, onChange, allBooks }) {
         </div>
       );
     }
-
-    // Group by folder within section
-    const groups = {};
-    sectionItems.forEach((item) => {
-      const book = getBook(item.id);
-      const f = book?.folder || "";
-      if (!groups[f]) groups[f] = [];
-      groups[f].push(item);
-    });
-
     return (
-      <div className="space-y-3">
-        {Object.entries(groups).map(([folderName, groupItems]) => (
-          <div key={folderName}>
-            {folderName && (
-              <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
-                {folderName}
-              </div>
-            )}
-            <div className="space-y-2">
-              {groupItems.map((item) => {
-                const book = getBook(item.id);
-                if (!book) return null;
-                const sectionIdx = sectionItems.findIndex((i) => i.id === item.id);
-                return (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-2 rounded-[14px] px-3 py-2.5"
-                    style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-                  >
-                    {/* Up / Down */}
-                    <div className="flex flex-col">
-                      <button
-                        onClick={() => moveItem(item.id, "up", position)}
-                        disabled={sectionIdx === 0}
-                        className="p-0.5 disabled:opacity-20"
-                      >
-                        <ChevronUp size={13} style={{ color: S.textMuted }} />
-                      </button>
-                      <button
-                        onClick={() => moveItem(item.id, "down", position)}
-                        disabled={sectionIdx === sectionItems.length - 1}
-                        className="p-0.5 disabled:opacity-20"
-                      >
-                        <ChevronDown size={13} style={{ color: S.textMuted }} />
-                      </button>
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="truncate text-[13px] font-semibold" style={{ color: S.text }}>
-                        {book.name}
-                      </div>
-                      <div className="text-[10px]" style={{ color: S.textMuted }}>
-                        {activationLabel(book.activation)}
-                      </div>
-                    </div>
-
-                    {/* Move to other section */}
-                    <button
-                      className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                      style={{ background: "rgba(136,136,160,0.1)", color: S.textMuted }}
-                      onClick={() => changePosition(item.id, position === "before" ? "after" : "before")}
-                    >
-                      {position === "before" ? "→后" : "→前"}
-                    </button>
-
-                    {/* Remove */}
-                    <button onClick={() => removeItem(item.id)}>
-                      <X size={14} style={{ color: S.textMuted }} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
+      <SortableContext
+        items={sectionItems.map((i) => String(i.id))}
+        strategy={verticalListSortingStrategy}
+      >
+        <div
+          className="rounded-[14px] px-2 pt-1"
+          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+        >
+          {sectionItems.map((item) => (
+            <SortableBookItem
+              key={item.id}
+              item={item}
+              book={getBook(item.id)}
+              position={position}
+              sectionList={sectionItems}
+              onRemove={removeItem}
+              onChangePosition={changePosition}
+            />
+          ))}
+        </div>
+      </SortableContext>
     );
   };
 
+  const activeItem = activeId ? items.find((i) => String(i.id) === String(activeId)) : null;
+  const activeBook = activeItem ? getBook(activeItem.id) : null;
+
   return (
-    <div>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+    >
       {/* Before section */}
       <div className="mb-1">
         <div className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: S.textMuted }}>
@@ -444,6 +492,23 @@ function WorldBookMountTab({ ruleSetIds, onChange, allBooks }) {
         <Plus size={16} /> 添加
       </button>
 
+      {/* Drag overlay */}
+      <DragOverlay>
+        {activeBook && (
+          <div
+            className="flex items-center gap-2 rounded-[14px] px-3 py-2.5"
+            style={{ background: S.bg, boxShadow: "var(--card-shadow)", opacity: 0.9 }}
+          >
+            <GripVertical size={14} style={{ color: S.textMuted }} />
+            <div className="flex-1 min-w-0">
+              <div className="truncate text-[13px] font-semibold" style={{ color: S.accentDark }}>
+                {activeBook.name}
+              </div>
+            </div>
+          </div>
+        )}
+      </DragOverlay>
+
       {showAdd && (
         <AddWorldBooksModal
           allBooks={allBooks}
@@ -455,7 +520,7 @@ function WorldBookMountTab({ ruleSetIds, onChange, allBooks }) {
           }}
         />
       )}
-    </div>
+    </DndContext>
   );
 }
 
@@ -484,6 +549,8 @@ export default function AssistantEdit() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [sysPromptFullscreen, setSysPromptFullscreen] = useState(false);
+  const [humanFullscreen, setHumanFullscreen] = useState(false);
+  const [personaFullscreen, setPersonaFullscreen] = useState(false);
 
   const fileInputRef = useRef(null);
   const sysPromptFileRef = useRef(null);
@@ -603,8 +670,8 @@ export default function AssistantEdit() {
   };
 
   const tabs = [
-    { key: "basic", label: "基础" },
-    { key: "about", label: "关于我们" },
+    { key: "basic", label: "基础设置" },
+    { key: "about", label: "Core Blocks" },
     { key: "books", label: "世界书" },
   ];
 
@@ -657,7 +724,7 @@ export default function AssistantEdit() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-5 pb-10">
+      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-3">
         {tab === "basic" && (
           <>
             {/* Avatar + Name */}
@@ -757,24 +824,26 @@ export default function AssistantEdit() {
               className="mb-4 rounded-[20px] p-4"
               style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
             >
-              <NmTextarea
+              <NmTextareaWithExpand
                 label="关于我（AI 视角）"
                 value={humanBlock}
                 onChange={setHumanBlock}
                 placeholder="描述你自己，让 AI 了解你..."
                 rows={7}
+                onExpand={() => setHumanFullscreen(true)}
               />
             </div>
             <div
               className="rounded-[20px] p-4"
               style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
             >
-              <NmTextarea
+              <NmTextareaWithExpand
                 label="关于我们的默契"
                 value={personaBlock}
                 onChange={setPersonaBlock}
                 placeholder="描述你们之间的默契..."
                 rows={7}
+                onExpand={() => setPersonaFullscreen(true)}
               />
             </div>
           </>
@@ -794,6 +863,7 @@ export default function AssistantEdit() {
         )}
       </div>
 
+      {/* Fullscreen editors */}
       {sysPromptFullscreen && (
         <FullscreenEditor
           value={systemPrompt}
@@ -801,6 +871,24 @@ export default function AssistantEdit() {
           onClose={() => setSysPromptFullscreen(false)}
           title="系统提示词"
           placeholder="输入系统提示词..."
+        />
+      )}
+      {humanFullscreen && (
+        <FullscreenEditor
+          value={humanBlock}
+          onChange={setHumanBlock}
+          onClose={() => setHumanFullscreen(false)}
+          title="关于我（AI 视角）"
+          placeholder="描述你自己，让 AI 了解你..."
+        />
+      )}
+      {personaFullscreen && (
+        <FullscreenEditor
+          value={personaBlock}
+          onChange={setPersonaBlock}
+          onClose={() => setPersonaFullscreen(false)}
+          title="关于我们的默契"
+          placeholder="描述你们之间的默契..."
         />
       )}
 

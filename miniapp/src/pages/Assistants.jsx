@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Plus, ChevronRight, Bot } from "lucide-react";
+import { ChevronLeft, Plus, ChevronRight, Bot, Trash2 } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -11,69 +11,130 @@ const S = {
   textMuted: "var(--text-muted)",
 };
 
-function AssistantCard({ assistant, onDelete, onTap }) {
-  const pressTimer = useRef(null);
-  const didLongPress = useRef(false);
-  const moved = useRef(false);
+// ── Swipe-to-delete row ──
+const SWIPE_WIDTH = 80;
+const SNAP_THRESHOLD = 40;
 
-  const onPressStart = () => {
-    didLongPress.current = false;
-    moved.current = false;
-    pressTimer.current = setTimeout(() => {
-      didLongPress.current = true;
-      onDelete(assistant);
-    }, 600);
+function SwipeRow({ children, onDelete }) {
+  const rowRef = useRef(null);
+  const actRef = useRef(null);
+  const state = useRef({
+    startX: 0, startY: 0, base: 0, current: 0,
+    dragging: false, locked: false, isH: false,
+  });
+
+  const translate = (x, animate) => {
+    const el = rowRef.current;
+    const act = actRef.current;
+    if (!el) return;
+    const ease = animate ? "all 0.25s cubic-bezier(.4,0,.2,1)" : "none";
+    el.style.transition = ease;
+    el.style.transform = `translateX(${x}px)`;
+    if (act) {
+      const p = Math.min(1, Math.abs(x) / SWIPE_WIDTH);
+      act.style.transition = ease;
+      act.style.opacity = `${p}`;
+    }
+    state.current.current = x;
   };
 
-  const onPressMove = () => {
-    moved.current = true;
-    clearTimeout(pressTimer.current);
+  const close = () => translate(0, true);
+
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    const s = state.current;
+    s.startX = t.clientX; s.startY = t.clientY;
+    s.base = s.current; s.dragging = true;
+    s.locked = false; s.isH = false;
+    if (rowRef.current) rowRef.current.style.transition = "none";
+    if (actRef.current) actRef.current.style.transition = "none";
   };
 
-  const onPressEnd = () => {
-    clearTimeout(pressTimer.current);
-    if (!didLongPress.current && !moved.current) onTap(assistant);
-    didLongPress.current = false;
-    moved.current = false;
+  const onTouchMove = (e) => {
+    const s = state.current;
+    if (!s.dragging) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.startX;
+    const dy = t.clientY - s.startY;
+    if (!s.locked) {
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      s.locked = true;
+      s.isH = Math.abs(dx) > Math.abs(dy);
+    }
+    if (!s.isH) { s.dragging = false; return; }
+    e.preventDefault();
+    const next = Math.max(-SWIPE_WIDTH, Math.min(0, s.base + dx));
+    if (rowRef.current) rowRef.current.style.transform = `translateX(${next}px)`;
+    if (actRef.current) actRef.current.style.opacity = `${Math.min(1, Math.abs(next) / SWIPE_WIDTH)}`;
+    s.current = next;
+  };
+
+  const onTouchEnd = () => {
+    state.current.dragging = false;
+    if (state.current.current < -SNAP_THRESHOLD) translate(-SWIPE_WIDTH, true);
+    else translate(0, true);
   };
 
   return (
-    <div className="mb-3">
+    <div className="relative mb-3 overflow-hidden rounded-[18px]">
       <div
-        className="flex items-center gap-3 rounded-[18px] p-4"
-        style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", userSelect: "none" }}
-        onTouchStart={onPressStart}
-        onTouchMove={onPressMove}
-        onTouchEnd={onPressEnd}
-        onMouseDown={onPressStart}
-        onMouseMove={onPressMove}
-        onMouseUp={onPressEnd}
-        onMouseLeave={() => clearTimeout(pressTimer.current)}
+        ref={actRef}
+        className="absolute right-0 top-0 bottom-0 flex items-center pr-2"
+        style={{ opacity: 0 }}
       >
-        <div
-          className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full"
-          style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+        <button
+          className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]"
+          style={{ background: "#ff4d6d" }}
+          onClick={() => { close(); onDelete(); }}
         >
-          {assistant.avatar_url ? (
-            <img src={assistant.avatar_url} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <span className="text-[20px]" style={{ color: S.accentDark }}>
-              {assistant.name?.[0] || "?"}
-            </span>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="truncate text-[15px] font-bold" style={{ color: S.text }}>
-            {assistant.name}
-          </div>
-          {assistant.created_at && (
-            <div className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>
-              {assistant.created_at.slice(0, 10)}
-            </div>
-          )}
-        </div>
-        <ChevronRight size={16} style={{ color: S.textMuted, flexShrink: 0 }} />
+          <Trash2 size={16} color="white" />
+          <span className="text-[11px] font-medium text-white">删除</span>
+        </button>
       </div>
+      <div
+        ref={rowRef}
+        className="relative z-10"
+        style={{ transform: "translateX(0px)", willChange: "transform" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function AssistantCard({ assistant, onTap }) {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-[18px] p-4"
+      style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", userSelect: "none" }}
+      onClick={() => onTap(assistant)}
+    >
+      <div
+        className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full"
+        style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+      >
+        {assistant.avatar_url ? (
+          <img src={assistant.avatar_url} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span className="text-[20px]" style={{ color: S.accentDark }}>
+            {assistant.name?.[0] || "?"}
+          </span>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="truncate text-[15px] font-bold" style={{ color: S.text }}>
+          {assistant.name}
+        </div>
+        {assistant.created_at && (
+          <div className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>
+            {assistant.created_at.slice(0, 10)}
+          </div>
+        )}
+      </div>
+      <ChevronRight size={16} style={{ color: S.textMuted, flexShrink: 0 }} />
     </div>
   );
 }
@@ -153,12 +214,12 @@ export default function Assistants() {
           </div>
         ) : (
           assistants.map((a) => (
-            <AssistantCard
-              key={a.id}
-              assistant={a}
-              onDelete={(x) => setDeleteTarget(x)}
-              onTap={(x) => navigate(`/assistants/${x.id}`)}
-            />
+            <SwipeRow key={a.id} onDelete={() => setDeleteTarget(a)}>
+              <AssistantCard
+                assistant={a}
+                onTap={(x) => navigate(`/assistants/${x.id}`)}
+              />
+            </SwipeRow>
           ))
         )}
       </div>
