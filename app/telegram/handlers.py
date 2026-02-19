@@ -7,15 +7,9 @@ from typing import Optional
 
 from aiogram import Bot, Router
 from aiogram.filters import Command
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    MenuButtonWebApp,
-    Message,
-    WebAppInfo,
-)
+from aiogram.types import Message
 
-from .config import ALLOWED_CHAT_ID, MINI_APP_BASE_URL
+from .config import ALLOWED_CHAT_ID
 from .keyboards import get_main_keyboard
 from .service import call_chat_completion, get_buffer_seconds, get_session_info
 
@@ -136,60 +130,9 @@ async def cmd_start(message: Message, bot_key: str, **_kw) -> None:
     if not _is_allowed(message.chat.id):
         return
     await message.answer(
-        "你好 ❤\n\n/short — 切换到短消息模式\n/long  — 切换到长消息模式",
+        "你好 ❤",
         reply_markup=get_main_keyboard(),
     )
-
-
-@router.message(Command("short"))
-async def cmd_short(message: Message, bot_key: str, **_kw) -> None:
-    if not _is_allowed(message.chat.id):
-        return
-    state = _get_state(bot_key)
-    state.short_mode = True
-    await message.answer("✓ 已切换到短消息模式（缓冲后发送，[NEXT] 拆分）")
-
-
-@router.message(Command("long"))
-async def cmd_long(message: Message, bot_key: str, **_kw) -> None:
-    if not _is_allowed(message.chat.id):
-        return
-    state = _get_state(bot_key)
-    state.short_mode = False
-    await message.answer("✓ 已切换到长消息模式")
-
-
-@router.message(Command("app"))
-async def cmd_app(message: Message, bot: Bot, bot_key: str, **_kw) -> None:
-    if not _is_allowed(message.chat.id):
-        return
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="打开 WHISPER",
-            web_app=WebAppInfo(url=MINI_APP_BASE_URL),
-        )]
-    ])
-    await message.answer("点击按钮打开：", reply_markup=keyboard)
-    # Also set the menu button programmatically
-    try:
-        await bot.set_chat_menu_button(
-            chat_id=message.chat.id,
-            menu_button=MenuButtonWebApp(
-                text="🐾",
-                web_app=WebAppInfo(url=MINI_APP_BASE_URL),
-            ),
-        )
-    except Exception as exc:
-        logger.warning("set_chat_menu_button failed: %s", exc)
-
-
-@router.message(Command("mode"))
-async def cmd_mode(message: Message, bot_key: str, **_kw) -> None:
-    if not _is_allowed(message.chat.id):
-        return
-    state = _get_state(bot_key)
-    mode = "短消息" if state.short_mode else "长消息"
-    await message.answer(f"当前模式：{mode}")
 
 
 # ── Main message handler ─────────────────────────────────────────────────────

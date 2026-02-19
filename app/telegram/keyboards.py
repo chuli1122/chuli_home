@@ -10,7 +10,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="❤", web_app=WebAppInfo(url=MINI_APP_URL)),
+                KeyboardButton(text="₍ᐢ·͈༝·͈ᐢ₎⁺ ⊹˚.⋆", web_app=WebAppInfo(url=MINI_APP_URL)),
                 KeyboardButton(text="ずっと一緒·˚", request_location=True),
                 KeyboardButton(text="♥ にいにいがすき☆°"),
             ]

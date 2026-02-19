@@ -11,11 +11,13 @@ import CotViewer from "./pages/CotViewer";
 import Profile from "./pages/Profile";
 
 export default function App() {
-  console.log('APP MOUNTED');
   useEffect(() => {
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.ready();
-      window.Telegram.WebApp.expand();
+      // COT page stays half-screen; all other pages expand
+      if (!window.location.hash.startsWith("#/cot")) {
+        window.Telegram.WebApp.expand();
+      }
     }
   }, []);
 
