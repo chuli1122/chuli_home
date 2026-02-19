@@ -298,7 +298,7 @@ export default function WorldBookEdit() {
         await apiFetch(`/api/world-books/${id}`, { method: "PUT", body });
         showToast("已保存");
       }
-      setTimeout(() => navigate("/world-books"), 500);
+      setTimeout(() => navigate("/world-books", { replace: true }), 500);
     } catch (e) {
       showToast("保存失败: " + e.message);
     } finally {
@@ -316,7 +316,7 @@ export default function WorldBookEdit() {
         <button
           className="flex h-10 w-10 items-center justify-center rounded-full"
           style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-          onClick={() => navigate("/world-books")}
+          onClick={() => navigate("/world-books", { replace: true })}
         >
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>

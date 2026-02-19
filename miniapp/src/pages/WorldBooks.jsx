@@ -262,7 +262,7 @@ export default function WorldBooks() {
         <button
           className="flex h-10 w-10 items-center justify-center rounded-full nm-active"
           style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-          onClick={() => navigate("/")}
+          onClick={() => navigate("/", { replace: true })}
         >
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>

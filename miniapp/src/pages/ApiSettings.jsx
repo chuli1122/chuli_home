@@ -501,7 +501,7 @@ export default function ApiSettings() {
         <button
           className="flex h-10 w-10 items-center justify-center rounded-full"
           style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-          onClick={() => navigate("/settings")}
+          onClick={() => navigate("/settings", { replace: true })}
         >
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
