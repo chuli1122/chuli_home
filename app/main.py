@@ -1,7 +1,9 @@
 import logging
+from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.routers import (
     api_providers,
     assistants,
@@ -17,6 +19,7 @@ from app.routers import (
     settings,
     sessions,
     theater,
+    upload,
     user_profile,
     world_books,
 )
@@ -75,8 +78,19 @@ app.include_router(theater.router, prefix="/api", tags=["theater"], dependencies
 app.include_router(api_providers.router, prefix="/api", tags=["api_providers"], dependencies=auth_deps)
 app.include_router(model_presets.router, prefix="/api", tags=["model_presets"], dependencies=auth_deps)
 app.include_router(cot.router, prefix="/api", tags=["cot"], dependencies=auth_deps)
+app.include_router(upload.router, prefix="/api", tags=["upload"], dependencies=auth_deps)
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(telegram_router, tags=["telegram"])
+
+# Serve uploaded static files
+_static_dir = Path(__file__).parent.parent / "static"
+_static_dir.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
+# Serve miniapp frontend
+_miniapp_dir = Path(__file__).parent.parent / "miniapp" / "dist"
+if _miniapp_dir.is_dir():
+    app.mount("/miniapp", StaticFiles(directory=str(_miniapp_dir), html=True), name="miniapp")
 
 @app.get("/")
 async def root():
