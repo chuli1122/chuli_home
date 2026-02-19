@@ -20,6 +20,7 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     meta_info: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     summary_group_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -211,3 +212,15 @@ class Settings(Base):
     key: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     value: Mapped[str] = mapped_column(Text, nullable=False, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class CotRecord(Base):
+    __tablename__ = "cot_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    round_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    block_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

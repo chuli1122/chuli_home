@@ -4,6 +4,7 @@ import json
 import re
 import logging
 import math
+import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -16,7 +17,7 @@ import requests
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import func, text
 
-from app.models.models import ApiProvider, Assistant, ChatSession, Diary, Memory, Message, ModelPreset, SessionSummary, Settings, TheaterStory, UserProfile
+from app.models.models import ApiProvider, Assistant, ChatSession, CotRecord, Diary, Memory, Message, ModelPreset, SessionSummary, Settings, TheaterStory, UserProfile
 from app.services.core_blocks_service import CoreBlocksService
 from app.services.embedding_service import EmbeddingService
 from app.services.summary_service import SummaryService
@@ -982,19 +983,24 @@ class ChatService:
         background_tasks: BackgroundTasks | None = None,
         short_mode: bool = False,
     ) -> list[dict[str, Any]]:
+        request_id = str(uuid.uuid4())
         # Persist all NEW user messages (those without a DB id)
         for msg in messages:
             if msg.get("role") == "user" and not msg.get("id"):
                 user_content = msg.get("content", "")
                 has_content = bool(user_content) if isinstance(user_content, list) else bool(user_content and user_content.strip())
                 if has_content:
-                    self._persist_message(session_id, "user", user_content, {})
+                    self._persist_message(session_id, "user", user_content, {}, request_id=request_id)
         all_trimmed_messages: list[dict[str, Any]] = []
         all_trimmed_message_ids: list[int] = []
+        round_index = 0
         if tool_calls:
             pending_tool_calls = list(tool_calls)
         else:
-            pending_tool_calls = list(self._fetch_next_tool_calls(messages, session_id, short_mode=short_mode))
+            pending_tool_calls = list(self._fetch_next_tool_calls(
+                messages, session_id, short_mode=short_mode,
+                request_id=request_id, round_index=round_index,
+            ))
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
         while pending_tool_calls:
@@ -1025,6 +1031,11 @@ class ChatService:
                 except Exception as e:
                     logger.error("Tool execution error (%s): %s", tool_name, e)
                     tool_result = {"error": str(e)}
+                self._write_cot_block(
+                    request_id, round_index, "tool_result",
+                    json.dumps(tool_result, ensure_ascii=False),
+                    tool_name=tool_name,
+                )
                 messages.append(
                     {
                         "role": "tool",
@@ -1043,7 +1054,11 @@ class ChatService:
                         pass
             # All tool results added, now call API again for next response
             logger.info("[chat_completion] Tool calls done, making follow-up API call (session=%s)", session_id)
-            pending_tool_calls = list(self._fetch_next_tool_calls(messages, session_id, short_mode=short_mode))
+            round_index += 1
+            pending_tool_calls = list(self._fetch_next_tool_calls(
+                messages, session_id, short_mode=short_mode,
+                request_id=request_id, round_index=round_index,
+            ))
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
         session = self.db.get(ChatSession, session_id)
@@ -1326,13 +1341,15 @@ class ChatService:
         background_tasks: BackgroundTasks | None = None,
     ) -> Iterable[str]:
         """Streaming chat completion. Yields SSE events."""
+        request_id = str(uuid.uuid4())
         if messages:
             last_message = messages[-1]
             user_content = last_message.get("content", "")
             has_content = bool(user_content) if isinstance(user_content, list) else bool(user_content and user_content.strip())
             if last_message.get("role") == "user" and has_content:
-                self._persist_message(session_id, "user", user_content, {})
+                self._persist_message(session_id, "user", user_content, {}, request_id=request_id)
         all_trimmed_message_ids: list[int] = []
+        round_index = 0
         while True:
             try:
                 params = self._build_api_call_params(messages, session_id)
@@ -1349,6 +1366,7 @@ class ChatService:
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
             content_chunks: list[str] = []
             tool_calls_acc: dict[int, dict] = {}
+            current_round = round_index
             if use_anthropic:
                 anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
                 anth_tools = _oai_tools_to_anthropic(tools)
@@ -1446,12 +1464,21 @@ class ChatService:
                         logger.error("Failed to parse tool call arguments for %s: %s", tc["name"], e)
                         parsed_tool_calls.append(ToolCall(name=tc["name"], arguments={}, id=tc["id"]))
                 full_content = "".join(content_chunks)
+                # Write COT blocks for this round
+                if full_content:
+                    self._write_cot_block(request_id, current_round, "text", full_content)
+                for tc in parsed_tool_calls:
+                    self._write_cot_block(
+                        request_id, current_round, "tool_use",
+                        tc.arguments if isinstance(tc.arguments, str) else json.dumps(tc.arguments),
+                        tool_name=tc.name,
+                    )
                 messages.append({
                     "role": "assistant", "content": full_content,
                     "tool_calls": tool_calls_payload,
                 })
                 try:
-                    self._persist_message(session_id, "assistant", full_content, {"tool_calls": tool_calls_payload})
+                    self._persist_message(session_id, "assistant", full_content, {"tool_calls": tool_calls_payload}, request_id=request_id)
                 except Exception as e:
                     logger.error("Failed to persist assistant tool_calls message: %s", e)
                     try:
@@ -1472,6 +1499,11 @@ class ChatService:
                     except Exception as e:
                         logger.error("Tool execution error (%s): %s", tc.name, e)
                         tool_result = {"error": str(e)}
+                    self._write_cot_block(
+                        request_id, current_round, "tool_result",
+                        json.dumps(tool_result, ensure_ascii=False),
+                        tool_name=tc.name,
+                    )
                     messages.append({
                         "role": "tool", "name": tc.name,
                         "content": json.dumps(tool_result, ensure_ascii=False),
@@ -1486,9 +1518,11 @@ class ChatService:
                         except Exception:
                             pass
                 logger.info("[stream] Tool calls done, making follow-up API call (session=%s)", session_id)
+                round_index += 1
                 continue
             # Final text response
             full_content = "".join(content_chunks)
+            self._write_cot_block(request_id, current_round, "text", full_content)
             used_ids = re.findall(r'\[\[used:(\d+)\]\]', full_content)
             now_utc = datetime.now(timezone.utc)
             for memory_id in used_ids:
@@ -1501,7 +1535,7 @@ class ChatService:
             clean_content = re.sub(r'\[\[used:\d+\]\]', '', full_content).strip()
             if not clean_content:
                 clean_content = "(No relevant memory found.)"
-            self._persist_message(session_id, "assistant", clean_content, {})
+            self._persist_message(session_id, "assistant", clean_content, {}, request_id=request_id)
             session = self.db.get(ChatSession, session_id)
             if session:
                 session.updated_at = datetime.now(timezone.utc)
@@ -1546,7 +1580,13 @@ class ChatService:
         return {"status": "unknown_tool", "payload": tool_call.arguments}
 
     def _fetch_next_tool_calls(
-        self, messages: list[dict[str, Any]], session_id: int, *, short_mode: bool = False,
+        self,
+        messages: list[dict[str, Any]],
+        session_id: int,
+        *,
+        short_mode: bool = False,
+        request_id: str | None = None,
+        round_index: int = 0,
     ) -> Iterable[ToolCall]:
         params = self._build_api_call_params(messages, session_id, short_mode=short_mode)
         if params is None:
@@ -1622,16 +1662,25 @@ class ChatService:
                         "function": {"name": block.name, "arguments": json.dumps(block.input)},
                     })
                     tool_calls.append(ToolCall(name=block.name, arguments=block.input, id=block.id))
+            # Write COT blocks
+            if request_id:
+                if text_content:
+                    self._write_cot_block(request_id, round_index, "text", text_content)
+                for tc in tool_calls:
+                    self._write_cot_block(
+                        request_id, round_index, "tool_use",
+                        json.dumps(tc.arguments), tool_name=tc.name,
+                    )
             if tool_calls:
                 messages.append({"role": "assistant", "content": text_content, "tool_calls": tool_calls_payload})
-                self._persist_message(session_id, "assistant", text_content, {"tool_calls": tool_calls_payload})
+                self._persist_message(session_id, "assistant", text_content, {"tool_calls": tool_calls_payload}, request_id=request_id)
                 return tool_calls
             if text_content:
                 _persist_text(text_content)
             else:
                 fallback = "(No relevant memory found. Reply based on current prompt.)"
                 messages.append({"role": "assistant", "content": fallback})
-                self._persist_message(session_id, "assistant", fallback, {})
+                self._persist_message(session_id, "assistant", fallback, {}, request_id=request_id)
             return []
 
         # OpenAI path
@@ -1669,15 +1718,26 @@ class ChatService:
                     arguments=json.loads(tool_call.function.arguments or "{}"),
                     id=tool_call.id,
                 ))
+            # Write COT blocks
+            if request_id:
+                if choice.content:
+                    self._write_cot_block(request_id, round_index, "text", choice.content)
+                for tc in tool_calls:
+                    self._write_cot_block(
+                        request_id, round_index, "tool_use",
+                        json.dumps(tc.arguments), tool_name=tc.name,
+                    )
             messages.append({"role": "assistant", "content": choice.content or "", "tool_calls": tool_calls_payload})
-            self._persist_message(session_id, "assistant", choice.content or "", {"tool_calls": tool_calls_payload})
+            self._persist_message(session_id, "assistant", choice.content or "", {"tool_calls": tool_calls_payload}, request_id=request_id)
             return tool_calls
         if choice.content is not None and choice.content != "":
+            if request_id:
+                self._write_cot_block(request_id, round_index, "text", choice.content)
             _persist_text(choice.content)
         else:
             fallback_content = "(No relevant memory found. Reply based on current prompt.)"
             messages.append({"role": "assistant", "content": fallback_content})
-            self._persist_message(session_id, "assistant", fallback_content, {})
+            self._persist_message(session_id, "assistant", fallback_content, {}, request_id=request_id)
         return []
 
     def _trigger_summary(
@@ -1740,6 +1800,31 @@ class ChatService:
         payload = response.json()
         return payload.get("data", [])
 
+    def _write_cot_block(
+        self,
+        request_id: str,
+        round_index: int,
+        block_type: str,
+        content: str,
+        tool_name: str | None = None,
+    ) -> None:
+        try:
+            record = CotRecord(
+                request_id=request_id,
+                round_index=round_index,
+                block_type=block_type,
+                content=content,
+                tool_name=tool_name,
+            )
+            self.db.add(record)
+            self.db.commit()
+        except Exception as exc:
+            logger.warning("Failed to write COT block (request_id=%s): %s", request_id, exc)
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+
     def _sanitize_tool_args(self, tool_call: ToolCall) -> dict[str, Any]:
         if tool_call.name == "write_diary":
             return {}
@@ -1783,7 +1868,12 @@ class ChatService:
         return "".join(parts)
 
     def _persist_message(
-        self, session_id: int, role: str, content: str | list, metadata: dict[str, Any]
+        self,
+        session_id: int,
+        role: str,
+        content: str | list,
+        metadata: dict[str, Any],
+        request_id: str | None = None,
     ) -> None:
         storage_content = self._content_to_storage(content)
         message = Message(
@@ -1791,6 +1881,7 @@ class ChatService:
             role=role,
             content=storage_content,
             meta_info=metadata,
+            request_id=request_id,
         )
         self.db.add(message)
         self.db.commit()

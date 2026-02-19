@@ -6,6 +6,7 @@ from app.routers import (
     auth,
     chat,
     core_blocks,
+    cot,
     diary,
     maintenance,
     memories,
@@ -45,6 +46,7 @@ app.include_router(settings.router, prefix="/api", tags=["settings"], dependenci
 app.include_router(theater.router, prefix="/api", tags=["theater"], dependencies=auth_deps)
 app.include_router(api_providers.router, prefix="/api", tags=["api_providers"], dependencies=auth_deps)
 app.include_router(model_presets.router, prefix="/api", tags=["model_presets"], dependencies=auth_deps)
+app.include_router(cot.router, prefix="/api", tags=["cot"], dependencies=auth_deps)
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 
 @app.get("/")
