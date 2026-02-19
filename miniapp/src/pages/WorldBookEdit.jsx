@@ -106,6 +106,48 @@ function ActivationSelector({ value, onChange }) {
   );
 }
 
+const MOOD_PRESETS = ["开心", "难过", "生气", "撒娇", "担心", "兴奋", "无聊", "疲惫"];
+
+function MoodChips({ selected, onChange }) {
+  const toggle = (mood) => {
+    if (selected.includes(mood)) {
+      onChange(selected.filter((m) => m !== mood));
+    } else {
+      onChange([...selected, mood]);
+    }
+  };
+
+  return (
+    <div className="mb-4">
+      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
+        情绪
+      </label>
+      <div
+        className="flex flex-wrap gap-2 rounded-[14px] p-3"
+        style={{ boxShadow: "var(--inset-shadow)", background: S.bg, minHeight: 48 }}
+      >
+        {MOOD_PRESETS.map((mood) => {
+          const isSel = selected.includes(mood);
+          return (
+            <button
+              key={mood}
+              className="rounded-full px-3 py-1.5 text-[13px] font-medium transition-all"
+              style={{
+                background: isSel ? S.accentDark : S.bg,
+                color: isSel ? "white" : S.textMuted,
+                boxShadow: isSel ? "none" : "var(--card-shadow-sm)",
+              }}
+              onClick={() => toggle(mood)}
+            >
+              {mood}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function KeywordTags({ keywords, onChange }) {
   const [input, setInput] = useState("");
 
@@ -301,8 +343,11 @@ export default function WorldBookEdit() {
           <NmInput label="名称" value={name} onChange={setName} placeholder="世界书名称" />
           <FolderInput value={folder} onChange={setFolder} folders={allFolders} />
           <ActivationSelector value={activation} onChange={setActivation} />
-          {activation !== "always" && (
+          {activation === "keyword" && (
             <KeywordTags keywords={keywords} onChange={setKeywords} />
+          )}
+          {activation === "mood" && (
+            <MoodChips selected={keywords} onChange={setKeywords} />
           )}
         </div>
 

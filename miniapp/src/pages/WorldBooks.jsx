@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Plus, ChevronDown, ChevronRight, Trash2, Globe, Tag, Zap } from "lucide-react";
+import { ChevronLeft, Plus, ChevronDown, ChevronRight, Globe } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -14,7 +14,7 @@ const S = {
 const ACTIVATION_LABELS = {
   always: { label: "常驻", color: "#6b9b6e", bg: "#e0f0e1" },
   keyword: { label: "关键词", color: "#9b6b6b", bg: "#f0e0e0" },
-  never: { label: "禁用", color: S.textMuted, bg: "rgba(136,136,160,0.12)" },
+  mood: { label: "情绪", color: "#9b7a3b", bg: "#f0ebd8" },
 };
 
 function ActivationBadge({ activation }) {
@@ -30,70 +30,43 @@ function ActivationBadge({ activation }) {
 }
 
 function WorldBookItem({ book, onDelete, onTap }) {
-  const [swipeX, setSwipeX] = useState(0);
-  const startXRef = useRef(null);
-  const isDragging = useRef(false);
+  const pressTimer = useRef(null);
+  const didLongPress = useRef(false);
+  const moved = useRef(false);
 
-  const handleTouchStart = (e) => {
-    startXRef.current = e.touches[0].clientX;
-    isDragging.current = false;
+  const onPressStart = () => {
+    didLongPress.current = false;
+    moved.current = false;
+    pressTimer.current = setTimeout(() => {
+      didLongPress.current = true;
+      onDelete(book);
+    }, 600);
   };
 
-  const handleTouchMove = (e) => {
-    const dx = e.touches[0].clientX - startXRef.current;
-    isDragging.current = Math.abs(dx) > 5;
-    if (isDragging.current) {
-      const clamped = Math.min(0, Math.max(-72, dx));
-      setSwipeX(clamped);
-    }
+  const onPressMove = () => {
+    moved.current = true;
+    clearTimeout(pressTimer.current);
   };
 
-  const handleTouchEnd = () => {
-    if (swipeX < -36) {
-      setSwipeX(-72);
-    } else {
-      setSwipeX(0);
-    }
-  };
-
-  const handleTap = () => {
-    if (!isDragging.current && swipeX === 0) {
-      onTap(book);
-    } else if (swipeX !== 0) {
-      setSwipeX(0);
-    }
+  const onPressEnd = () => {
+    clearTimeout(pressTimer.current);
+    if (!didLongPress.current && !moved.current) onTap(book);
+    didLongPress.current = false;
+    moved.current = false;
   };
 
   return (
-    <div className="relative overflow-hidden rounded-[18px] mb-3">
-      {/* Delete button behind */}
+    <div className="mb-3">
       <div
-        className="absolute right-0 top-0 bottom-0 flex items-center justify-center rounded-r-[18px]"
-        style={{ width: 72, background: "#ff4d6d" }}
-      >
-        <button
-          className="flex flex-col items-center gap-1"
-          onMouseDown={(e) => { e.stopPropagation(); onDelete(book); }}
-          onTouchEnd={(e) => { e.stopPropagation(); onDelete(book); }}
-        >
-          <Trash2 size={18} color="white" />
-          <span className="text-[10px] text-white">删除</span>
-        </button>
-      </div>
-
-      {/* Content row */}
-      <div
-        className="relative flex items-center gap-3 rounded-[18px] p-4"
-        style={{
-          background: S.bg,
-          boxShadow: "var(--card-shadow-sm)",
-          transform: `translateX(${swipeX}px)`,
-          transition: isDragging.current ? "none" : "transform 0.25s ease",
-        }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onClick={handleTap}
+        className="flex items-center gap-3 rounded-[18px] p-4"
+        style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", userSelect: "none" }}
+        onTouchStart={onPressStart}
+        onTouchMove={onPressMove}
+        onTouchEnd={onPressEnd}
+        onMouseDown={onPressStart}
+        onMouseMove={onPressMove}
+        onMouseUp={onPressEnd}
+        onMouseLeave={() => clearTimeout(pressTimer.current)}
       >
         <div
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
@@ -283,8 +256,11 @@ export default function WorldBooks() {
             <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>
               删除世界书
             </p>
-            <p className="mb-6 text-center text-[13px]" style={{ color: S.textMuted }}>
+            <p className="mb-2 text-center text-[13px]" style={{ color: S.textMuted }}>
               确定要删除「{deleteTarget.name}」吗？
+            </p>
+            <p className="mb-6 text-center text-[11px]" style={{ color: S.textMuted }}>
+              长按条目触发删除
             </p>
             <div className="flex gap-3">
               <button

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, Brain, Bot, Settings, BookMarked, Theater, Heart, Cpu, Camera } from "lucide-react";
+import { BookOpen, Brain, Bot, Settings, BookMarked, Theater, Heart, Camera } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -11,44 +11,45 @@ const S = {
   textMuted: "var(--text-muted)",
 };
 
-function GridCard({ icon, label, hint, accent, disabled, onClick }) {
+// Demo-style grid card: left-aligned, square icon with accent gradient
+function GridCard({ icon, label, desc, disabled, onClick }) {
   const [pressed, setPressed] = useState(false);
+
+  const start = () => !disabled && setPressed(true);
+  const end = () => { setPressed(false); if (!disabled) onClick?.(); };
 
   return (
     <button
-      className="flex flex-col items-center justify-center gap-3 rounded-[20px] p-4 transition-all select-none"
+      className="flex flex-col items-start rounded-[18px] gap-2"
       style={{
+        padding: "16px 14px",
         background: S.bg,
         boxShadow: pressed
-          ? "inset 4px 4px 10px rgba(174,176,182,0.6), inset -4px -4px 10px #ffffff"
-          : "6px 6px 14px rgba(174,176,182,0.5), -6px -6px 14px #ffffff",
-        opacity: disabled ? 0.45 : 1,
-        cursor: disabled ? "not-allowed" : "pointer",
+          ? "inset 3px 3px 8px rgba(174,176,182,0.5), inset -3px -3px 8px #ffffff"
+          : "5px 5px 12px rgba(174,176,182,0.5), -5px -5px 12px #ffffff",
+        opacity: disabled ? 0.4 : 1,
+        transform: pressed ? "scale(0.97)" : "scale(1)",
+        transition: "transform 0.1s, box-shadow 0.1s",
+        cursor: disabled ? "default" : "pointer",
+        WebkitTapHighlightColor: "transparent",
       }}
-      onTouchStart={() => !disabled && setPressed(true)}
-      onTouchEnd={() => { setPressed(false); if (!disabled) onClick?.(); }}
-      onMouseDown={() => !disabled && setPressed(true)}
-      onMouseUp={() => { setPressed(false); if (!disabled) onClick?.(); }}
+      disabled={disabled}
+      onTouchStart={start}
+      onTouchEnd={end}
+      onMouseDown={start}
+      onMouseUp={end}
       onMouseLeave={() => setPressed(false)}
     >
+      {/* Square icon box with accent gradient */}
       <div
-        className="flex h-12 w-12 items-center justify-center rounded-full"
-        style={{
-          boxShadow: "inset 2px 2px 5px rgba(174,176,182,0.5), inset -2px -2px 5px #ffffff",
-          background: S.bg,
-        }}
+        className="flex h-10 w-10 items-center justify-center rounded-[12px]"
+        style={{ background: "linear-gradient(135deg, #f0c4d8, var(--accent))" }}
       >
         {icon}
       </div>
-      <div className="text-center">
-        <div className="text-[13px] font-semibold" style={{ color: accent ? S.accentDark : S.text }}>
-          {label}
-        </div>
-        {hint && (
-          <div className="mt-0.5 text-[10px]" style={{ color: S.textMuted }}>
-            {hint}
-          </div>
-        )}
+      <div>
+        <div className="text-[13px] font-medium" style={{ color: S.text }}>{label}</div>
+        <div className="mt-0.5 text-[10px] leading-snug" style={{ color: S.textMuted }}>{desc}</div>
       </div>
     </button>
   );
@@ -57,7 +58,7 @@ function GridCard({ icon, label, hint, accent, disabled, onClick }) {
 function SectionLabel({ children }) {
   return (
     <div
-      className="mb-3 text-[11px] font-bold uppercase tracking-widest"
+      className="mb-2 text-[11px] font-bold uppercase tracking-[3px]"
       style={{ color: S.textMuted }}
     >
       {children}
@@ -72,9 +73,7 @@ export default function Home() {
   const fileRef = useRef(null);
 
   useEffect(() => {
-    apiFetch("/api/user/profile")
-      .then((d) => setProfile(d))
-      .catch(() => {});
+    apiFetch("/api/user/profile").then((d) => setProfile(d)).catch(() => {});
   }, []);
 
   const handleAvatarUpload = async (e) => {
@@ -98,7 +97,7 @@ export default function Home() {
       });
       setProfile(updated);
     } catch {
-      // silently ignore
+      // silent
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -110,128 +109,142 @@ export default function Home() {
 
   return (
     <div
-      className="page-scroll flex flex-col"
-      style={{ background: S.bg, minHeight: "100%" }}
+      className="flex flex-col"
+      style={{ background: S.bg, minHeight: "100%", paddingBottom: 16 }}
     >
-      <div className="flex flex-col px-6 pb-10 pt-[max(2rem,env(safe-area-inset-top))]">
+      <div
+        className="flex flex-col px-5"
+        style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}
+      >
         {/* Title */}
         <h1
-          className="mb-6 text-center text-[28px] font-bold tracking-[0.3em]"
-          style={{
-            color: S.text,
-            textShadow: "2px 2px 4px rgba(174,176,182,0.5), -1px -1px 3px #ffffff",
-            letterSpacing: "0.35em",
-          }}
+          className="mb-4 text-center text-[17px] font-medium"
+          style={{ color: S.textMuted, letterSpacing: "4px" }}
         >
-          WHISPER
+          W H I S P E R
         </h1>
 
         {/* Profile card */}
         <div
-          className="mb-8 flex items-center gap-4 rounded-[24px] p-5"
-          style={{
-            background: S.bg,
-            boxShadow: "var(--card-shadow)",
-          }}
+          className="mb-5 flex items-center gap-4 rounded-[20px] p-5"
+          style={{ background: S.bg, boxShadow: "6px 6px 14px rgba(174,176,182,0.5), -6px -6px 14px #ffffff" }}
         >
+          {/* Avatar — clickable to upload */}
           <button
-            className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full"
-            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+            className="relative shrink-0 rounded-full"
+            style={{
+              width: 52, height: 52,
+              background: "linear-gradient(135deg, #f0c4d8, var(--accent))",
+              boxShadow: "3px 3px 8px rgba(174,176,182,0.5), -3px -3px 8px #ffffff",
+              padding: 3,
+            }}
             onClick={() => fileRef.current?.click()}
           >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="avatar" className="h-full w-full object-cover" />
-            ) : (
-              <Heart size={28} style={{ color: S.accent }} />
-            )}
+            <div
+              className="flex h-full w-full items-center justify-center overflow-hidden rounded-full"
+              style={{ background: S.bg }}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="avatar" className="h-full w-full object-cover rounded-full" />
+              ) : (
+                <span style={{ fontSize: 22 }}>🐰</span>
+              )}
+            </div>
             {uploading && (
-              <div className="absolute inset-0 flex items-center justify-center rounded-full" style={{ background: "rgba(232,160,191,0.6)" }}>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              <div className="absolute inset-0 flex items-center justify-center rounded-full" style={{ background: "rgba(232,160,191,0.7)" }}>
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
               </div>
             )}
             {!uploading && (
-              <div className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full" style={{ background: S.accentDark }}>
-                <Camera size={10} color="white" />
+              <div
+                className="absolute bottom-0 right-0 flex h-4 w-4 items-center justify-center rounded-full"
+                style={{ background: S.accentDark }}
+              >
+                <Camera size={8} color="white" />
               </div>
             )}
           </button>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+
           <div className="flex-1 min-w-0">
-            <div className="text-[17px] font-bold truncate" style={{ color: S.text }}>
-              {nickname}
-            </div>
-            <div className="mt-0.5 text-[12px]" style={{ color: S.textMuted }}>
-              你好，今天也是美好的一天 ✨
+            <div className="text-[17px] font-bold truncate" style={{ color: S.text }}>{nickname}</div>
+            <div className="mt-0.5 text-[11px] italic" style={{ color: S.textMuted }}>
+              今晚的月亮很圆
             </div>
           </div>
         </div>
 
-        {/* 管理 Section */}
+        {/* 管理 section */}
         <SectionLabel>管理</SectionLabel>
-        <div className="mb-8 grid grid-cols-2 gap-4">
+        <div className="mb-4 grid grid-cols-2 gap-3.5">
           <GridCard
-            icon={<BookOpen size={22} style={{ color: S.accentDark }} />}
+            icon={<BookOpen size={18} color="white" />}
             label="世界书"
-            hint="知识库管理"
-            accent
+            desc="规则集·文风·指南"
             onClick={() => navigate("/world-books")}
           />
           <GridCard
-            icon={<Brain size={22} style={{ color: S.textMuted }} />}
+            icon={<Brain size={18} color="white" />}
             label="记忆管理"
-            hint="开发中"
+            desc="记忆卡片·摘要·回收站"
             disabled
           />
           <GridCard
-            icon={<Bot size={22} style={{ color: S.text }} />}
+            icon={<Bot size={18} color="white" />}
             label="助手配置"
-            hint="人设 · 模型"
+            desc="人设·Core Blocks·挂载"
             onClick={() => navigate("/assistants")}
           />
           <GridCard
-            icon={<Settings size={22} style={{ color: S.text }} />}
+            icon={<Settings size={18} color="white" />}
             label="设置"
-            hint="API · 参数"
+            desc="API·模型预设·参数"
             onClick={() => navigate("/settings")}
           />
         </div>
 
-        {/* 空间 Section */}
+        {/* 空间 section */}
         <SectionLabel>空间</SectionLabel>
-        <div className="mb-8 grid grid-cols-2 gap-4">
+        <div className="mb-4 grid grid-cols-2 gap-3.5">
           <GridCard
-            icon={<BookMarked size={22} style={{ color: S.textMuted }} />}
+            icon={<BookMarked size={18} color="white" />}
             label="日记"
-            hint="开发中"
+            desc="写给彼此的"
             disabled
           />
           <GridCard
-            icon={<Theater size={22} style={{ color: S.textMuted }} />}
+            icon={<Theater size={18} color="white" />}
             label="小剧场"
-            hint="开发中"
+            desc="角色卡·故事线"
             disabled
-          />
-          <GridCard
-            icon={<Cpu size={22} style={{ color: S.text }} />}
-            label="COT 日志"
-            hint="思考过程"
-            onClick={() => navigate("/cot")}
           />
         </div>
 
         {/* Heart widget */}
-        <div className="flex justify-center">
-          <div
-            className="flex h-14 w-14 items-center justify-center rounded-full"
+        <div
+          className="flex items-center justify-center rounded-[18px] py-4"
+          style={{ background: S.bg, boxShadow: "5px 5px 12px rgba(174,176,182,0.5), -5px -5px 12px #ffffff" }}
+        >
+          <Heart
+            size={32}
+            fill={S.accent}
             style={{
-              background: S.bg,
-              boxShadow: "var(--card-shadow-sm)",
+              color: S.accent,
+              animation: "heartbeat 2s ease-in-out infinite",
             }}
-          >
-            <Heart size={24} fill={S.accent} style={{ color: S.accent }} />
-          </div>
+          />
         </div>
       </div>
+
+      <style>{`
+        @keyframes heartbeat {
+          0%, 100% { transform: scale(1); }
+          15% { transform: scale(1.15); }
+          30% { transform: scale(1); }
+          45% { transform: scale(1.1); }
+          60% { transform: scale(1); }
+        }
+      `}</style>
     </div>
   );
 }

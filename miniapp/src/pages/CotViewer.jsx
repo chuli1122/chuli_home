@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronDown, ChevronUp, Wrench, MessageSquare, RefreshCw, Cpu } from "lucide-react";
+import { ChevronDown, ChevronUp, Wrench, MessageSquare, RefreshCw, Cpu } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -17,6 +16,12 @@ const BLOCK_COLORS = {
   tool_use: { bg: "rgba(232,160,60,0.12)", color: "#b8820a", label: "工具调用" },
   tool_result: { bg: "rgba(80,160,200,0.12)", color: "#1a7ab0", label: "工具结果" },
 };
+
+const MODES = [
+  { key: "short", label: "短消息" },
+  { key: "long", label: "长消息" },
+  { key: "theater", label: "小剧场" },
+];
 
 function BlockChip({ block_type }) {
   const meta = BLOCK_COLORS[block_type] || { bg: "rgba(136,136,160,0.1)", color: S.textMuted, label: block_type };
@@ -36,11 +41,7 @@ function CotCard({ item, expanded, onToggle }) {
       className="mb-3 rounded-[18px] overflow-hidden"
       style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
     >
-      {/* Header */}
-      <button
-        className="flex w-full items-center gap-3 p-4"
-        onClick={onToggle}
-      >
+      <button className="flex w-full items-center gap-3 p-4" onClick={onToggle}>
         <div
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
           style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
@@ -76,7 +77,6 @@ function CotCard({ item, expanded, onToggle }) {
         )}
       </button>
 
-      {/* Expanded content */}
       {expanded && (
         <div className="px-4 pb-4">
           {item.rounds.map((round) => (
@@ -93,11 +93,7 @@ function CotCard({ item, expanded, onToggle }) {
               {round.blocks.map((block, i) => {
                 const meta = BLOCK_COLORS[block.block_type] || { bg: "rgba(136,136,160,0.08)", color: S.textMuted, label: block.block_type };
                 return (
-                  <div
-                    key={i}
-                    className="mb-2 rounded-[12px] p-3"
-                    style={{ background: meta.bg }}
-                  >
+                  <div key={i} className="mb-2 rounded-[12px] p-3" style={{ background: meta.bg }}>
                     <div className="mb-1 flex items-center gap-2">
                       <BlockChip block_type={block.block_type} />
                       {block.tool_name && (
@@ -124,12 +120,11 @@ function CotCard({ item, expanded, onToggle }) {
 }
 
 export default function CotViewer() {
-  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
-  const [shortMode, setShortMode] = useState(() =>
-    localStorage.getItem("cot_short_mode") === "true"
+  const [mode, setMode] = useState(() =>
+    localStorage.getItem("chat_mode") || "long"
   );
 
   const load = () => {
@@ -143,11 +138,15 @@ export default function CotViewer() {
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    localStorage.setItem("cot_short_mode", String(shortMode));
-    // Also update the main app setting
+    localStorage.setItem("chat_mode", mode);
+    // sync with app-settings for other pages
     const saved = JSON.parse(localStorage.getItem("app-settings") || "{}");
-    localStorage.setItem("app-settings", JSON.stringify({ ...saved, shortMode }));
-  }, [shortMode]);
+    localStorage.setItem("app-settings", JSON.stringify({
+      ...saved,
+      shortMode: mode === "short",
+      theaterMode: mode === "theater",
+    }));
+  }, [mode]);
 
   return (
     <div className="flex h-full flex-col" style={{ background: S.bg }}>
@@ -156,13 +155,6 @@ export default function CotViewer() {
         className="flex shrink-0 items-center justify-between px-5 pb-3"
         style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top))" }}
       >
-        <button
-          className="flex h-10 w-10 items-center justify-center rounded-full"
-          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-          onClick={() => navigate("/")}
-        >
-          <ChevronLeft size={22} style={{ color: S.text }} />
-        </button>
         <h1 className="text-[17px] font-bold" style={{ color: S.text }}>COT 日志</h1>
         <button
           className="flex h-10 w-10 items-center justify-center rounded-full"
@@ -174,35 +166,26 @@ export default function CotViewer() {
         </button>
       </div>
 
-      {/* Mode toggle */}
-      <div className="flex shrink-0 items-center gap-3 px-5 pb-3">
+      {/* 3-segment mode selector */}
+      <div className="shrink-0 px-5 pb-3">
         <div
-          className="flex flex-1 items-center justify-between rounded-[14px] px-4 py-3"
-          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+          className="flex rounded-[14px] p-1"
+          style={{ boxShadow: "var(--inset-shadow)", background: S.bg }}
         >
-          <div>
-            <div className="text-[13px] font-semibold" style={{ color: S.text }}>短消息模式</div>
-            <div className="text-[10px]" style={{ color: S.textMuted }}>开启后对话仅保留最近8条</div>
-          </div>
-          <button
-            className="relative flex h-7 w-12 shrink-0 items-center rounded-full"
-            style={{
-              boxShadow: "var(--inset-shadow)",
-              background: shortMode ? "var(--accent)" : S.bg,
-              transition: "background 0.2s",
-            }}
-            onClick={() => setShortMode(!shortMode)}
-          >
-            <span
-              className="absolute h-5 w-5 rounded-full"
+          {MODES.map((m) => (
+            <button
+              key={m.key}
+              className="flex-1 rounded-[10px] py-2 text-[13px] font-semibold transition-all"
               style={{
-                left: shortMode ? "calc(100% - 22px)" : "2px",
-                background: "white",
-                boxShadow: "2px 2px 5px rgba(174,176,182,0.5)",
-                transition: "left 0.2s ease",
+                background: mode === m.key ? S.bg : "transparent",
+                boxShadow: mode === m.key ? "var(--card-shadow-sm)" : "none",
+                color: mode === m.key ? S.accentDark : S.textMuted,
               }}
-            />
-          </button>
+              onClick={() => setMode(m.key)}
+            >
+              {m.label}
+            </button>
+          ))}
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, ChevronUp, ChevronDown, Plus, X, Check } from "lucide-react";
+import { ChevronLeft, ChevronUp, ChevronDown, Plus, X, Check, Maximize2, Minimize2, FileText } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -99,6 +99,36 @@ function PresetSelect({ label, value, onChange, presets }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Fullscreen Editor ──
+
+function FullscreenEditor({ value, onChange, onClose, title, placeholder }) {
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: S.bg }}>
+      <div
+        className="flex shrink-0 items-center justify-between px-5 py-4"
+        style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
+      >
+        <span className="text-[15px] font-bold" style={{ color: S.text }}>{title || "编辑"}</span>
+        <button
+          className="flex h-10 w-10 items-center justify-center rounded-full"
+          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+          onClick={onClose}
+        >
+          <Minimize2 size={18} style={{ color: S.accentDark }} />
+        </button>
+      </div>
+      <textarea
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 px-5 pb-10 text-[14px] resize-none outline-none"
+        style={{ background: S.bg, color: S.text }}
+        placeholder={placeholder || ""}
+      />
     </div>
   );
 }
@@ -453,8 +483,19 @@ export default function AssistantEdit() {
   const [allBooks, setAllBooks] = useState([]);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
+  const [sysPromptFullscreen, setSysPromptFullscreen] = useState(false);
 
   const fileInputRef = useRef(null);
+  const sysPromptFileRef = useRef(null);
+
+  const handleSysPromptFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setSystemPrompt(ev.target.result || "");
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   const showToast = (msg) => {
     setToast(msg);
@@ -554,7 +595,6 @@ export default function AssistantEdit() {
       await Promise.all(blockSaves);
 
       showToast("已保存");
-      setTimeout(() => navigate("/assistants"), 500);
     } catch (e) {
       showToast("保存失败: " + e.message);
     } finally {
@@ -659,12 +699,43 @@ export default function AssistantEdit() {
               className="mb-4 rounded-[20px] p-4"
               style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
             >
-              <NmTextarea
-                label="系统提示词"
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
+                  系统提示词
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="flex h-7 w-7 items-center justify-center rounded-full"
+                    style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+                    onClick={() => sysPromptFileRef.current?.click()}
+                    title="从文件导入"
+                  >
+                    <FileText size={13} style={{ color: S.textMuted }} />
+                  </button>
+                  <input
+                    ref={sysPromptFileRef}
+                    type="file"
+                    accept=".txt,.md,.text"
+                    className="hidden"
+                    onChange={handleSysPromptFile}
+                  />
+                  <button
+                    className="flex h-7 w-7 items-center justify-center rounded-full"
+                    style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+                    onClick={() => setSysPromptFullscreen(true)}
+                    title="全屏编辑"
+                  >
+                    <Maximize2 size={13} style={{ color: S.accentDark }} />
+                  </button>
+                </div>
+              </div>
+              <textarea
                 value={systemPrompt}
-                onChange={setSystemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
                 placeholder="输入系统提示词..."
                 rows={8}
+                className="w-full rounded-[14px] px-4 py-3 text-[14px] resize-none outline-none"
+                style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text }}
               />
             </div>
 
@@ -722,6 +793,16 @@ export default function AssistantEdit() {
           </div>
         )}
       </div>
+
+      {sysPromptFullscreen && (
+        <FullscreenEditor
+          value={systemPrompt}
+          onChange={setSystemPrompt}
+          onClose={() => setSysPromptFullscreen(false)}
+          title="系统提示词"
+          placeholder="输入系统提示词..."
+        />
+      )}
 
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 top-1/2 z-[200] flex justify-center">
