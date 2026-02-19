@@ -429,16 +429,20 @@ function WorldBookMountTab({ ruleSetIds, onChange, allBooks }) {
           className="rounded-[14px] px-2 pt-1"
           style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
         >
-          {sectionItems.map((item) => (
-            <SortableBookItem
-              key={item.id}
-              item={item}
-              book={getBook(item.id)}
-              position={position}
-              sectionList={sectionItems}
-              onRemove={removeItem}
-              onChangePosition={changePosition}
-            />
+          {sectionItems.map((item, idx) => (
+            <div key={item.id}>
+              {idx > 0 && (
+                <div className="mx-2" style={{ height: 1, background: "rgba(0,0,0,0.06)" }} />
+              )}
+              <SortableBookItem
+                item={item}
+                book={getBook(item.id)}
+                position={position}
+                sectionList={sectionItems}
+                onRemove={removeItem}
+                onChangePosition={changePosition}
+              />
+            </div>
           ))}
         </div>
       </SortableContext>
