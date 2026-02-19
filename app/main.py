@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import logging
+logging.basicConfig(level=logging.INFO)
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,12 +39,15 @@ app = FastAPI(title="Chuli Home Backend")
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    print(f"[startup] bots to register: {list(bots.keys())}")
     for key, bot in bots.items():
         webhook_url = f"{WEBHOOK_BASE_URL}{BOTS_CONFIG[key]['webhook_path']}"
         try:
             await bot.set_webhook(webhook_url, drop_pending_updates=True)
+            print(f"[startup] Webhook set for {key}: {webhook_url}")
             logger.info("Telegram webhook set for %s: %s", key, webhook_url)
         except Exception as exc:
+            print(f"[startup] Webhook FAILED for {key}: {exc}")
             logger.warning("Failed to set webhook for %s: %s", key, exc)
 
 
