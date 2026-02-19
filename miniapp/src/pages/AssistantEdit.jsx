@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  ChevronLeft, Plus, X, Check, Save,
+  ChevronLeft, Plus, X, Check, Save, Camera,
   Maximize2, Minimize2, FileText, GripVertical,
 } from "lucide-react";
 import {
@@ -621,7 +621,7 @@ export default function AssistantEdit() {
     formData.append("file", file);
     try {
       const token = localStorage.getItem("whisper_token");
-      const res = await fetch("https://chat.chuli.win/api/upload-image", {
+      const res = await fetch("/api/upload-image", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -744,17 +744,36 @@ export default function AssistantEdit() {
               style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
             >
               <button
-                className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full"
-                style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+                className="relative shrink-0"
+                style={{ width: 68, height: 68 }}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <span className="text-[24px]" style={{ color: S.accentDark }}>
-                    {name?.[0] || "?"}
-                  </span>
-                )}
+                <div
+                  className="flex h-full w-full items-center justify-center overflow-hidden rounded-full"
+                  style={{
+                    background: "linear-gradient(135deg, #f0c4d8, var(--accent))",
+                    padding: 3,
+                  }}
+                >
+                  <div
+                    className="flex h-full w-full items-center justify-center overflow-hidden rounded-full"
+                    style={{ background: S.bg }}
+                  >
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="" className="h-full w-full object-cover rounded-full" />
+                    ) : (
+                      <span className="text-[24px]" style={{ color: S.accentDark }}>
+                        {name?.[0] || "?"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div
+                  className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full"
+                  style={{ background: S.accentDark }}
+                >
+                  <Camera size={9} color="white" />
+                </div>
               </button>
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
               <div className="flex-1">

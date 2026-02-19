@@ -79,7 +79,7 @@ export default function Profile() {
       const formData = new FormData();
       formData.append("file", file);
       const token = localStorage.getItem("whisper_token");
-      const res = await fetch("https://chat.chuli.win/api/upload-image", {
+      const res = await fetch("/api/upload-image", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
