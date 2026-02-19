@@ -76,7 +76,10 @@ function SwipeRow({ children, onDelete }) {
   };
 
   return (
-    <div className="relative mb-3 overflow-hidden rounded-[18px]">
+    <div
+      className="relative mb-3 overflow-hidden rounded-[18px]"
+      style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+    >
       <div
         ref={actRef}
         className="absolute right-0 top-0 bottom-0 flex items-center pr-2"
@@ -109,7 +112,7 @@ function AssistantCard({ assistant, onTap }) {
   return (
     <div
       className="flex items-center gap-3 rounded-[18px] p-4"
-      style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", userSelect: "none" }}
+      style={{ background: S.bg, userSelect: "none" }}
       onClick={() => onTap(assistant)}
     >
       <div

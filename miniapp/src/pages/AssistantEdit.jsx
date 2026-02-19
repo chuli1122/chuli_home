@@ -547,6 +547,7 @@ export default function AssistantEdit() {
   const [presets, setPresets] = useState([]);
   const [allBooks, setAllBooks] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(!isNew);
   const [toast, setToast] = useState(null);
   const [sysPromptFullscreen, setSysPromptFullscreen] = useState(false);
   const [humanFullscreen, setHumanFullscreen] = useState(false);
@@ -603,7 +604,11 @@ export default function AssistantEdit() {
           }
         } catch (e) {
           showToast("加载失败: " + e.message);
+        } finally {
+          setLoading(false);
         }
+      } else {
+        setLoading(false);
       }
     };
     loadAll();
@@ -725,6 +730,12 @@ export default function AssistantEdit() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 pb-10 pt-px">
+        {loading ? (
+          <div className="flex h-40 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2" style={{ borderColor: S.accent, borderTopColor: "transparent" }} />
+          </div>
+        ) : (
+        <>
         {tab === "basic" && (
           <>
             {/* Avatar + Name */}
@@ -860,6 +871,8 @@ export default function AssistantEdit() {
               allBooks={allBooks}
             />
           </div>
+        )}
+        </>
         )}
       </div>
 

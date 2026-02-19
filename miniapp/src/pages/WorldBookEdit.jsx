@@ -248,6 +248,7 @@ export default function WorldBookEdit() {
   const [keywords, setKeywords] = useState([]);
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(!isNew);
   const [toast, setToast] = useState(null);
   const [allFolders, setAllFolders] = useState([]);
   const [fullscreen, setFullscreen] = useState(false);
@@ -275,7 +276,8 @@ export default function WorldBookEdit() {
           }
         }
       })
-      .catch(() => showToast("加载失败"));
+      .catch(() => showToast("加载失败"))
+      .finally(() => setLoading(false));
   }, [id, isNew]);
 
   const handleSave = async () => {
@@ -336,6 +338,11 @@ export default function WorldBookEdit() {
 
       {/* Form */}
       <div className="flex-1 overflow-y-auto px-5 pb-10">
+        {loading ? (
+          <div className="flex h-40 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2" style={{ borderColor: S.accent, borderTopColor: "transparent" }} />
+          </div>
+        ) : (<>
         <div
           className="rounded-[20px] p-5 mb-4"
           style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
@@ -390,6 +397,7 @@ export default function WorldBookEdit() {
         >
           {saving ? "保存中..." : "保存"}
         </button>
+        </>)}
       </div>
 
       {/* Fullscreen content editor */}

@@ -47,6 +47,7 @@ export default function Profile() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [fullscreen, setFullscreen] = useState(false);
 
@@ -66,7 +67,8 @@ export default function Profile() {
         setBasicInfo(d.basic_info || "");
         setAvatarUrl(d.avatar_url || "");
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const handleAvatarUpload = async (e) => {
@@ -144,6 +146,11 @@ export default function Profile() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-10 pt-px space-y-4">
+        {loading ? (
+          <div className="flex h-40 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2" style={{ borderColor: S.accent, borderTopColor: "transparent" }} />
+          </div>
+        ) : (<>
         {/* Avatar + Nickname + Signature */}
         <div
           className="rounded-[20px] p-5"
@@ -298,6 +305,7 @@ export default function Profile() {
         >
           {saving ? "保存中..." : "保存"}
         </button>
+        </>)}
       </div>
 
       {fullscreen && (
