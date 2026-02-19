@@ -20,7 +20,7 @@ function GridCard({ icon, label, desc, disabled, onClick }) {
 
   return (
     <button
-      className="flex flex-col items-start rounded-[18px] gap-2"
+      className="flex flex-col items-start rounded-[18px] gap-2 text-left"
       style={{
         padding: "16px 14px",
         background: S.bg,
@@ -46,7 +46,7 @@ function GridCard({ icon, label, desc, disabled, onClick }) {
       >
         {icon}
       </div>
-      <div>
+      <div className="pl-1">
         <div className="text-[13px] font-medium" style={{ color: S.text }}>{label}</div>
         <div className="mt-0.5 text-[10px] leading-snug" style={{ color: S.textMuted }}>{desc}</div>
       </div>

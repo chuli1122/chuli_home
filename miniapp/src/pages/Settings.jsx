@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Server, Mic2, MessageSquare, Sliders, Database, Timer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Server, Mic2, MessageSquare, Database, Timer } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -100,9 +100,6 @@ export default function Settings() {
   const [intervalMax, setIntervalMax] = useState(() =>
     JSON.parse(localStorage.getItem("app-settings") || "{}")?.autoMessageIntervalMax || 60
   );
-  const [bufferMs, setBufferMs] = useState(() =>
-    parseInt(localStorage.getItem("streaming_buffer_ms") || "500")
-  );
   const [tgBufferSec, setTgBufferSec] = useState(() =>
     parseInt(localStorage.getItem("telegram_buffer_seconds") || "15")
   );
@@ -140,10 +137,6 @@ export default function Settings() {
       autoMessageIntervalMax: intervalMax,
     }));
   }, [autoMessage, intervalMin, intervalMax]);
-
-  useEffect(() => {
-    localStorage.setItem("streaming_buffer_ms", String(bufferMs));
-  }, [bufferMs]);
 
   useEffect(() => {
     localStorage.setItem("telegram_buffer_seconds", String(tgBufferSec));
@@ -261,26 +254,6 @@ export default function Settings() {
               <NumberInput value={tgBufferSec} onChange={setTgBufferSec} min={1} max={120} />
               <span className="text-[12px]" style={{ color: S.textMuted }}>秒</span>
             </div>
-          </div>
-        </div>
-
-        {/* Streaming UI buffer */}
-        <div
-          className="rounded-[20px] p-4"
-          style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
-        >
-          <div className="flex items-center gap-4">
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-              style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
-            >
-              <Sliders size={18} style={{ color: S.text }} />
-            </div>
-            <div className="flex-1">
-              <div className="text-[15px] font-semibold" style={{ color: S.text }}>流式缓冲时间</div>
-              <div className="text-[11px]" style={{ color: S.textMuted }}>流式输出渲染间隔 (ms)</div>
-            </div>
-            <NumberInput value={bufferMs} onChange={setBufferMs} min={0} max={2000} />
           </div>
         </div>
 
