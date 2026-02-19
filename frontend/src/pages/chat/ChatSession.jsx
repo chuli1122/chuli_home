@@ -862,18 +862,24 @@ export default function ChatSession() {
 
   const confirmBatchDelete = async () => {
     const ids = [...selectedMsgIds];
-    try {
-      await Promise.all(
-        ids.map((msgId) =>
-          apiFetch(`/api/sessions/${id}/messages/${msgId}`, { method: "DELETE" }).catch((e) =>
-            console.error("Delete failed", msgId, e)
-          )
-        )
-      );
-    } catch (e) {
-      console.error("Batch delete failed", e);
+    const deletedIds = new Set();
+    const failedIds = [];
+    await Promise.all(
+      ids.map(async (msgId) => {
+        try {
+          await apiFetch(`/api/sessions/${id}/messages/${msgId}`, { method: "DELETE" });
+          deletedIds.add(msgId);
+        } catch (_e) {
+          failedIds.push(msgId);
+        }
+      })
+    );
+    if (deletedIds.size > 0) {
+      setMessages((prev) => prev.filter((m) => !deletedIds.has(m.id)));
     }
-    setMessages((prev) => prev.filter((m) => !selectedMsgIds.has(m.id)));
+    if (failedIds.length > 0) {
+      alert(`${failedIds.length} 条消息删除失败，请稍后重试`);
+    }
     setBatchDeleting(false);
     exitSelectMode();
   };
