@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, Brain, Bot, Settings, BookMarked, Theater, Heart, Cpu } from "lucide-react";
+import { BookOpen, Brain, Bot, Settings, BookMarked, Theater, Heart, Cpu, Camera } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -68,12 +68,42 @@ function SectionLabel({ children }) {
 export default function Home() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     apiFetch("/api/user/profile")
       .then((d) => setProfile(d))
       .catch(() => {});
   }, []);
+
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const token = localStorage.getItem("whisper_token");
+      const res = await fetch("https://chat.chuli.win/api/upload-image", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const updated = await apiFetch("/api/user/profile", {
+        method: "PUT",
+        body: { ...(profile || {}), avatar_url: data.url },
+      });
+      setProfile(updated);
+    } catch {
+      // silently ignore
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
 
   const avatarUrl = profile?.avatar_url;
   const nickname = profile?.nickname || "阿怀";
@@ -104,19 +134,28 @@ export default function Home() {
             boxShadow: "var(--card-shadow)",
           }}
         >
-          <div
-            className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full"
-            style={{
-              boxShadow: "var(--card-shadow-sm)",
-              background: S.bg,
-            }}
+          <button
+            className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full"
+            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+            onClick={() => fileRef.current?.click()}
           >
             {avatarUrl ? (
               <img src={avatarUrl} alt="avatar" className="h-full w-full object-cover" />
             ) : (
               <Heart size={28} style={{ color: S.accent }} />
             )}
-          </div>
+            {uploading && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-full" style={{ background: "rgba(232,160,191,0.6)" }}>
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              </div>
+            )}
+            {!uploading && (
+              <div className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full" style={{ background: S.accentDark }}>
+                <Camera size={10} color="white" />
+              </div>
+            )}
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
           <div className="flex-1 min-w-0">
             <div className="text-[17px] font-bold truncate" style={{ color: S.text }}>
               {nickname}

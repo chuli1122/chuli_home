@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Save, X, Plus } from "lucide-react";
+import { ChevronLeft, Save, X, Plus, Maximize2, Minimize2 } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -11,30 +11,61 @@ const S = {
   textMuted: "var(--text-muted)",
 };
 
-function NmInput({ label, value, onChange, placeholder, multiline, rows }) {
+function NmInput({ label, value, onChange, placeholder }) {
   return (
     <div className="mb-4">
       <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
         {label}
       </label>
-      {multiline ? (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          rows={rows || 5}
-          className="w-full rounded-[14px] px-4 py-3 text-[14px] resize-none outline-none nm-input"
-          style={{ boxShadow: "var(--inset-shadow)" }}
-        />
-      ) : (
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="w-full rounded-[14px] px-4 py-3 text-[14px] outline-none nm-input"
-          style={{ boxShadow: "var(--inset-shadow)" }}
-        />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-[14px] px-4 py-3 text-[14px] outline-none"
+        style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text }}
+      />
+    </div>
+  );
+}
+
+function FolderInput({ value, onChange, folders }) {
+  const [show, setShow] = useState(false);
+  const filtered = folders.filter(
+    (f) => f !== value && f.toLowerCase().includes(value.toLowerCase())
+  );
+
+  return (
+    <div className="relative mb-4">
+      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
+        文件夹
+      </label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setShow(true); }}
+        onFocus={() => setShow(true)}
+        onBlur={() => setTimeout(() => setShow(false), 150)}
+        placeholder="可选，如：人物设定"
+        className="w-full rounded-[14px] px-4 py-3 text-[14px] outline-none"
+        style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text }}
+      />
+      {show && filtered.length > 0 && (
+        <div
+          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-[160px] overflow-y-auto rounded-[14px]"
+          style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
+        >
+          {filtered.map((f) => (
+            <button
+              key={f}
+              className="flex w-full items-center px-4 py-3 text-[14px]"
+              style={{ color: S.text }}
+              onMouseDown={() => { onChange(f); setShow(false); }}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -44,7 +75,7 @@ function ActivationSelector({ value, onChange }) {
   const options = [
     { value: "always", label: "常驻" },
     { value: "keyword", label: "关键词" },
-    { value: "never", label: "禁用" },
+    { value: "mood", label: "情绪" },
   ];
 
   return (
@@ -85,10 +116,6 @@ function KeywordTags({ keywords, onChange }) {
     setInput("");
   };
 
-  const removeKeyword = (kw) => {
-    onChange(keywords.filter((k) => k !== kw));
-  };
-
   return (
     <div className="mb-4">
       <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
@@ -105,7 +132,7 @@ function KeywordTags({ keywords, onChange }) {
             style={{ background: "rgba(232,160,191,0.2)", color: S.accentDark }}
           >
             {kw}
-            <button onClick={() => removeKeyword(kw)}>
+            <button onClick={() => onChange(keywords.filter((k) => k !== kw))}>
               <X size={10} />
             </button>
           </span>
@@ -115,7 +142,9 @@ function KeywordTags({ keywords, onChange }) {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addKeyword(); } }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addKeyword(); }
+            }}
             placeholder="添加关键词..."
             className="w-24 bg-transparent text-[12px] outline-none"
             style={{ color: S.text }}
@@ -138,6 +167,34 @@ function KeywordTags({ keywords, onChange }) {
   );
 }
 
+function FullscreenEditor({ value, onChange, onClose }) {
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: S.bg }}>
+      <div
+        className="flex shrink-0 items-center justify-between px-5 py-4"
+        style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
+      >
+        <span className="text-[15px] font-bold" style={{ color: S.text }}>编辑内容</span>
+        <button
+          className="flex h-10 w-10 items-center justify-center rounded-full"
+          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+          onClick={onClose}
+        >
+          <Minimize2 size={18} style={{ color: S.accentDark }} />
+        </button>
+      </div>
+      <textarea
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 px-5 pb-10 text-[14px] resize-none outline-none"
+        style={{ background: S.bg, color: S.text }}
+        placeholder="在这里填写世界书内容..."
+      />
+    </div>
+  );
+}
+
 export default function WorldBookEdit() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -150,6 +207,8 @@ export default function WorldBookEdit() {
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
+  const [allFolders, setAllFolders] = useState([]);
+  const [fullscreen, setFullscreen] = useState(false);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -157,10 +216,14 @@ export default function WorldBookEdit() {
   };
 
   useEffect(() => {
-    if (!isNew) {
-      apiFetch("/api/world-books")
-        .then((d) => {
-          const book = d.world_books?.find((b) => String(b.id) === String(id));
+    apiFetch("/api/world-books")
+      .then((d) => {
+        const books = d.world_books || [];
+        // Extract unique non-empty folders for autocomplete
+        setAllFolders([...new Set(books.map((b) => b.folder).filter(Boolean))]);
+
+        if (!isNew) {
+          const book = books.find((b) => String(b.id) === String(id));
           if (book) {
             setName(book.name);
             setFolder(book.folder || "");
@@ -168,9 +231,9 @@ export default function WorldBookEdit() {
             setKeywords(book.keywords || []);
             setContent(book.content);
           }
-        })
-        .catch(() => showToast("加载失败"));
-    }
+        }
+      })
+      .catch(() => showToast("加载失败"));
   }, [id, isNew]);
 
   const handleSave = async () => {
@@ -181,7 +244,7 @@ export default function WorldBookEdit() {
         name: name.trim(),
         folder: folder.trim() || null,
         activation,
-        keywords: activation === "keyword" ? keywords : [],
+        keywords: activation !== "always" ? keywords : [],
         content,
       };
       if (isNew) {
@@ -236,9 +299,9 @@ export default function WorldBookEdit() {
           style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
         >
           <NmInput label="名称" value={name} onChange={setName} placeholder="世界书名称" />
-          <NmInput label="文件夹" value={folder} onChange={setFolder} placeholder="可选，如：人物设定" />
+          <FolderInput value={folder} onChange={setFolder} folders={allFolders} />
           <ActivationSelector value={activation} onChange={setActivation} />
-          {activation === "keyword" && (
+          {activation !== "always" && (
             <KeywordTags keywords={keywords} onChange={setKeywords} />
           )}
         </div>
@@ -247,20 +310,34 @@ export default function WorldBookEdit() {
           className="rounded-[20px] p-5"
           style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
         >
-          <NmInput
-            label="内容"
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
+              内容
+            </label>
+            <button
+              className="flex h-7 w-7 items-center justify-center rounded-full"
+              style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+              onClick={() => setFullscreen(true)}
+            >
+              <Maximize2 size={13} style={{ color: S.accentDark }} />
+            </button>
+          </div>
+          <textarea
             value={content}
-            onChange={setContent}
+            onChange={(e) => setContent(e.target.value)}
             placeholder="在这里填写世界书内容..."
-            multiline
             rows={10}
+            className="w-full rounded-[14px] px-4 py-3 text-[14px] resize-none outline-none"
+            style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text }}
           />
         </div>
 
         <button
           className="mt-5 w-full rounded-[18px] py-3.5 text-[15px] font-bold text-white"
           style={{
-            background: saving ? "rgba(201,98,138,0.5)" : "linear-gradient(135deg, var(--accent), var(--accent-dark))",
+            background: saving
+              ? "rgba(201,98,138,0.5)"
+              : "linear-gradient(135deg, var(--accent), var(--accent-dark))",
             boxShadow: "4px 4px 10px rgba(201,98,138,0.35), -2px -2px 6px #ffffff",
           }}
           onClick={handleSave}
@@ -269,6 +346,15 @@ export default function WorldBookEdit() {
           {saving ? "保存中..." : "保存"}
         </button>
       </div>
+
+      {/* Fullscreen content editor */}
+      {fullscreen && (
+        <FullscreenEditor
+          value={content}
+          onChange={setContent}
+          onClose={() => setFullscreen(false)}
+        />
+      )}
 
       {/* Toast */}
       {toast && (

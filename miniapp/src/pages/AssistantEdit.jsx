@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, ChevronDown, Plus, X, Check, Globe } from "lucide-react";
+import { ChevronLeft, ChevronUp, ChevronDown, Plus, X, Check } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -105,76 +105,325 @@ function PresetSelect({ label, value, onChange, presets }) {
 
 // ── World Book Mount Tab ──
 
-function WorldBookMountTab({ ruleSetIds, onChange, allBooks }) {
-  const mounted = ruleSetIds || [];
+function activationLabel(a) {
+  if (a === "always") return "常驻";
+  if (a === "keyword") return "关键词";
+  return "情绪";
+}
 
-  const toggle = (bookId) => {
-    if (mounted.includes(bookId)) {
-      onChange(mounted.filter((id) => id !== bookId));
-    } else {
-      onChange([...mounted, bookId]);
+/** Normalise: accept either flat [id, ...] or [{id, position, sort_order}, ...] */
+function normalizeItems(raw) {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw.map((item, i) =>
+    typeof item === "object" && item !== null
+      ? item
+      : { id: item, position: "after", sort_order: i }
+  );
+}
+
+function AddWorldBooksModal({ allBooks, mountedIds, onClose, onConfirm }) {
+  const [selected, setSelected] = useState(new Set(mountedIds));
+
+  // Group books by folder
+  const groups = {};
+  allBooks.forEach((book) => {
+    const f = book.folder || "未分组";
+    if (!groups[f]) groups[f] = [];
+    groups[f].push(book);
+  });
+
+  const toggle = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleFolder = (books) => {
+    const allSel = books.every((b) => selected.has(b.id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSel) books.forEach((b) => next.delete(b.id));
+      else books.forEach((b) => next.add(b.id));
+      return next;
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-end" style={{ background: "rgba(0,0,0,0.4)" }}>
+      <div
+        className="flex w-full flex-col rounded-t-[24px]"
+        style={{ background: S.bg, maxHeight: "82vh" }}
+      >
+        <div className="flex shrink-0 items-center justify-between p-5 pb-3">
+          <h3 className="text-[16px] font-bold" style={{ color: S.text }}>
+            选择要挂载的世界书
+          </h3>
+          <button onClick={onClose}>
+            <X size={20} style={{ color: S.textMuted }} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5">
+          {Object.entries(groups).map(([folderName, books]) => {
+            const allSel = books.every((b) => selected.has(b.id));
+            return (
+              <div key={folderName} className="mb-5">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: S.textMuted }}>
+                    {folderName}
+                  </span>
+                  <button
+                    className="rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                    style={{
+                      background: allSel ? "rgba(201,98,138,0.15)" : "rgba(136,136,160,0.1)",
+                      color: allSel ? S.accentDark : S.textMuted,
+                    }}
+                    onClick={() => toggleFolder(books)}
+                  >
+                    {allSel ? "全部取消" : "全选"}
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {books.map((book) => {
+                    const isSel = selected.has(book.id);
+                    return (
+                      <button
+                        key={book.id}
+                        className="flex w-full items-center gap-3 rounded-[14px] p-3"
+                        style={{
+                          background: S.bg,
+                          boxShadow: isSel ? "var(--inset-shadow)" : "var(--card-shadow-sm)",
+                        }}
+                        onClick={() => toggle(book.id)}
+                      >
+                        <div
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                          style={{
+                            background: isSel ? S.accentDark : S.bg,
+                            boxShadow: isSel ? "none" : "var(--icon-inset)",
+                          }}
+                        >
+                          {isSel && <Check size={12} color="white" />}
+                        </div>
+                        <div className="flex-1 min-w-0 text-left">
+                          <div className="truncate text-[13px] font-medium" style={{ color: isSel ? S.accentDark : S.text }}>
+                            {book.name}
+                          </div>
+                        </div>
+                        <span
+                          className="shrink-0 rounded-full px-2 py-0.5 text-[10px]"
+                          style={{ background: "rgba(136,136,160,0.1)", color: S.textMuted }}
+                        >
+                          {activationLabel(book.activation)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="shrink-0 p-5">
+          <button
+            className="w-full rounded-[14px] py-3.5 text-[15px] font-bold text-white"
+            style={{
+              background: "linear-gradient(135deg, var(--accent), var(--accent-dark))",
+              boxShadow: "4px 4px 10px rgba(201,98,138,0.35)",
+            }}
+            onClick={() => onConfirm([...selected])}
+          >
+            确认（已选 {selected.size}）
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorldBookMountTab({ ruleSetIds, onChange, allBooks }) {
+  const [showAdd, setShowAdd] = useState(false);
+
+  const items = normalizeItems(ruleSetIds);
+  const beforeItems = items.filter((i) => i.position === "before").sort((a, b) => a.sort_order - b.sort_order);
+  const afterItems = items.filter((i) => i.position === "after").sort((a, b) => a.sort_order - b.sort_order);
+
+  const getBook = (id) => allBooks.find((b) => b.id === id);
+
+  const removeItem = (id) => onChange(items.filter((i) => i.id !== id));
+
+  const moveItem = (id, direction, position) => {
+    const section = position === "before" ? [...beforeItems] : [...afterItems];
+    const idx = section.findIndex((i) => i.id === id);
+    if (direction === "up" && idx === 0) return;
+    if (direction === "down" && idx === section.length - 1) return;
+    const newIdx = direction === "up" ? idx - 1 : idx + 1;
+    [section[idx], section[newIdx]] = [section[newIdx], section[idx]];
+    const updated = section.map((item, i) => ({ ...item, sort_order: i }));
+    const other = items.filter((i) => i.position !== position);
+    onChange([...other, ...updated]);
+  };
+
+  const changePosition = (id, newPos) => {
+    const targetSection = newPos === "before" ? beforeItems : afterItems;
+    const newSortOrder = targetSection.length;
+    onChange(items.map((i) => i.id === id ? { ...i, position: newPos, sort_order: newSortOrder } : i));
+  };
+
+  const handleAddConfirm = (selectedIds) => {
+    const currentIds = items.map((i) => i.id);
+    const toAdd = selectedIds.filter((id) => !currentIds.includes(id));
+    const newItems = toAdd.map((id, i) => ({
+      id,
+      position: "after",
+      sort_order: afterItems.length + i,
+    }));
+    const toRemove = new Set(currentIds.filter((id) => !selectedIds.includes(id)));
+    const kept = items.filter((i) => !toRemove.has(i.id));
+    onChange([...kept, ...newItems]);
+  };
+
+  const renderSection = (sectionItems, position) => {
+    if (sectionItems.length === 0) {
+      return (
+        <div className="py-3 text-center text-[12px]" style={{ color: S.textMuted }}>
+          暂无挂载
+        </div>
+      );
     }
+
+    // Group by folder within section
+    const groups = {};
+    sectionItems.forEach((item) => {
+      const book = getBook(item.id);
+      const f = book?.folder || "";
+      if (!groups[f]) groups[f] = [];
+      groups[f].push(item);
+    });
+
+    return (
+      <div className="space-y-3">
+        {Object.entries(groups).map(([folderName, groupItems]) => (
+          <div key={folderName}>
+            {folderName && (
+              <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
+                {folderName}
+              </div>
+            )}
+            <div className="space-y-2">
+              {groupItems.map((item) => {
+                const book = getBook(item.id);
+                if (!book) return null;
+                const sectionIdx = sectionItems.findIndex((i) => i.id === item.id);
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-2 rounded-[14px] px-3 py-2.5"
+                    style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+                  >
+                    {/* Up / Down */}
+                    <div className="flex flex-col">
+                      <button
+                        onClick={() => moveItem(item.id, "up", position)}
+                        disabled={sectionIdx === 0}
+                        className="p-0.5 disabled:opacity-20"
+                      >
+                        <ChevronUp size={13} style={{ color: S.textMuted }} />
+                      </button>
+                      <button
+                        onClick={() => moveItem(item.id, "down", position)}
+                        disabled={sectionIdx === sectionItems.length - 1}
+                        className="p-0.5 disabled:opacity-20"
+                      >
+                        <ChevronDown size={13} style={{ color: S.textMuted }} />
+                      </button>
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate text-[13px] font-semibold" style={{ color: S.text }}>
+                        {book.name}
+                      </div>
+                      <div className="text-[10px]" style={{ color: S.textMuted }}>
+                        {activationLabel(book.activation)}
+                      </div>
+                    </div>
+
+                    {/* Move to other section */}
+                    <button
+                      className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                      style={{ background: "rgba(136,136,160,0.1)", color: S.textMuted }}
+                      onClick={() => changePosition(item.id, position === "before" ? "after" : "before")}
+                    >
+                      {position === "before" ? "→后" : "→前"}
+                    </button>
+
+                    {/* Remove */}
+                    <button onClick={() => removeItem(item.id)}>
+                      <X size={14} style={{ color: S.textMuted }} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   return (
     <div>
-      <p className="mb-4 text-[12px]" style={{ color: S.textMuted }}>
-        勾选要挂载到此助手的世界书
-      </p>
-      {allBooks.length === 0 ? (
-        <div className="py-8 text-center text-[13px]" style={{ color: S.textMuted }}>
-          还没有世界书
+      {/* Before section */}
+      <div className="mb-1">
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: S.textMuted }}>
+          System Prompt 前
         </div>
-      ) : (
-        <div className="space-y-3">
-          {allBooks.map((book) => {
-            const isOn = mounted.includes(book.id);
-            return (
-              <button
-                key={book.id}
-                className="flex w-full items-center gap-3 rounded-[16px] p-4"
-                style={{
-                  background: S.bg,
-                  boxShadow: isOn ? "var(--inset-shadow)" : "var(--card-shadow-sm)",
-                }}
-                onClick={() => toggle(book.id)}
-              >
-                <div
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-                  style={{
-                    background: isOn ? S.accentDark : S.bg,
-                    boxShadow: isOn ? "none" : "var(--icon-inset)",
-                  }}
-                >
-                  {isOn ? (
-                    <Check size={14} color="white" />
-                  ) : (
-                    <Globe size={14} style={{ color: S.textMuted }} />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0 text-left">
-                  <div className="truncate text-[14px] font-semibold" style={{ color: isOn ? S.accentDark : S.text }}>
-                    {book.name}
-                  </div>
-                  {book.folder && (
-                    <div className="text-[11px]" style={{ color: S.textMuted }}>
-                      {book.folder}
-                    </div>
-                  )}
-                </div>
-                <span
-                  className="text-[10px] font-semibold rounded-full px-2 py-0.5"
-                  style={{
-                    background: isOn ? "rgba(201,98,138,0.15)" : "rgba(136,136,160,0.1)",
-                    color: isOn ? S.accentDark : S.textMuted,
-                  }}
-                >
-                  {book.activation === "always" ? "常驻" : book.activation === "keyword" ? "关键词" : "禁用"}
-                </span>
-              </button>
-            );
-          })}
+        {renderSection(beforeItems, "before")}
+      </div>
+
+      {/* System Prompt divider */}
+      <div className="my-4 flex items-center gap-2">
+        <div className="h-px flex-1" style={{ background: "rgba(136,136,160,0.25)" }} />
+        <span
+          className="rounded-full px-3 py-1 text-[11px] font-bold"
+          style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}
+        >
+          System Prompt
+        </span>
+        <div className="h-px flex-1" style={{ background: "rgba(136,136,160,0.25)" }} />
+      </div>
+
+      {/* After section */}
+      <div className="mb-4">
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: S.textMuted }}>
+          System Prompt 后
         </div>
+        {renderSection(afterItems, "after")}
+      </div>
+
+      {/* Add button */}
+      <button
+        className="flex w-full items-center justify-center gap-2 rounded-[14px] py-3 text-[14px] font-semibold"
+        style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }}
+        onClick={() => setShowAdd(true)}
+      >
+        <Plus size={16} /> 添加
+      </button>
+
+      {showAdd && (
+        <AddWorldBooksModal
+          allBooks={allBooks}
+          mountedIds={items.map((i) => i.id)}
+          onClose={() => setShowAdd(false)}
+          onConfirm={(selectedIds) => {
+            handleAddConfirm(selectedIds);
+            setShowAdd(false);
+          }}
+        />
       )}
     </div>
   );
@@ -283,12 +532,11 @@ export default function AssistantEdit() {
         model_preset_id: chatPresetId,
         summary_model_preset_id: summaryPresetId,
         summary_fallback_preset_id: summaryFallbackId,
-        rule_set_ids: ruleSetIds,
+        rule_set_ids: normalizeItems(ruleSetIds),
       };
 
       let assistantId = id;
       if (isNew) {
-        // POST only accepts name, then PUT to set all fields
         const created = await apiFetch("/api/assistants", { method: "POST", body: { name: name.trim() } });
         assistantId = created.id;
         await apiFetch(`/api/assistants/${assistantId}`, { method: "PUT", body: updateBody });
@@ -296,7 +544,6 @@ export default function AssistantEdit() {
         await apiFetch(`/api/assistants/${id}`, { method: "PUT", body: updateBody });
       }
 
-      // Save core blocks
       const blockSaves = [];
       if (humanBlockId) {
         blockSaves.push(apiFetch(`/api/core-blocks/${humanBlockId}`, { method: "PUT", body: { content: humanBlock } }));

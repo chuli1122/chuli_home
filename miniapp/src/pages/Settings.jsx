@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Server, Mic2, MessageSquare, Sliders, Database } from "lucide-react";
+import { ChevronLeft, ChevronRight, Server, Mic2, MessageSquare, Sliders, Database, Timer } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -103,6 +103,9 @@ export default function Settings() {
   const [bufferMs, setBufferMs] = useState(() =>
     parseInt(localStorage.getItem("streaming_buffer_ms") || "500")
   );
+  const [tgBufferSec, setTgBufferSec] = useState(() =>
+    parseInt(localStorage.getItem("telegram_buffer_seconds") || "15")
+  );
 
   // API settings
   const [retainBudget, setRetainBudget] = useState(8000);
@@ -141,6 +144,10 @@ export default function Settings() {
   useEffect(() => {
     localStorage.setItem("streaming_buffer_ms", String(bufferMs));
   }, [bufferMs]);
+
+  useEffect(() => {
+    localStorage.setItem("telegram_buffer_seconds", String(tgBufferSec));
+  }, [tgBufferSec]);
 
   const saveBudget = async () => {
     setBudgetSaving(true);
@@ -234,7 +241,30 @@ export default function Settings() {
           )}
         </div>
 
-        {/* Buffer time */}
+        {/* Telegram short-mode buffer */}
+        <div
+          className="rounded-[20px] p-4"
+          style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
+        >
+          <div className="flex items-center gap-4">
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+              style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
+            >
+              <Timer size={18} style={{ color: S.text }} />
+            </div>
+            <div className="flex-1">
+              <div className="text-[15px] font-semibold" style={{ color: S.text }}>缓冲时间</div>
+              <div className="text-[11px]" style={{ color: S.textMuted }}>短消息模式收集等待 (秒)</div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <NumberInput value={tgBufferSec} onChange={setTgBufferSec} min={1} max={120} />
+              <span className="text-[12px]" style={{ color: S.textMuted }}>秒</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Streaming UI buffer */}
         <div
           className="rounded-[20px] p-4"
           style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
