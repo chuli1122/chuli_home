@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  ChevronLeft, Plus, X, Check,
+  ChevronLeft, Plus, X, Check, Save,
   Maximize2, Minimize2, FileText, GripVertical,
 } from "lucide-react";
 import {
@@ -698,15 +698,15 @@ export default function AssistantEdit() {
           {isNew ? "新建助手" : "助手配置"}
         </h1>
         <button
-          className="rounded-full px-4 py-2 text-[13px] font-bold text-white"
+          className="flex h-10 w-10 items-center justify-center rounded-full"
           style={{
-            background: saving ? "rgba(201,98,138,0.5)" : "linear-gradient(135deg, var(--accent), var(--accent-dark))",
-            boxShadow: "3px 3px 8px rgba(201,98,138,0.3)",
+            background: S.bg,
+            boxShadow: saving ? "var(--inset-shadow)" : "var(--card-shadow-sm)",
           }}
           onClick={handleSave}
           disabled={saving}
         >
-          {saving ? "保存中" : "保存"}
+          <Save size={18} style={{ color: S.accentDark }} />
         </button>
       </div>
 

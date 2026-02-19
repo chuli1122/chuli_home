@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Save, X, Plus, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronLeft, Save, X, Plus, Maximize2, Minimize2, FileText } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -253,6 +253,17 @@ export default function WorldBookEdit() {
   const [allFolders, setAllFolders] = useState([]);
   const [fullscreen, setFullscreen] = useState(false);
 
+  const contentFileRef = useRef(null);
+
+  const handleContentFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setContent(ev.target.result || "");
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2000);
@@ -298,7 +309,6 @@ export default function WorldBookEdit() {
         await apiFetch(`/api/world-books/${id}`, { method: "PUT", body });
         showToast("已保存");
       }
-      setTimeout(() => navigate("/world-books", { replace: true }), 500);
     } catch (e) {
       showToast("保存失败: " + e.message);
     } finally {
@@ -366,13 +376,31 @@ export default function WorldBookEdit() {
             <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
               内容
             </label>
-            <button
-              className="flex h-7 w-7 items-center justify-center rounded-full"
-              style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
-              onClick={() => setFullscreen(true)}
-            >
-              <Maximize2 size={13} style={{ color: S.accentDark }} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="flex h-7 w-7 items-center justify-center rounded-full"
+                style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+                onClick={() => contentFileRef.current?.click()}
+                title="从文件导入"
+              >
+                <FileText size={13} style={{ color: S.textMuted }} />
+              </button>
+              <input
+                ref={contentFileRef}
+                type="file"
+                accept=".txt,.md,.text"
+                className="hidden"
+                onChange={handleContentFile}
+              />
+              <button
+                className="flex h-7 w-7 items-center justify-center rounded-full"
+                style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+                onClick={() => setFullscreen(true)}
+                title="全屏编辑"
+              >
+                <Maximize2 size={13} style={{ color: S.accentDark }} />
+              </button>
+            </div>
           </div>
           <textarea
             value={content}
@@ -384,19 +412,6 @@ export default function WorldBookEdit() {
           />
         </div>
 
-        <button
-          className="mt-5 w-full rounded-[18px] py-3.5 text-[15px] font-bold text-white"
-          style={{
-            background: saving
-              ? "rgba(201,98,138,0.5)"
-              : "linear-gradient(135deg, var(--accent), var(--accent-dark))",
-            boxShadow: "4px 4px 10px rgba(201,98,138,0.35), -2px -2px 6px #ffffff",
-          }}
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? "保存中..." : "保存"}
-        </button>
         </>)}
       </div>
 

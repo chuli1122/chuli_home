@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Camera, FileText, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronLeft, Camera, FileText, Maximize2, Minimize2, Save } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -142,7 +142,17 @@ export default function Profile() {
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
         <h1 className="text-[17px] font-bold" style={{ color: S.text }}>个人资料</h1>
-        <div className="w-10" />
+        <button
+          className="flex h-10 w-10 items-center justify-center rounded-full"
+          style={{
+            background: S.bg,
+            boxShadow: saving ? "var(--inset-shadow)" : "var(--card-shadow-sm)",
+          }}
+          onClick={handleSave}
+          disabled={saving}
+        >
+          <Save size={18} style={{ color: S.accentDark }} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-10 pt-px space-y-4">
@@ -291,20 +301,6 @@ export default function Profile() {
           />
         </div>
 
-        {/* Save */}
-        <button
-          className="w-full rounded-[18px] py-3.5 text-[15px] font-bold text-white"
-          style={{
-            background: saving
-              ? "rgba(201,98,138,0.5)"
-              : "linear-gradient(135deg, var(--accent), var(--accent-dark))",
-            boxShadow: "4px 4px 10px rgba(201,98,138,0.35)",
-          }}
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? "保存中..." : "保存"}
-        </button>
         </>)}
       </div>
 
