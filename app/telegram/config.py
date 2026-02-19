@@ -10,8 +10,9 @@ BOT_TOKEN_AHUAI: str = os.getenv("TELEGRAM_BOT_TOKEN_AHUAI", "")
 _raw_chat_id = os.getenv("TELEGRAM_CHAT_ID", "0")
 ALLOWED_CHAT_ID: int = int(_raw_chat_id) if _raw_chat_id.lstrip("-").isdigit() else 0
 
-# Mini App URL for ❤ button
+# Mini App URLs
 MINI_APP_URL: str = "https://chat.chuli.win/miniapp/#/cot"
+MINI_APP_BASE_URL: str = "https://chat.chuli.win/miniapp/"
 
 # Webhook
 WEBHOOK_BASE_URL: str = os.getenv("WEBHOOK_BASE_URL", "https://chat.chuli.win")

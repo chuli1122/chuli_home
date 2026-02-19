@@ -7,9 +7,15 @@ from typing import Optional
 
 from aiogram import Bot, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MenuButtonWebApp,
+    Message,
+    WebAppInfo,
+)
 
-from .config import ALLOWED_CHAT_ID
+from .config import ALLOWED_CHAT_ID, MINI_APP_BASE_URL
 from .keyboards import get_main_keyboard
 from .service import call_chat_completion, get_buffer_seconds, get_session_info
 
@@ -151,6 +157,30 @@ async def cmd_long(message: Message, bot_key: str, **_kw) -> None:
     state = _get_state(bot_key)
     state.short_mode = False
     await message.answer("✓ 已切换到长消息模式")
+
+
+@router.message(Command("app"))
+async def cmd_app(message: Message, bot: Bot, bot_key: str, **_kw) -> None:
+    if not _is_allowed(message.chat.id):
+        return
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="打开 WHISPER",
+            web_app=WebAppInfo(url=MINI_APP_BASE_URL),
+        )]
+    ])
+    await message.answer("点击按钮打开：", reply_markup=keyboard)
+    # Also set the menu button programmatically
+    try:
+        await bot.set_chat_menu_button(
+            chat_id=message.chat.id,
+            menu_button=MenuButtonWebApp(
+                text="🐾",
+                web_app=WebAppInfo(url=MINI_APP_BASE_URL),
+            ),
+        )
+    except Exception as exc:
+        logger.warning("set_chat_menu_button failed: %s", exc)
 
 
 @router.message(Command("mode"))
