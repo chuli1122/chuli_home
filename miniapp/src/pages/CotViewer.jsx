@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { ChevronDown, ChevronUp, Wrench, MessageSquare, RefreshCw, Cpu } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ChevronDown, ChevronUp, ChevronLeft, Wrench, MessageSquare, RefreshCw, Cpu } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -120,6 +121,7 @@ function CotCard({ item, expanded, onToggle }) {
 }
 
 export default function CotViewer() {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
@@ -155,6 +157,13 @@ export default function CotViewer() {
         className="flex shrink-0 items-center justify-between px-5 pb-3"
         style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top))" }}
       >
+        <button
+          className="flex h-10 w-10 items-center justify-center rounded-full"
+          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+          onClick={() => navigate("/")}
+        >
+          <ChevronLeft size={22} style={{ color: S.text }} />
+        </button>
         <h1 className="text-[17px] font-bold" style={{ color: S.text }}>COT 日志</h1>
         <button
           className="flex h-10 w-10 items-center justify-center rounded-full"
