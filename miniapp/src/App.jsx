@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { HashRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import WorldBooks from "./pages/WorldBooks";
@@ -10,6 +11,13 @@ import CotViewer from "./pages/CotViewer";
 import Profile from "./pages/Profile";
 
 export default function App() {
+  useEffect(() => {
+    if (window.Telegram?.WebApp) {
+      window.Telegram.WebApp.ready();
+      window.Telegram.WebApp.expand();
+    }
+  }, []);
+
   return (
     <HashRouter>
       <Routes>
