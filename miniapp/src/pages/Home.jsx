@@ -66,10 +66,16 @@ function SectionLabel({ children }) {
 
 export default function Home() {
   const navigate = useNavigate();
-  const [profile, setProfile] = useState(null);
+  const [profile, setProfile] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("whisper_profile") || "null"); }
+    catch { return null; }
+  });
 
   useEffect(() => {
-    apiFetch("/api/user/profile").then((d) => setProfile(d)).catch(() => {});
+    apiFetch("/api/user/profile").then((d) => {
+      setProfile(d);
+      localStorage.setItem("whisper_profile", JSON.stringify(d));
+    }).catch(() => {});
   }, []);
 
   const avatarUrl = profile?.avatar_url;

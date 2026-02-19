@@ -105,15 +105,18 @@ export default function Profile() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await apiFetch("/api/user/profile", {
-        method: "PUT",
-        body: {
-          nickname: nickname.trim() || null,
-          background_url: signature || null,
-          basic_info: basicInfo || null,
-          avatar_url: avatarUrl || null,
-        },
-      });
+      const body = {
+        nickname: nickname.trim() || null,
+        background_url: signature || null,
+        basic_info: basicInfo || null,
+        avatar_url: avatarUrl || null,
+      };
+      await apiFetch("/api/user/profile", { method: "PUT", body });
+      // Sync cache so Home page doesn't flash on return
+      try {
+        const cached = JSON.parse(localStorage.getItem("whisper_profile") || "{}");
+        localStorage.setItem("whisper_profile", JSON.stringify({ ...cached, ...body }));
+      } catch {}
       showToast("已保存");
     } catch {
       showToast("保存失败");
@@ -140,7 +143,7 @@ export default function Profile() {
         <div className="w-10" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-2 space-y-4">
+      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-px space-y-4">
         {/* Avatar + Nickname + Signature */}
         <div
           className="rounded-[20px] p-5"
