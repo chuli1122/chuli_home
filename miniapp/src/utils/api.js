@@ -1,4 +1,4 @@
-const API_BASE = "https://chat.chuli.win";
+const API_BASE = "";
 
 async function ensureToken() {
   let token = localStorage.getItem("whisper_token");
