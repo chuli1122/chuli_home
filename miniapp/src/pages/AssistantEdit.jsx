@@ -13,6 +13,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { apiFetch } from "../utils/api";
+import { saveAvatar, getAvatar } from "../utils/db";
 
 const S = {
   bg: "var(--bg)",
@@ -586,7 +587,7 @@ export default function AssistantEdit() {
             apiFetch(`/api/core-blocks?assistant_id=${id}`).catch(() => ({ blocks: [] })),
           ]);
           setName(assistantData.name || "");
-          setAvatarUrl(assistantData.avatar_url || "");
+          getAvatar(`assistant-avatar-${id}`).then((b64) => { if (b64) setAvatarUrl(b64); });
           setSystemPrompt(assistantData.system_prompt || "");
           setChatPresetId(assistantData.model_preset_id || null);
           setSummaryPresetId(assistantData.summary_model_preset_id || null);
@@ -614,24 +615,22 @@ export default function AssistantEdit() {
     loadAll();
   }, [id, isNew]);
 
-  const handleAvatarChange = async (e) => {
+  const handleAvatarChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-      const token = localStorage.getItem("whisper_token");
-      const res = await fetch("/api/upload-image", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      if (!res.ok) throw new Error("上传失败");
-      const data = await res.json();
-      setAvatarUrl(data.url);
-    } catch {
-      showToast("头像上传失败");
-    }
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const base64 = ev.target.result;
+      const key = `assistant-avatar-${id || "new"}`;
+      try {
+        await saveAvatar(key, base64);
+        setAvatarUrl(base64);
+      } catch {
+        showToast("头像保存失败");
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const handleSave = async () => {
@@ -640,7 +639,7 @@ export default function AssistantEdit() {
     try {
       const updateBody = {
         name: name.trim(),
-        avatar_url: avatarUrl || null,
+        avatar_url: avatarUrl ? `assistant-avatar-${id || "new"}` : null,
         system_prompt: systemPrompt,
         model_preset_id: chatPresetId,
         summary_model_preset_id: summaryPresetId,
@@ -652,6 +651,11 @@ export default function AssistantEdit() {
       if (isNew) {
         const created = await apiFetch("/api/assistants", { method: "POST", body: { name: name.trim() } });
         assistantId = created.id;
+        // Rename temp avatar key to real id
+        if (avatarUrl) {
+          await saveAvatar(`assistant-avatar-${assistantId}`, avatarUrl);
+          updateBody.avatar_url = `assistant-avatar-${assistantId}`;
+        }
         await apiFetch(`/api/assistants/${assistantId}`, { method: "PUT", body: updateBody });
       } else {
         await apiFetch(`/api/assistants/${id}`, { method: "PUT", body: updateBody });

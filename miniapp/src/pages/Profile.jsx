@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Camera, FileText, Maximize2, Minimize2, Save } from "lucide-react";
 import { apiFetch } from "../utils/api";
+import { saveAvatar, getAvatar } from "../utils/db";
 
 const S = {
   bg: "var(--bg)",
@@ -46,7 +47,6 @@ export default function Profile() {
   const [basicInfo, setBasicInfo] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -65,34 +65,27 @@ export default function Profile() {
         setNickname(d.nickname || "");
         setSignature(d.background_url || "");
         setBasicInfo(d.basic_info || "");
-        setAvatarUrl(d.avatar_url || "");
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+    getAvatar("user-avatar").then((b64) => { if (b64) setAvatarUrl(b64); });
   }, []);
 
-  const handleAvatarUpload = async (e) => {
+  const handleAvatarUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const token = localStorage.getItem("whisper_token");
-      const res = await fetch("/api/upload-image", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setAvatarUrl(data.url);
-    } catch {
-      showToast("头像上传失败");
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const base64 = ev.target.result;
+      try {
+        await saveAvatar("user-avatar", base64);
+        setAvatarUrl(base64);
+      } catch {
+        showToast("头像保存失败");
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const handleInfoFile = (e) => {
@@ -111,7 +104,7 @@ export default function Profile() {
         nickname: nickname.trim() || null,
         background_url: signature || null,
         basic_info: basicInfo || null,
-        avatar_url: avatarUrl || null,
+        avatar_url: avatarUrl ? "user-avatar" : null,
       };
       await apiFetch("/api/user/profile", { method: "PUT", body });
       // Sync cache so Home page doesn't flash on return
@@ -191,21 +184,12 @@ export default function Profile() {
                   )}
                 </div>
               </div>
-              {uploading ? (
-                <div
-                  className="absolute inset-0 flex items-center justify-center rounded-full"
-                  style={{ background: "rgba(232,160,191,0.7)" }}
-                >
-                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                </div>
-              ) : (
-                <div
-                  className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full"
-                  style={{ background: S.accentDark }}
-                >
-                  <Camera size={9} color="white" />
-                </div>
-              )}
+              <div
+                className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full"
+                style={{ background: S.accentDark }}
+              >
+                <Camera size={9} color="white" />
+              </div>
             </button>
             <input
               ref={fileRef}

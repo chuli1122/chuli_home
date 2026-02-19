@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { BookOpen, Brain, Bot, Settings, BookMarked, Theater, Heart, ChevronRight } from "lucide-react";
 import { apiFetch } from "../utils/api";
+import { getAvatar } from "../utils/db";
 
 const S = {
   bg: "var(--bg)",
@@ -70,15 +71,15 @@ export default function Home() {
     try { return JSON.parse(localStorage.getItem("whisper_profile") || "null"); }
     catch { return null; }
   });
+  const [avatarUrl, setAvatarUrl] = useState(null);
 
   useEffect(() => {
     apiFetch("/api/user/profile").then((d) => {
       setProfile(d);
       localStorage.setItem("whisper_profile", JSON.stringify(d));
     }).catch(() => {});
+    getAvatar("user-avatar").then((b64) => { if (b64) setAvatarUrl(b64); });
   }, []);
-
-  const avatarUrl = profile?.avatar_url;
   const nickname = profile?.nickname || "阿怀";
   const signature = profile?.background_url || "今晚的月亮很圆";
 

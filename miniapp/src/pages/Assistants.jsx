@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Plus, ChevronRight, Bot, Trash2 } from "lucide-react";
 import { apiFetch } from "../utils/api";
+import { getAvatar } from "../utils/db";
 
 const S = {
   bg: "var(--bg)",
@@ -108,7 +109,8 @@ function SwipeRow({ children, onDelete }) {
   );
 }
 
-function AssistantCard({ assistant, onTap }) {
+function AssistantCard({ assistant, localAvatar, onTap }) {
+  const src = localAvatar || null;
   return (
     <div
       className="flex items-center gap-3 rounded-[18px] p-4"
@@ -116,16 +118,25 @@ function AssistantCard({ assistant, onTap }) {
       onClick={() => onTap(assistant)}
     >
       <div
-        className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full"
-        style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+        className="shrink-0 rounded-full"
+        style={{
+          width: 48, height: 48,
+          background: "linear-gradient(135deg, #f0c4d8, var(--accent))",
+          padding: 3,
+        }}
       >
-        {assistant.avatar_url ? (
-          <img src={assistant.avatar_url} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <span className="text-[20px]" style={{ color: S.accentDark }}>
-            {assistant.name?.[0] || "?"}
-          </span>
-        )}
+        <div
+          className="flex h-full w-full items-center justify-center overflow-hidden rounded-full"
+          style={{ background: S.bg }}
+        >
+          {src ? (
+            <img src={src} alt="" className="h-full w-full object-cover rounded-full" />
+          ) : (
+            <span className="text-[20px]" style={{ color: S.accentDark }}>
+              {assistant.name?.[0] || "?"}
+            </span>
+          )}
+        </div>
       </div>
       <div className="flex-1 min-w-0">
         <div className="truncate text-[15px] font-bold" style={{ color: S.text }}>
@@ -145,6 +156,7 @@ function AssistantCard({ assistant, onTap }) {
 export default function Assistants() {
   const navigate = useNavigate();
   const [assistants, setAssistants] = useState([]);
+  const [avatarMap, setAvatarMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [toast, setToast] = useState(null);
@@ -157,7 +169,18 @@ export default function Assistants() {
   const load = () => {
     setLoading(true);
     apiFetch("/api/assistants")
-      .then((d) => setAssistants(d.assistants || []))
+      .then(async (d) => {
+        const list = d.assistants || [];
+        setAssistants(list);
+        const map = {};
+        await Promise.all(
+          list.map(async (a) => {
+            const b64 = await getAvatar(`assistant-avatar-${a.id}`).catch(() => null);
+            if (b64) map[a.id] = b64;
+          })
+        );
+        setAvatarMap(map);
+      })
       .catch(() => showToast("加载失败"))
       .finally(() => setLoading(false));
   };
@@ -220,6 +243,7 @@ export default function Assistants() {
             <SwipeRow key={a.id} onDelete={() => setDeleteTarget(a)}>
               <AssistantCard
                 assistant={a}
+                localAvatar={avatarMap[a.id]}
                 onTap={(x) => navigate(`/assistants/${x.id}`)}
               />
             </SwipeRow>
