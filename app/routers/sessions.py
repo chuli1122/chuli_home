@@ -579,6 +579,45 @@ def delete_summary_permanent(
     return SummaryDeleteResponse(status="deleted_permanently", id=summary_id)
 
 
+class SummaryContentUpdateRequest(BaseModel):
+    summary_content: str
+
+
+@router.patch("/sessions/{session_id}/summaries/{summary_id}", response_model=SessionSummaryItem)
+def update_summary_content(
+    session_id: int,
+    summary_id: int,
+    payload: SummaryContentUpdateRequest,
+    db: Session = Depends(get_db),
+) -> SessionSummaryItem:
+    row = (
+        db.query(SessionSummary)
+        .filter(
+            SessionSummary.id == summary_id,
+            SessionSummary.session_id == session_id,
+            SessionSummary.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Summary not found")
+    row.summary_content = payload.summary_content
+    db.commit()
+    db.refresh(row)
+    return SessionSummaryItem(
+        id=row.id,
+        session_id=row.session_id,
+        summary_content=row.summary_content,
+        perspective=row.perspective,
+        msg_id_start=row.msg_id_start,
+        msg_id_end=row.msg_id_end,
+        time_start=format_datetime(row.time_start),
+        time_end=format_datetime(row.time_end),
+        mood_tag=row.mood_tag,
+        created_at=format_datetime(row.created_at),
+    )
+
+
 # ── Session info with assistant name ────────────────────────────────────────
 
 class SessionInfoResponse(BaseModel):
