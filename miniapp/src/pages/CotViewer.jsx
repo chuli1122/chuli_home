@@ -149,7 +149,7 @@ export default function CotViewer() {
   const [wsConnected, setWsConnected] = useState(false);
   const [liveRequestIds, setLiveRequestIds] = useState(new Set());
   const wsRef = useRef(null);
-  const [mood, setMood] = useState("calm");
+  const [mood, setMood] = useState(null);
   const [moodOpen, setMoodOpen] = useState(false);
   const moodRef = useRef(null);
 
@@ -166,8 +166,8 @@ export default function CotViewer() {
   // Load current mood
   useEffect(() => {
     apiFetch("/api/settings/mood")
-      .then((data) => { if (data.mood) setMood(data.mood); })
-      .catch(() => {});
+      .then((data) => setMood(data.mood || "calm"))
+      .catch(() => setMood("calm"));
   }, []);
 
   // Close mood popup on outside click
@@ -338,14 +338,18 @@ export default function CotViewer() {
             <button
               className="flex w-[42px] shrink-0 items-center justify-center rounded-[14px]"
               style={{ background: S.bg, boxShadow: "var(--inset-shadow)" }}
-              onClick={() => setMoodOpen(!moodOpen)}
+              onClick={() => mood && setMoodOpen(!moodOpen)}
             >
-              <img
-                src={`/miniapp/assets/mood/${mood}.png`}
-                alt={mood}
-                className="h-6 w-6"
-                style={{ imageRendering: "pixelated" }}
-              />
+              {mood ? (
+                <img
+                  src={`/miniapp/assets/mood/${mood}.png`}
+                  alt={mood}
+                  className="h-6 w-6"
+                  style={{ imageRendering: "pixelated" }}
+                />
+              ) : (
+                <div className="h-6 w-6" />
+              )}
             </button>
             {moodOpen && (
               <div
