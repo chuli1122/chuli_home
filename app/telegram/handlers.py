@@ -36,6 +36,10 @@ class _ChatBuffer:
 @dataclass
 class _BotState:
     buffers: dict[int, _ChatBuffer] = field(default_factory=dict)
+    processed_msg_ids: set[int] = field(default_factory=set)
+
+
+_DEDUP_MAX = 500  # max tracked message_ids per bot to prevent unbounded growth
 
 
 _bot_states: dict[str, _BotState] = {}
@@ -185,6 +189,18 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
     if not text:
         return
 
+    # ── Dedup: skip if this message_id was already processed ──
+    state = _get_state(bot_key)
+    msg_id = message.message_id
+    if msg_id in state.processed_msg_ids:
+        logger.debug("Skipping duplicate message_id=%d (bot=%s)", msg_id, bot_key)
+        return
+    state.processed_msg_ids.add(msg_id)
+    # Trim to prevent unbounded growth
+    if len(state.processed_msg_ids) > _DEDUP_MAX:
+        sorted_ids = sorted(state.processed_msg_ids)
+        state.processed_msg_ids = set(sorted_ids[len(sorted_ids) - _DEDUP_MAX // 2 :])
+
     # Handle reply/quote — look up the quoted message by telegram_message_id
     if message.reply_to_message:
         quoted_tg_id = message.reply_to_message.message_id
@@ -194,7 +210,6 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
             text = f"{quote_prefix}\n{text}"
 
     chat_id = message.chat.id
-    state = _get_state(bot_key)
     mode = await get_chat_mode()
 
     if mode == "short":
