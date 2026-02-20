@@ -136,7 +136,7 @@ def list_cot(
             return []
 
         request_ids = [row[0] for row in latest]
-        first_ts_map: dict[str, Any] = {row[0]: row[1] for row in latest}
+        first_ts_map: dict[str, Any] = {str(row[0]): row[1] for row in latest}
 
         # All blocks for these request_ids
         records = (
@@ -149,11 +149,12 @@ def list_cot(
         # Group: request_id → round_index → [records]
         grouped: dict[str, dict[int, list[CotRecord]]] = defaultdict(lambda: defaultdict(list))
         for rec in records:
-            grouped[rec.request_id][rec.round_index].append(rec)
+            grouped[str(rec.request_id)][rec.round_index].append(rec)
 
         result: list[CotItem] = []
         for req_id in request_ids:
-            rounds_map = grouped.get(req_id, {})
+            req_id_str = str(req_id)
+            rounds_map = grouped.get(req_id_str, {})
             rounds: list[CotRound] = []
             preview = ""
             has_tool_calls = False
@@ -176,8 +177,8 @@ def list_cot(
 
             result.append(
                 CotItem(
-                    request_id=req_id,
-                    created_at=format_datetime(first_ts_map.get(req_id)),
+                    request_id=req_id_str,
+                    created_at=format_datetime(first_ts_map.get(req_id_str)),
                     preview=preview,
                     has_tool_calls=has_tool_calls,
                     rounds=rounds,
