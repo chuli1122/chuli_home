@@ -11,7 +11,7 @@ from aiogram.types import Message
 
 from .config import ALLOWED_CHAT_ID
 from .keyboards import get_main_keyboard
-from .service import call_chat_completion, get_buffer_seconds, get_chat_mode, get_session_info
+from .service import call_chat_completion, get_buffer_seconds, get_chat_mode, get_session_info, undo_last_round
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -133,6 +133,17 @@ async def cmd_start(message: Message, bot_key: str, **_kw) -> None:
         "你好 ❤",
         reply_markup=get_main_keyboard(),
     )
+
+
+@router.message(Command("undo"))
+async def cmd_undo(message: Message, assistant_id: int, **_kw) -> None:
+    if not _is_allowed(message.chat.id):
+        return
+    deleted = await undo_last_round(assistant_id)
+    if deleted:
+        await message.answer(f"已撤回 {deleted} 条消息")
+    else:
+        await message.answer("没有可撤回的消息")
 
 
 # ── Main message handler ─────────────────────────────────────────────────────

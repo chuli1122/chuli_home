@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from app.database import SessionLocal
-from app.models.models import Assistant, ChatSession, Settings
+from app.models.models import Assistant, ChatSession, Message, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -140,3 +140,38 @@ async def get_buffer_seconds() -> float:
 async def get_chat_mode() -> str:
     raw = await get_setting("chat_mode", "long")
     return raw if raw in ("short", "long", "theater") else "long"
+
+
+# ── Undo (delete last round) ────────────────────────────────────────────────
+
+def _undo_last_round_sync(assistant_id: int) -> int:
+    """Delete the most recent user message and all assistant/system messages after it.
+    Returns the number of deleted messages."""
+    db = SessionLocal()
+    try:
+        session_id, _ = _get_session_info_sync(assistant_id)
+
+        # Find the latest user message
+        last_user = (
+            db.query(Message)
+            .filter(Message.session_id == session_id, Message.role == "user")
+            .order_by(Message.id.desc())
+            .first()
+        )
+        if not last_user:
+            return 0
+
+        # Delete that user message + all messages after it (assistant replies, system, etc.)
+        deleted = (
+            db.query(Message)
+            .filter(Message.session_id == session_id, Message.id >= last_user.id)
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        return deleted
+    finally:
+        db.close()
+
+
+async def undo_last_round(assistant_id: int) -> int:
+    return await asyncio.to_thread(_undo_last_round_sync, assistant_id)
