@@ -309,7 +309,7 @@ export default function Memories() {
   };
 
   const roleLabel = (role) => { if (role === "user") return "我"; if (role === "assistant") return assistantName || "助手"; return "系统"; };
-  const roleColor = (role) => { if (role === "user") return S.accentDark; if (role === "assistant") return "#8b5cf6"; return S.textMuted; };
+  const roleColor = (role) => { if (role === "user") return S.accentDark; if (role === "assistant") return "#8d68c4"; return S.textMuted; };
 
   /* ── Render ── */
 
