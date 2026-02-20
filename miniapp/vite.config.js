@@ -29,6 +29,11 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": "https://chat.chuli.win",
+      "/ws": {
+        target: "wss://chat.chuli.win",
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
 });

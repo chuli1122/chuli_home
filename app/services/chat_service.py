@@ -24,6 +24,7 @@ from app.services.summary_service import SummaryService
 from app.services.world_books_service import WorldBooksService
 from app.database import SessionLocal
 from app.constants import KLASS_DEFAULTS
+from app.cot_broadcaster import cot_broadcaster
 
 logger = logging.getLogger(__name__)
 
@@ -1082,6 +1083,7 @@ class ChatService:
                     unique_trimmed_ids,
                     assistant_id,
                 )
+        cot_broadcaster.publish({"type": "done", "request_id": request_id})
         return messages
 
     def _build_api_call_params(
@@ -1556,6 +1558,7 @@ class ChatService:
                     background_tasks.add_task(
                         self._trigger_summary, session_id, unique_ids, assistant_id,
                     )
+            cot_broadcaster.publish({"type": "done", "request_id": request_id})
             yield 'data: [DONE]\n\n'
             return
 
@@ -1830,6 +1833,13 @@ class ChatService:
             )
             self.db.add(record)
             self.db.commit()
+            cot_broadcaster.publish({
+                "request_id": request_id,
+                "round_index": round_index,
+                "block_type": block_type,
+                "content": content,
+                "tool_name": tool_name,
+            })
         except Exception as exc:
             logger.warning("Failed to write COT block (request_id=%s): %s", request_id, exc)
             try:

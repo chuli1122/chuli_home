@@ -2,10 +2,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+import asyncio
 import logging
+import os
+
 logging.basicConfig(level=logging.INFO)
 
-from fastapi import Depends, FastAPI
+import jwt
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect, Query as WSQuery
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.routers import (
@@ -31,6 +35,7 @@ from app.routers.auth import require_auth_token
 from app.telegram.router import router as telegram_router
 from app.telegram.bot_instance import bots
 from app.telegram.config import BOTS_CONFIG, WEBHOOK_BASE_URL
+from app.cot_broadcaster import cot_broadcaster
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +44,7 @@ app = FastAPI(title="Chuli Home Backend")
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    cot_broadcaster.set_loop(asyncio.get_running_loop())
     print(f"[startup] bots to register: {list(bots.keys())}")
     for key, bot in bots.items():
         webhook_url = f"{WEBHOOK_BASE_URL}{BOTS_CONFIG[key]['webhook_path']}"
@@ -91,6 +97,30 @@ app.include_router(cot.router, prefix="/api", tags=["cot"], dependencies=auth_de
 app.include_router(upload.router, prefix="/api", tags=["upload"], dependencies=auth_deps)
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(telegram_router, tags=["telegram"])
+
+# ── WebSocket: real-time COT push ──
+@app.websocket("/ws/cot")
+async def ws_cot(ws: WebSocket, token: str = WSQuery(...)):
+    secret = os.getenv("WHISPER_SECRET") or os.getenv("WHISPER_PASSWORD")
+    if not secret:
+        await ws.close(code=4001, reason="Auth not configured")
+        return
+    try:
+        jwt.decode(token, secret, algorithms=["HS256"])
+    except jwt.InvalidTokenError:
+        await ws.close(code=4003, reason="Invalid token")
+        return
+
+    await ws.accept()
+    cot_broadcaster.connect(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        cot_broadcaster.disconnect(ws)
+
 
 # Serve uploaded static files
 _static_dir = Path(__file__).parent.parent / "static"

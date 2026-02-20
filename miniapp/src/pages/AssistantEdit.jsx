@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ChevronLeft, Plus, X, Check, Save, Camera,
-  Maximize2, Minimize2, FileText, GripVertical,
+  Maximize2, Minimize2, FileText, GripVertical, History,
 } from "lucide-react";
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor,
@@ -45,20 +45,31 @@ function NmInput({ label, value, onChange, placeholder }) {
   );
 }
 
-function NmTextareaWithExpand({ label, value, onChange, placeholder, rows, onExpand }) {
+function NmTextareaWithExpand({ label, value, onChange, placeholder, rows, onExpand, onHistory }) {
   return (
     <div className="mb-4">
       <div className="mb-1.5 flex items-center justify-between">
         <label className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
           {label}
         </label>
-        <button
-          className="flex h-7 w-7 items-center justify-center rounded-full"
-          style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
-          onClick={onExpand}
-        >
-          <Maximize2 size={13} style={{ color: S.accentDark }} />
-        </button>
+        <div className="flex items-center gap-2">
+          {onHistory && (
+            <button
+              className="flex h-7 w-7 items-center justify-center rounded-full"
+              style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+              onClick={onHistory}
+            >
+              <History size={13} style={{ color: S.textMuted }} />
+            </button>
+          )}
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+            onClick={onExpand}
+          >
+            <Maximize2 size={13} style={{ color: S.accentDark }} />
+          </button>
+        </div>
       </div>
       <textarea
         value={value}
@@ -150,6 +161,148 @@ function FullscreenEditor({ value, onChange, onClose, title, placeholder }) {
         style={{ background: S.bg, color: S.text }}
         placeholder={placeholder || ""}
       />
+    </div>
+  );
+}
+
+// ── History Overlay ──
+function HistoryOverlay({ items, currentContent, onApply, onClose }) {
+  const [selected, setSelected] = useState("current");
+  const [detail, setDetail] = useState(null);
+
+  const formatDate = (ts) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    return d.toLocaleDateString("zh-CN", {
+      month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  };
+
+  const handleApply = () => {
+    if (selected === "current") { onClose(); return; }
+    const item = items.find((h) => h.id === selected);
+    if (item) onApply(item.content);
+    onClose();
+  };
+
+  if (detail) {
+    return (
+      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: S.bg }}>
+        <div
+          className="flex shrink-0 items-center justify-between px-5 py-4"
+          style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
+        >
+          <span className="text-[15px] font-bold" style={{ color: S.text }}>
+            版本 {detail.version}
+          </span>
+          <button
+            className="flex h-10 w-10 items-center justify-center rounded-full"
+            style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+            onClick={() => setDetail(null)}
+          >
+            <Minimize2 size={18} style={{ color: S.accentDark }} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 pb-10">
+          <div className="rounded-[14px] p-4" style={{ boxShadow: "var(--inset-shadow)", background: S.bg }}>
+            <p className="whitespace-pre-wrap text-[13px] leading-relaxed" style={{ color: S.text }}>
+              {detail.content}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: S.bg }}>
+      <div
+        className="flex shrink-0 items-center justify-between px-5 py-4"
+        style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
+      >
+        <span className="text-[15px] font-bold" style={{ color: S.text }}>历史版本</span>
+        <button
+          className="flex h-10 w-10 items-center justify-center rounded-full"
+          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+          onClick={onClose}
+        >
+          <Minimize2 size={18} style={{ color: S.accentDark }} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5">
+        {/* Current version */}
+        <div
+          className="mb-2 flex items-center gap-3 rounded-[14px] p-3"
+          style={{ boxShadow: selected === "current" ? "var(--inset-shadow)" : "var(--card-shadow-sm)", background: S.bg }}
+        >
+          <button
+            onClick={() => setSelected("current")}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+            style={{
+              background: selected === "current" ? S.accentDark : S.bg,
+              boxShadow: selected === "current" ? "none" : "var(--icon-inset)",
+            }}
+          >
+            {selected === "current" && <Check size={12} color="white" />}
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold" style={{ color: S.text }}>当前版本</span>
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                style={{ color: "#2a9d5c", background: "rgba(42,157,92,0.12)" }}
+              >
+                当前
+              </span>
+            </div>
+            <p className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{currentContent}</p>
+          </div>
+        </div>
+
+        {items.length === 0 && (
+          <p className="py-8 text-center text-[13px]" style={{ color: S.textMuted }}>暂无历史版本</p>
+        )}
+
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="mb-2 flex items-center gap-3 rounded-[14px] p-3"
+            style={{ boxShadow: selected === item.id ? "var(--inset-shadow)" : "var(--card-shadow-sm)", background: S.bg }}
+          >
+            <button
+              onClick={() => setSelected(item.id)}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+              style={{
+                background: selected === item.id ? S.accentDark : S.bg,
+                boxShadow: selected === item.id ? "none" : "var(--icon-inset)",
+              }}
+            >
+              {selected === item.id && <Check size={12} color="white" />}
+            </button>
+            <div className="flex-1 min-w-0" onClick={() => setDetail(item)}>
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-semibold" style={{ color: S.text }}>版本 {item.version}</span>
+                <span className="text-[10px]" style={{ color: S.textMuted }}>{formatDate(item.created_at)}</span>
+              </div>
+              <p className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{item.content}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="shrink-0 p-5">
+        <button
+          className="w-full rounded-[14px] py-3.5 text-[15px] font-bold text-white"
+          style={{
+            background: "linear-gradient(135deg, var(--accent), var(--accent-dark))",
+            boxShadow: "4px 4px 10px rgba(201,98,138,0.35)",
+          }}
+          onClick={handleApply}
+        >
+          确定
+        </button>
+      </div>
     </div>
   );
 }
@@ -557,6 +710,8 @@ export default function AssistantEdit() {
   const [sysPromptFullscreen, setSysPromptFullscreen] = useState(false);
   const [humanFullscreen, setHumanFullscreen] = useState(false);
   const [personaFullscreen, setPersonaFullscreen] = useState(false);
+  const [historyBlockType, setHistoryBlockType] = useState(null);
+  const [historyItems, setHistoryItems] = useState([]);
 
   const fileInputRef = useRef(null);
   const sysPromptFileRef = useRef(null);
@@ -573,6 +728,18 @@ export default function AssistantEdit() {
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2500);
+  };
+
+  const openHistory = async (type) => {
+    const blockId = type === "human" ? humanBlockId : personaBlockId;
+    if (!blockId) { showToast("请先保存后查看历史"); return; }
+    try {
+      const data = await apiFetch(`/api/core-blocks/${blockId}/history`);
+      setHistoryItems(data.history || []);
+      setHistoryBlockType(type);
+    } catch {
+      showToast("加载历史失败");
+    }
   };
 
   useEffect(() => {
@@ -869,6 +1036,7 @@ export default function AssistantEdit() {
                 placeholder="描述你自己，让 AI 了解你..."
                 rows={7}
                 onExpand={() => setHumanFullscreen(true)}
+                onHistory={humanBlockId ? () => openHistory("human") : undefined}
               />
             </div>
             <div
@@ -882,6 +1050,7 @@ export default function AssistantEdit() {
                 placeholder="AI 在相处中形成的自我认知..."
                 rows={7}
                 onExpand={() => setPersonaFullscreen(true)}
+                onHistory={personaBlockId ? () => openHistory("persona") : undefined}
               />
             </div>
           </>
@@ -929,6 +1098,17 @@ export default function AssistantEdit() {
           onClose={() => setPersonaFullscreen(false)}
           title="关于他"
           placeholder="AI 在相处中形成的自我认知..."
+        />
+      )}
+      {historyBlockType && (
+        <HistoryOverlay
+          items={historyItems}
+          currentContent={historyBlockType === "human" ? humanBlock : personaBlock}
+          onApply={(content) => {
+            if (historyBlockType === "human") setHumanBlock(content);
+            else setPersonaBlock(content);
+          }}
+          onClose={() => setHistoryBlockType(null)}
         />
       )}
 

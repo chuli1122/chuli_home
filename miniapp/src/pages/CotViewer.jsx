@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronUp, ChevronLeft, Wrench, MessageSquare, RefreshCw, Cpu } from "lucide-react";
 import { apiFetch } from "../utils/api";
@@ -36,7 +36,7 @@ function BlockChip({ block_type }) {
   );
 }
 
-function CotCard({ item, expanded, onToggle }) {
+function CotCard({ item, expanded, onToggle, live }) {
   return (
     <div
       className="mb-3 rounded-[18px] overflow-hidden"
@@ -55,6 +55,12 @@ function CotCard({ item, expanded, onToggle }) {
         </div>
         <div className="flex-1 min-w-0 text-left">
           <div className="flex items-center gap-2">
+            {live && (
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ background: S.accentDark }} />
+                <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: S.accentDark }} />
+              </span>
+            )}
             {item.has_tool_calls && (
               <span
                 className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
@@ -128,6 +134,9 @@ export default function CotViewer() {
   const [mode, setMode] = useState(() =>
     localStorage.getItem("chat_mode") || "long"
   );
+  const [wsConnected, setWsConnected] = useState(false);
+  const [liveRequestIds, setLiveRequestIds] = useState(new Set());
+  const wsRef = useRef(null);
 
   const load = () => {
     setLoading(true);
@@ -138,6 +147,104 @@ export default function CotViewer() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // WebSocket connection for real-time COT push
+  useEffect(() => {
+    const token = localStorage.getItem("whisper_token");
+    if (!token) return;
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${proto}//${location.host}/ws/cot?token=${encodeURIComponent(token)}`;
+
+    let ws;
+    let reconnectTimer;
+    let closed = false;
+
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => setWsConnected(true);
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+
+          if (msg.type === "done") {
+            setLiveRequestIds((prev) => {
+              const next = new Set(prev);
+              next.delete(msg.request_id);
+              return next;
+            });
+            return;
+          }
+
+          const { request_id, round_index, block_type, content, tool_name } = msg;
+
+          setItems((prev) => {
+            const idx = prev.findIndex((it) => it.request_id === request_id);
+            if (idx >= 0) {
+              const item = { ...prev[idx] };
+              const rounds = [...item.rounds];
+              const ri = rounds.findIndex((r) => r.round_index === round_index);
+              if (ri >= 0) {
+                rounds[ri] = {
+                  ...rounds[ri],
+                  blocks: [...rounds[ri].blocks, { block_type, content, tool_name }],
+                };
+              } else {
+                rounds.push({ round_index, blocks: [{ block_type, content, tool_name }] });
+                rounds.sort((a, b) => a.round_index - b.round_index);
+              }
+              item.rounds = rounds;
+              if (block_type === "tool_use") item.has_tool_calls = true;
+              if (block_type === "text" && !item.preview) item.preview = content.slice(0, 80);
+              const next = [...prev];
+              next[idx] = item;
+              return next;
+            }
+
+            // New request - insert at top
+            const now = new Date();
+            const newItem = {
+              request_id,
+              created_at: now.toLocaleDateString("zh-CN", {
+                month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
+              }),
+              preview: block_type === "text" ? content.slice(0, 80) : "",
+              has_tool_calls: block_type === "tool_use",
+              rounds: [{ round_index, blocks: [{ block_type, content, tool_name }] }],
+            };
+            return [newItem, ...prev];
+          });
+
+          // Mark as live and auto-expand
+          setLiveRequestIds((prev) => new Set(prev).add(request_id));
+          setExpandedId(request_id);
+        } catch { /* ignore malformed */ }
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        wsRef.current = null;
+        if (!closed) reconnectTimer = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => ws.close();
+    };
+
+    connect();
+
+    return () => {
+      closed = true;
+      clearTimeout(reconnectTimer);
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("chat_mode", mode);
@@ -170,14 +277,19 @@ export default function CotViewer() {
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
         <h1 className="text-[17px] font-bold" style={{ color: S.text }}>COT 日志</h1>
-        <button
-          className="flex h-10 w-10 items-center justify-center rounded-full"
-          style={{ background: S.bg, boxShadow: loading ? "var(--inset-shadow)" : "var(--card-shadow-sm)" }}
-          onClick={load}
-          disabled={loading}
-        >
-          <RefreshCw size={16} style={{ color: S.accentDark }} className={loading ? "animate-spin" : ""} />
-        </button>
+        <div className="flex items-center gap-2">
+          {wsConnected && (
+            <div className="h-2 w-2 rounded-full" style={{ background: "#2a9d5c" }} title="实时连接" />
+          )}
+          <button
+            className="flex h-10 w-10 items-center justify-center rounded-full"
+            style={{ background: S.bg, boxShadow: loading ? "var(--inset-shadow)" : "var(--card-shadow-sm)" }}
+            onClick={load}
+            disabled={loading}
+          >
+            <RefreshCw size={16} style={{ color: S.accentDark }} className={loading ? "animate-spin" : ""} />
+          </button>
+        </div>
       </div>
 
       {/* 3-segment mode selector */}
@@ -223,6 +335,7 @@ export default function CotViewer() {
               onToggle={() =>
                 setExpandedId(expandedId === item.request_id ? null : item.request_id)
               }
+              live={liveRequestIds.has(item.request_id)}
             />
           ))
         )}
