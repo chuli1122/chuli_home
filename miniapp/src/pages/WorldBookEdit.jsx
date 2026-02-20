@@ -144,14 +144,24 @@ function MessageModeChips({ selected, onChange }) {
   );
 }
 
-const MOOD_PRESETS = ["开心", "难过", "生气", "撒娇", "担心", "兴奋", "无聊", "疲惫"];
+const MOOD_PRESETS = [
+  { value: "happy", label: "开心" },
+  { value: "sad", label: "难过" },
+  { value: "angry", label: "生气" },
+  { value: "anxious", label: "焦虑" },
+  { value: "tired", label: "疲意" },
+  { value: "emo", label: "低落" },
+  { value: "flirty", label: "心动" },
+  { value: "proud", label: "得意" },
+  { value: "calm", label: "平静" },
+];
 
 function MoodChips({ selected, onChange }) {
-  const toggle = (mood) => {
-    if (selected.includes(mood)) {
-      onChange(selected.filter((m) => m !== mood));
+  const toggle = (value) => {
+    if (selected.includes(value)) {
+      onChange(selected.filter((m) => m !== value));
     } else {
-      onChange([...selected, mood]);
+      onChange([...selected, value]);
     }
   };
 
@@ -165,19 +175,19 @@ function MoodChips({ selected, onChange }) {
         style={{ boxShadow: "var(--inset-shadow)", background: S.bg, minHeight: 48 }}
       >
         {MOOD_PRESETS.map((mood) => {
-          const isSel = selected.includes(mood);
+          const isSel = selected.includes(mood.value);
           return (
             <button
-              key={mood}
+              key={mood.value}
               className="rounded-full px-3 py-1.5 text-[13px] font-medium transition-all"
               style={{
                 background: isSel ? S.accentDark : S.bg,
                 color: isSel ? "white" : S.textMuted,
                 boxShadow: isSel ? "none" : "var(--card-shadow-sm)",
               }}
-              onClick={() => toggle(mood)}
+              onClick={() => toggle(mood.value)}
             >
-              {mood}
+              {mood.label}
             </button>
           );
         })}
