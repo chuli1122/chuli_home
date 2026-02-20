@@ -1379,7 +1379,7 @@ class ChatService:
                 anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
                 anth_tools = _oai_tools_to_anthropic(tools)
                 try:
-                        thinking_budget = max(1024, preset_max_tokens // 2)
+                    thinking_budget = max(1024, preset_max_tokens // 2)
                     anth_kwargs: dict[str, Any] = {
                         "model": model_name,
                         "max_tokens": preset_max_tokens + thinking_budget,
