@@ -166,6 +166,42 @@ class MemoryService:
         self.db.refresh(diary)
         return {"id": diary.id, "title": diary.title}
 
+    def read_diary(self, payload: dict[str, Any]) -> dict[str, Any]:
+        diary_id = payload.get("diary_id")
+        now = datetime.now(timezone.utc)
+        if diary_id:
+            diary = self.db.query(Diary).filter(Diary.id == diary_id, Diary.deleted_at.is_(None)).first()
+            if not diary:
+                return {"error": "日记不存在"}
+            if diary.unlock_at and diary.unlock_at > now:
+                return {"error": "该日记尚未解锁", "unlock_at": self._format_time_east8(diary.unlock_at)}
+            if diary.author == "user":
+                diary.read_at = now
+                self.db.commit()
+            return {
+                "id": diary.id, "title": diary.title, "content": diary.content,
+                "author": diary.author,
+                "created_at": self._format_time_east8(diary.created_at),
+                "unlock_at": self._format_time_east8(diary.unlock_at),
+            }
+        else:
+            query = self.db.query(Diary).filter(Diary.deleted_at.is_(None))
+            author = payload.get("author")
+            if author:
+                query = query.filter(Diary.author == author)
+            rows = query.order_by(Diary.created_at.desc()).limit(50).all()
+            items = []
+            for r in rows:
+                locked = bool(r.unlock_at and r.unlock_at > now)
+                items.append({
+                    "id": r.id, "title": r.title, "author": r.author,
+                    "created_at": self._format_time_east8(r.created_at),
+                    "unlock_at": self._format_time_east8(r.unlock_at),
+                    "read_at": self._format_time_east8(getattr(r, "read_at", None)),
+                    "locked": locked,
+                })
+            return {"diaries": items, "total": len(items)}
+
     @staticmethod
     def _format_time_east8(value: datetime | None) -> str | None:
         if value is None:
@@ -897,7 +933,7 @@ class ChatService:
         "write_diary",
         "web_search",
     }
-    silent_tools = {"list_memories", "search_memory", "search_summary", "search_chat_history", "search_theater"}
+    silent_tools = {"list_memories", "search_memory", "search_summary", "search_chat_history", "search_theater", "read_diary"}
     tool_display_names = {
         "save_memory": "创建记忆",
         "update_memory": "更新记忆",
@@ -1243,6 +1279,7 @@ class ChatService:
             {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}}, "required": ["query"]}}},
             {"type": "function", "function": {"name": "search_chat_history", "description": "搜索聊天记录原文。三种模式：\n1) 关键词搜索：传 query，返回命中消息（不带上下文）\n2) ID 范围：传 msg_id_start + msg_id_end，拉取该范围内的完整对话\n3) 单条 ID：传 message_id，返回该条及前后各 3 条上下文", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "session_id": {"type": "integer"}, "msg_id_start": {"type": "integer"}, "msg_id_end": {"type": "integer"}, "message_id": {"type": "integer"}}}}},
             {"type": "function", "function": {"name": "search_theater", "description": "搜索小剧场故事摘要。用于查找过去的 RP / 小剧场剧情记录，返回故事标题、AI伙伴、摘要全文、时间跨度。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}},
+            {"type": "function", "function": {"name": "read_diary", "description": "读取交换日记。两种模式：\n1) list 模式：不传 diary_id，可选传 author（user/assistant）筛选，返回日记列表（id、title、author、created_at、unlock_at、read_at），不含正文。未解锁的定时日记也会列出但标记 locked=true。\n2) read 模式：传 diary_id，返回该日记完整内容（id、title、content、author、created_at、unlock_at）。用户写给你的日记（author=user）读取时自动记录已读时间。未解锁的定时日记不允许读取。", "parameters": {"type": "object", "properties": {"diary_id": {"type": "integer", "description": "日记ID，传入则为read模式"}, "author": {"type": "string", "enum": ["user", "assistant"], "description": "list模式下按作者筛选"}}}}},
         ]
         # Client setup
         base_url = api_provider.base_url
@@ -1591,6 +1628,8 @@ class ChatService:
             return self.memory_service.search_chat_history(tool_call.arguments)
         if tool_name == "search_theater":
             return self.memory_service.search_theater(tool_call.arguments)
+        if tool_name == "read_diary":
+            return self.memory_service.read_diary(tool_call.arguments)
         if tool_name == "web_search":
             return {"status": "not_implemented", "payload": tool_call.arguments}
         return {"status": "unknown_tool", "payload": tool_call.arguments}

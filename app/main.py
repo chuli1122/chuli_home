@@ -57,16 +57,30 @@ def _run_migrations(eng) -> None:
                     "ALTER TABLE session_summaries ADD COLUMN deleted_at TIMESTAMPTZ"
                 ))
             logger.info("Added deleted_at column to session_summaries")
-    # messages.telegram_message_id
+    # messages.telegram_message_id (JSONB array)
     if "messages" in insp.get_table_names():
-        cols = [c["name"] for c in insp.get_columns("messages")]
+        cols = {c["name"]: c for c in insp.get_columns("messages")}
         if "telegram_message_id" not in cols:
             with eng.begin() as conn:
-                conn.execute(text("ALTER TABLE messages ADD COLUMN telegram_message_id BIGINT"))
+                conn.execute(text("ALTER TABLE messages ADD COLUMN telegram_message_id JSONB"))
                 conn.execute(text(
-                    "CREATE INDEX IF NOT EXISTS ix_messages_telegram_message_id ON messages(telegram_message_id)"
+                    "CREATE INDEX IF NOT EXISTS ix_messages_tgmid_gin ON messages USING GIN(telegram_message_id)"
                 ))
-            logger.info("Added telegram_message_id column to messages")
+            logger.info("Added telegram_message_id JSONB column to messages")
+        else:
+            col_type = str(cols["telegram_message_id"]["type"]).upper()
+            if "JSON" not in col_type:
+                with eng.begin() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE messages ALTER COLUMN telegram_message_id "
+                        "TYPE JSONB USING CASE WHEN telegram_message_id IS NOT NULL "
+                        "THEN jsonb_build_array(telegram_message_id) ELSE NULL END"
+                    ))
+                    conn.execute(text("DROP INDEX IF EXISTS ix_messages_telegram_message_id"))
+                    conn.execute(text(
+                        "CREATE INDEX IF NOT EXISTS ix_messages_tgmid_gin ON messages USING GIN(telegram_message_id)"
+                    ))
+                logger.info("Migrated telegram_message_id from BIGINT to JSONB")
     # diary new columns
     if "diary" in insp.get_table_names():
         cols = [c["name"] for c in insp.get_columns("diary")]
@@ -79,6 +93,8 @@ def _run_migrations(eng) -> None:
                 conn.execute(text("ALTER TABLE diary ADD COLUMN unlock_at TIMESTAMPTZ"))
             if "deleted_at" not in cols:
                 conn.execute(text("ALTER TABLE diary ADD COLUMN deleted_at TIMESTAMPTZ"))
+            if "read_at" not in cols:
+                conn.execute(text("ALTER TABLE diary ADD COLUMN read_at TIMESTAMPTZ"))
 
 
 @app.on_event("startup")

@@ -86,7 +86,7 @@ def _chat_completion_sync(
     assistant_name: str,
     message: str,
     short_mode: bool,
-    telegram_message_id: int | None = None,
+    telegram_message_id: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Synchronous wrapper: pre-stores user message (with telegram_message_id),
@@ -153,7 +153,7 @@ async def call_chat_completion(
     assistant_name: str,
     message: str,
     short_mode: bool,
-    telegram_message_id: int | None = None,
+    telegram_message_id: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     return await asyncio.to_thread(
         _chat_completion_sync,
@@ -172,7 +172,7 @@ def _update_telegram_msg_id_sync(message_db_id: int, telegram_msg_id: int) -> No
     try:
         msg = db.get(Message, message_db_id)
         if msg:
-            msg.telegram_message_id = telegram_msg_id
+            msg.telegram_message_id = [telegram_msg_id]
             db.commit()
     finally:
         db.close()
@@ -183,11 +183,14 @@ async def update_telegram_message_id(message_db_id: int, telegram_msg_id: int) -
 
 
 def _lookup_by_telegram_id_sync(telegram_msg_id: int) -> dict[str, Any] | None:
+    from sqlalchemy import cast
+    from sqlalchemy.dialects.postgresql import JSONB as JSONB_TYPE
+
     db = SessionLocal()
     try:
         msg = (
             db.query(Message)
-            .filter(Message.telegram_message_id == telegram_msg_id)
+            .filter(Message.telegram_message_id.op("@>")(cast([telegram_msg_id], JSONB_TYPE)))
             .first()
         )
         if msg:

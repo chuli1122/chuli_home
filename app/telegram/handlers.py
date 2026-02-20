@@ -94,7 +94,7 @@ async def _process_request(
     bot_key: str,
     assistant_id: int,
     is_short: bool = False,
-    telegram_message_id: int | None = None,
+    telegram_message_id: list[int] | None = None,
 ) -> None:
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(_typing_loop(bot, chat_id, stop_event))
@@ -139,12 +139,12 @@ async def _buffer_fire(chat_id: int, bot: Bot, delay: float, bot_key: str, assis
     buf = state.buffers.pop(chat_id, None)
     if buf and buf.messages:
         combined = "\n".join(buf.messages)
-        tg_id = buf.message_ids[-1] if buf.message_ids else None
+        tg_ids = buf.message_ids if buf.message_ids else None
         mode = await get_chat_mode()
         await _process_request(
             chat_id, combined, bot, bot_key, assistant_id,
             is_short=(mode == "short"),
-            telegram_message_id=tg_id,
+            telegram_message_id=tg_ids,
         )
 
 
@@ -213,5 +213,5 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
         await _process_request(
             chat_id, text, bot, bot_key, assistant_id,
             is_short=False,
-            telegram_message_id=message.message_id,
+            telegram_message_id=[message.message_id],
         )

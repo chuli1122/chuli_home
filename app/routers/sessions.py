@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, cast, func, or_
+from sqlalchemy.dialects.postgresql import JSONB as JSONB_TYPE
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -173,6 +174,7 @@ def get_session_messages(
     limit: int = Query(50, ge=1, le=200),
     before_id: int | None = Query(None, ge=1),
     search: str | None = Query(None, min_length=1),
+    tg_msg_id: int | None = Query(None),
     db: Session = Depends(get_db),
 ) -> SessionMessagesResponse:
     session_row = db.query(ChatSession).filter(ChatSession.id == session_id).first()
@@ -197,6 +199,12 @@ def get_session_messages(
     # Search filter
     if search:
         query = query.filter(Message.content.like(f"%{search}%"))
+
+    # Telegram message ID filter
+    if tg_msg_id is not None:
+        query = query.filter(
+            Message.telegram_message_id.op("@>")(cast([tg_msg_id], JSONB_TYPE))
+        )
 
     # Query limit + 1 to check if there are more messages
     rows_desc = query.order_by(Message.id.desc()).limit(limit + 1).all()
