@@ -688,13 +688,13 @@ export default function ApiSettings() {
       {/* Name modal */}
       {nameModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center"
+          className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ background: "rgba(0,0,0,0.25)" }}
           onClick={() => setNameModalOpen(false)}
         >
           <div
-            className="w-full rounded-t-[28px] p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-            style={{ background: S.bg, boxShadow: "0 -4px 20px rgba(0,0,0,0.12)" }}
+            className="mx-6 w-full max-w-[300px] rounded-[22px] p-6"
+            style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="mb-4 text-center text-[16px] font-bold" style={{ color: S.text }}>预设名称</p>
@@ -719,20 +719,20 @@ export default function ApiSettings() {
       {/* Delete confirm */}
       {deleteTarget && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center"
+          className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ background: "rgba(0,0,0,0.25)" }}
           onClick={() => setDeleteTarget(null)}
         >
           <div
-            className="w-full rounded-t-[28px] p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-            style={{ background: S.bg, boxShadow: "0 -4px 20px rgba(0,0,0,0.12)" }}
+            className="mx-6 w-full max-w-[300px] rounded-[22px] p-6"
+            style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>删除预设</p>
-            <p className="mb-6 text-center text-[13px]" style={{ color: S.textMuted }}>确定要删除「{deleteTarget.name}」吗？</p>
+            <p className="mb-5 text-center text-[13px]" style={{ color: S.textMuted }}>确定要删除「{deleteTarget.name}」吗？</p>
             <div className="flex gap-3">
               <button className="flex-1 rounded-[16px] py-3 text-[14px] font-semibold" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text }} onClick={() => setDeleteTarget(null)}>取消</button>
-              <button className="flex-1 rounded-[16px] py-3 text-[14px] font-bold text-white" style={{ background: "#ff4d6d" }} onClick={confirmDelete}>删除</button>
+              <button className="flex-1 rounded-[16px] py-3 text-[14px] font-bold text-white" style={{ background: "#ff4d6d", boxShadow: "4px 4px 10px rgba(255,77,109,0.4)" }} onClick={confirmDelete}>删除</button>
             </div>
           </div>
         </div>
@@ -740,8 +740,8 @@ export default function ApiSettings() {
 
       {/* Rename modal */}
       {renameTarget && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={() => setRenameTarget(null)}>
-          <div className="w-full rounded-t-[28px] p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]" style={{ background: S.bg }} onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={() => setRenameTarget(null)}>
+          <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
             <p className="mb-4 text-center text-[16px] font-bold" style={{ color: S.text }}>修改名称</p>
             <input autoFocus type="text" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} className="w-full rounded-[14px] px-4 py-3 text-[15px] outline-none mb-4" style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text }} onKeyDown={(e) => e.key === "Enter" && confirmRename()} />
             <div className="flex gap-3">
