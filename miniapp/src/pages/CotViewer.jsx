@@ -56,10 +56,10 @@ function CotCard({ item, expanded, onToggle, live }) {
         <div className="flex-1 min-w-0 text-left">
           <div className="flex items-center gap-2">
             {live && (
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ background: S.accentDark }} />
-                <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: S.accentDark }} />
-              </span>
+              <span
+                className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px]"
+                style={{ borderColor: S.accentDark, borderTopColor: "transparent" }}
+              />
             )}
             {item.has_tool_calls && (
               <span

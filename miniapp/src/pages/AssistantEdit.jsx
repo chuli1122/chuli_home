@@ -178,10 +178,10 @@ function HistoryOverlay({ items, currentContent, onApply, onClose }) {
     });
   };
 
-  const handleApply = () => {
+  const handleApply = async () => {
     if (selected === "current") { onClose(); return; }
     const item = items.find((h) => h.id === selected);
-    if (item) onApply(item.content);
+    if (item) await onApply(item.content);
     onClose();
   };
 
@@ -1104,9 +1104,19 @@ export default function AssistantEdit() {
         <HistoryOverlay
           items={historyItems}
           currentContent={historyBlockType === "human" ? humanBlock : personaBlock}
-          onApply={(content) => {
-            if (historyBlockType === "human") setHumanBlock(content);
-            else setPersonaBlock(content);
+          onApply={async (content) => {
+            const blockId = historyBlockType === "human" ? humanBlockId : personaBlockId;
+            try {
+              await apiFetch(`/api/core-blocks/${blockId}`, {
+                method: "PUT",
+                body: { content },
+              });
+              if (historyBlockType === "human") setHumanBlock(content);
+              else setPersonaBlock(content);
+              showToast("已回滚到历史版本");
+            } catch {
+              showToast("回滚失败");
+            }
           }}
           onClose={() => setHistoryBlockType(null)}
         />
