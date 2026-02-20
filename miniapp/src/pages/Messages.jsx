@@ -90,6 +90,7 @@ function SwipeRow({ children, onDelete }) {
 
 function MsgItem({ msg, roleLabel, roleColor, fmtTime, onDelete }) {
   const [expanded, setExpanded] = useState(false);
+  const isLong = msg.content.length > 100;
   return (
     <SwipeRow onDelete={onDelete}>
       <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
@@ -98,15 +99,21 @@ function MsgItem({ msg, roleLabel, roleColor, fmtTime, onDelete }) {
           <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
         </div>
         <div
-          className="text-[12px] leading-relaxed break-words overflow-hidden cursor-pointer transition-all"
-          style={{ color: S.text, maxHeight: expanded ? "none" : 80 }}
+          className="text-[12px] leading-relaxed break-words cursor-pointer"
+          style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}
           onClick={() => setExpanded(!expanded)}
         >
           {msg.content}
         </div>
-        {!expanded && msg.content.length > 120 && (
-          <div className="mt-1 flex justify-end">
-            <ChevronDown size={12} style={{ color: S.textMuted }} />
+        {isLong && (
+          <div className="mt-1 flex justify-center">
+            <button
+              className="rounded-full px-2 py-0.5 text-[10px]"
+              style={{ color: "#d48aab", background: "rgba(232,160,191,0.1)" }}
+              onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+            >
+              {expanded ? "收起" : "查看更多"}
+            </button>
           </div>
         )}
       </div>

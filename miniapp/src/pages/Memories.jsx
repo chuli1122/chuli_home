@@ -141,6 +141,8 @@ function SwipeRow({ children, onDelete }) {
 
 function ExpandableCard({ children, time, badge, keyword, onSwipeDelete, onEdit }) {
   const [expanded, setExpanded] = useState(false);
+  const text = typeof children === "string" ? children : "";
+  const isLong = text.length > 80;
   const inSwipe = !!onSwipeDelete;
   const inner = (
     <div className={inSwipe ? "rounded-[18px] p-3" : "mb-3 rounded-[18px] p-3"} style={{ background: S.bg, boxShadow: inSwipe ? "none" : "var(--card-shadow-sm)" }}>
@@ -148,11 +150,11 @@ function ExpandableCard({ children, time, badge, keyword, onSwipeDelete, onEdit 
         <div className="flex-1 min-w-0">
           {badge}
           <div
-            className="text-[12px] leading-relaxed break-words overflow-hidden cursor-pointer transition-all"
-            style={{ color: S.text, maxHeight: expanded ? "none" : 64 }}
+            className="text-[12px] leading-relaxed break-words cursor-pointer"
+            style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
             onClick={() => setExpanded(!expanded)}
           >
-            <Highlight text={typeof children === "string" ? children : ""} keyword={keyword} />
+            <Highlight text={text} keyword={keyword} />
           </div>
         </div>
         {onEdit && (
@@ -165,12 +167,18 @@ function ExpandableCard({ children, time, badge, keyword, onSwipeDelete, onEdit 
           </button>
         )}
       </div>
-      {time && (
-        <div className="mt-1 flex items-center justify-between">
-          <span className="text-[10px]" style={{ color: S.textMuted }}>{time}</span>
-          {!expanded && <ChevronDown size={12} style={{ color: S.textMuted }} />}
-        </div>
-      )}
+      <div className="mt-1 flex items-center justify-between">
+        <span className="text-[10px]" style={{ color: S.textMuted }}>{time || ""}</span>
+        {isLong && (
+          <button
+            className="rounded-full px-2 py-0.5 text-[10px]"
+            style={{ color: S.accentDark, background: "rgba(232,160,191,0.1)" }}
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+          >
+            {expanded ? "收起" : "查看更多"}
+          </button>
+        )}
+      </div>
     </div>
   );
   if (onSwipeDelete) return <SwipeRow onDelete={onSwipeDelete}>{inner}</SwipeRow>;
@@ -181,11 +189,27 @@ function ExpandableCard({ children, time, badge, keyword, onSwipeDelete, onEdit 
 
 function TrashCard({ content, deletedAt, keyword, onRestore, onPermanentDelete }) {
   const [expanded, setExpanded] = useState(false);
+  const isLong = (content || "").length > 80;
   return (
     <div className="mb-2 rounded-[14px] p-3" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", opacity: 0.75 }}>
-      <div className="text-[12px] leading-relaxed break-words overflow-hidden cursor-pointer" style={{ color: S.text, maxHeight: expanded ? "none" : 64 }} onClick={() => setExpanded(!expanded)}>
+      <div
+        className="text-[12px] leading-relaxed break-words cursor-pointer"
+        style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+        onClick={() => setExpanded(!expanded)}
+      >
         <Highlight text={content} keyword={keyword} />
       </div>
+      {isLong && (
+        <div className="mt-1 flex justify-center">
+          <button
+            className="rounded-full px-2 py-0.5 text-[10px]"
+            style={{ color: S.accentDark, background: "rgba(232,160,191,0.1)" }}
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+          >
+            {expanded ? "收起" : "查看更多"}
+          </button>
+        </div>
+      )}
       <div className="mt-2 flex items-center justify-between">
         <span className="text-[10px]" style={{ color: S.textMuted }}>{deletedAt ? `删除于 ${fmtTime(deletedAt)}` : ""}</span>
         <div className="flex gap-2">
@@ -201,6 +225,7 @@ function TrashCard({ content, deletedAt, keyword, onRestore, onPermanentDelete }
 
 function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
   const [expanded, setExpanded] = useState(false);
+  const isLong = msg.content.length > 100;
   return (
     <SwipeRow onDelete={onDelete}>
       <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
@@ -209,15 +234,21 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
           <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
         </div>
         <div
-          className="text-[12px] leading-relaxed break-words overflow-hidden cursor-pointer transition-all"
-          style={{ color: S.text, maxHeight: expanded ? "none" : 80 }}
+          className="text-[12px] leading-relaxed break-words cursor-pointer"
+          style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}
           onClick={() => setExpanded(!expanded)}
         >
           <Highlight text={msg.content} keyword={keyword} />
         </div>
-        {!expanded && msg.content.length > 120 && (
-          <div className="mt-1 flex justify-end">
-            <ChevronDown size={12} style={{ color: S.textMuted }} />
+        {isLong && (
+          <div className="mt-1 flex justify-center">
+            <button
+              className="rounded-full px-2 py-0.5 text-[10px]"
+              style={{ color: S.accentDark, background: "rgba(232,160,191,0.1)" }}
+              onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+            >
+              {expanded ? "收起" : "查看更多"}
+            </button>
           </div>
         )}
       </div>
