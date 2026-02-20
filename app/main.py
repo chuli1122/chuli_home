@@ -57,9 +57,13 @@ def _run_migrations(eng) -> None:
                     "ALTER TABLE session_summaries ADD COLUMN deleted_at TIMESTAMPTZ"
                 ))
             logger.info("Added deleted_at column to session_summaries")
-    # messages.telegram_message_id (JSONB array)
+    # messages columns
     if "messages" in insp.get_table_names():
         cols = {c["name"]: c for c in insp.get_columns("messages")}
+        if "summary_group_id" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN summary_group_id INTEGER"))
+            logger.info("Added summary_group_id column to messages")
         if "telegram_message_id" not in cols:
             with eng.begin() as conn:
                 conn.execute(text("ALTER TABLE messages ADD COLUMN telegram_message_id JSONB"))
