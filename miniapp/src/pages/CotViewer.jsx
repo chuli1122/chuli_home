@@ -152,17 +152,28 @@ function AvatarIcon({ avatarUrl }) {
 
 /* ── COT Card ── */
 
-function TokenBadge({ prompt, completion }) {
+function fmtTokens(n) {
+  if (!n) return "0";
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+function TokenBadges({ prompt, completion }) {
   if (!prompt && !completion) return null;
-  const total = prompt + completion;
   return (
-    <span
-      className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
-      style={{ background: "rgba(100,160,220,0.12)", color: "#4a8abf" }}
-      title={`prompt: ${prompt} / completion: ${completion}`}
-    >
-      {total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total}
-    </span>
+    <>
+      <span
+        className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
+        style={{ background: "rgba(80,160,120,0.12)", color: "#3a8a5f" }}
+      >
+        ↑{fmtTokens(prompt)}
+      </span>
+      <span
+        className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
+        style={{ background: "rgba(160,100,220,0.12)", color: "#8a5abf" }}
+      >
+        ↓{fmtTokens(completion)}
+      </span>
+    </>
   );
 }
 
@@ -193,7 +204,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
                 工具
               </span>
             )}
-            <TokenBadge prompt={item.prompt_tokens || 0} completion={item.completion_tokens || 0} />
+            <TokenBadges prompt={item.prompt_tokens || 0} completion={item.completion_tokens || 0} />
             <span className="text-[10px]" style={{ color: S.textMuted }}>
               {item.created_at || ""}
             </span>
