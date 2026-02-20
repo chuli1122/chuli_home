@@ -1902,7 +1902,7 @@ class ChatService:
         content: str | list,
         metadata: dict[str, Any],
         request_id: str | None = None,
-    ) -> None:
+    ) -> Message:
         storage_content = self._content_to_storage(content)
         message = Message(
             session_id=session_id,
@@ -1914,4 +1914,5 @@ class ChatService:
         self.db.add(message)
         self.db.commit()
         self.db.refresh(message)
+        return message
 

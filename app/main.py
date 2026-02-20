@@ -57,6 +57,16 @@ def _run_migrations(eng) -> None:
                     "ALTER TABLE session_summaries ADD COLUMN deleted_at TIMESTAMPTZ"
                 ))
             logger.info("Added deleted_at column to session_summaries")
+    # messages.telegram_message_id
+    if "messages" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("messages")]
+        if "telegram_message_id" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN telegram_message_id BIGINT"))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_messages_telegram_message_id ON messages(telegram_message_id)"
+                ))
+            logger.info("Added telegram_message_id column to messages")
     # diary new columns
     if "diary" in insp.get_table_names():
         cols = [c["name"] for c in insp.get_columns("diary")]

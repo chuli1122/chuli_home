@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -181,6 +182,14 @@ def get_session_messages(
     query = db.query(Message).filter(
         Message.session_id == session_id,
         Message.role.in_(["user", "assistant", "system"]),
+        func.length(func.trim(Message.content)) > 0,
+        or_(
+            Message.role != "assistant",
+            and_(
+                ~Message.meta_info.has_key("tool_calls"),
+                ~Message.meta_info.has_key("tool_call"),
+            ),
+        ),
     )
     if before_id is not None:
         query = query.filter(Message.id < before_id)

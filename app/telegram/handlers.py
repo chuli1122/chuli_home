@@ -11,7 +11,15 @@ from aiogram.types import Message
 
 from .config import ALLOWED_CHAT_ID
 from .keyboards import get_main_keyboard
-from .service import call_chat_completion, get_buffer_seconds, get_chat_mode, get_session_info, undo_last_round
+from .service import (
+    call_chat_completion,
+    get_buffer_seconds,
+    get_chat_mode,
+    get_session_info,
+    lookup_by_telegram_message_id,
+    undo_last_round,
+    update_telegram_message_id,
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -21,6 +29,7 @@ router = Router()
 @dataclass
 class _ChatBuffer:
     messages: list[str] = field(default_factory=list)
+    message_ids: list[int] = field(default_factory=list)
     timer_task: Optional[asyncio.Task] = None
 
 
@@ -60,17 +69,22 @@ async def _typing_loop(bot: Bot, chat_id: int, stop_event: asyncio.Event) -> Non
             pass
 
 
-async def _send_reply(bot: Bot, chat_id: int, text: str, is_short: bool) -> None:
+async def _send_reply(bot: Bot, chat_id: int, text: str, is_short: bool) -> list[int]:
+    """Send reply and return list of telegram message IDs."""
+    tg_ids: list[int] = []
     if not text.strip():
-        return
+        return tg_ids
     if is_short:
         parts = [p.strip() for p in text.split("[NEXT]") if p.strip()]
         for i, part in enumerate(parts):
             if i > 0:
                 await asyncio.sleep(1.5)
-            await bot.send_message(chat_id=chat_id, text=part)
+            sent = await bot.send_message(chat_id=chat_id, text=part)
+            tg_ids.append(sent.message_id)
     else:
-        await bot.send_message(chat_id=chat_id, text=text)
+        sent = await bot.send_message(chat_id=chat_id, text=text)
+        tg_ids.append(sent.message_id)
+    return tg_ids
 
 
 async def _process_request(
@@ -80,6 +94,7 @@ async def _process_request(
     bot_key: str,
     assistant_id: int,
     is_short: bool = False,
+    telegram_message_id: int | None = None,
 ) -> None:
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(_typing_loop(bot, chat_id, stop_event))
@@ -87,7 +102,9 @@ async def _process_request(
     try:
         session_id, assistant_name = await get_session_info(assistant_id)
         result_messages = await call_chat_completion(
-            session_id, assistant_name, combined_text, short_mode=is_short
+            session_id, assistant_name, combined_text,
+            short_mode=is_short,
+            telegram_message_id=telegram_message_id,
         )
 
         stop_event.set()
@@ -100,7 +117,10 @@ async def _process_request(
                 continue
             if sent_count > 0:
                 await asyncio.sleep(1.0)
-            await _send_reply(bot, chat_id, content, is_short=is_short)
+            tg_ids = await _send_reply(bot, chat_id, content, is_short=is_short)
+            # Write back telegram message ID to the assistant message in DB
+            if tg_ids and msg.get("db_id"):
+                await update_telegram_message_id(msg["db_id"], tg_ids[-1])
             sent_count += 1
 
     except Exception as exc:
@@ -119,8 +139,13 @@ async def _buffer_fire(chat_id: int, bot: Bot, delay: float, bot_key: str, assis
     buf = state.buffers.pop(chat_id, None)
     if buf and buf.messages:
         combined = "\n".join(buf.messages)
+        tg_id = buf.message_ids[-1] if buf.message_ids else None
         mode = await get_chat_mode()
-        await _process_request(chat_id, combined, bot, bot_key, assistant_id, is_short=(mode == "short"))
+        await _process_request(
+            chat_id, combined, bot, bot_key, assistant_id,
+            is_short=(mode == "short"),
+            telegram_message_id=tg_id,
+        )
 
 
 # ── Command handlers ─────────────────────────────────────────────────────────
@@ -160,6 +185,14 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
     if not text:
         return
 
+    # Handle reply/quote — look up the quoted message by telegram_message_id
+    if message.reply_to_message:
+        quoted_tg_id = message.reply_to_message.message_id
+        quoted = await lookup_by_telegram_message_id(quoted_tg_id)
+        if quoted:
+            quote_prefix = f"[引用消息 id={quoted['id']}] {quoted['content']}"
+            text = f"{quote_prefix}\n{text}"
+
     chat_id = message.chat.id
     state = _get_state(bot_key)
     mode = await get_chat_mode()
@@ -168,6 +201,7 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
         delay = await get_buffer_seconds()
         buf = state.buffers.setdefault(chat_id, _ChatBuffer())
         buf.messages.append(text)
+        buf.message_ids.append(message.message_id)
 
         if buf.timer_task and not buf.timer_task.done():
             buf.timer_task.cancel()
@@ -176,4 +210,8 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
             _buffer_fire(chat_id, bot, delay, bot_key, assistant_id)
         )
     else:
-        await _process_request(chat_id, text, bot, bot_key, assistant_id, is_short=False)
+        await _process_request(
+            chat_id, text, bot, bot_key, assistant_id,
+            is_short=False,
+            telegram_message_id=message.message_id,
+        )
