@@ -46,6 +46,16 @@ function NmInput({ label, value, onChange, placeholder }) {
 }
 
 function NmTextareaWithExpand({ label, value, onChange, placeholder, rows, onExpand, onHistory }) {
+  const importRef = useRef(null);
+  const handleImportFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => onChange(ev.target.result || "");
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
   return (
     <div className="mb-4">
       <div className="mb-1.5 flex items-center justify-between">
@@ -53,6 +63,21 @@ function NmTextareaWithExpand({ label, value, onChange, placeholder, rows, onExp
           {label}
         </label>
         <div className="flex items-center gap-2">
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+            onClick={onExpand}
+          >
+            <Maximize2 size={13} style={{ color: S.accentDark }} />
+          </button>
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+            onClick={() => importRef.current?.click()}
+          >
+            <FileText size={13} style={{ color: S.textMuted }} />
+          </button>
+          <input ref={importRef} type="file" accept=".txt,.md,.text" className="hidden" onChange={handleImportFile} />
           {onHistory && (
             <button
               className="flex h-7 w-7 items-center justify-center rounded-full"
@@ -62,13 +87,6 @@ function NmTextareaWithExpand({ label, value, onChange, placeholder, rows, onExp
               <History size={13} style={{ color: S.textMuted }} />
             </button>
           )}
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-full"
-            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
-            onClick={onExpand}
-          >
-            <Maximize2 size={13} style={{ color: S.accentDark }} />
-          </button>
         </div>
       </div>
       <textarea
@@ -832,14 +850,25 @@ export default function AssistantEdit() {
         await apiFetch(`/api/assistants/${id}`, { method: "PUT", body: updateBody });
       }
 
-      const blockSaves = [];
+      // Save core blocks — create if not existing, update if existing
       if (humanBlockId) {
-        blockSaves.push(apiFetch(`/api/core-blocks/${humanBlockId}`, { method: "PUT", body: { content: humanBlock } }));
+        await apiFetch(`/api/core-blocks/${humanBlockId}`, { method: "PUT", body: { content: humanBlock } });
+      } else if (humanBlock.trim()) {
+        const created = await apiFetch("/api/core-blocks", {
+          method: "POST",
+          body: { block_type: "human", assistant_id: Number(assistantId), content: humanBlock },
+        });
+        setHumanBlockId(created.id);
       }
       if (personaBlockId) {
-        blockSaves.push(apiFetch(`/api/core-blocks/${personaBlockId}`, { method: "PUT", body: { content: personaBlock } }));
+        await apiFetch(`/api/core-blocks/${personaBlockId}`, { method: "PUT", body: { content: personaBlock } });
+      } else if (personaBlock.trim()) {
+        const created = await apiFetch("/api/core-blocks", {
+          method: "POST",
+          body: { block_type: "persona", assistant_id: Number(assistantId), content: personaBlock },
+        });
+        setPersonaBlockId(created.id);
       }
-      await Promise.all(blockSaves);
 
       showToast("已保存");
     } catch (e) {
@@ -851,7 +880,7 @@ export default function AssistantEdit() {
 
   const tabs = [
     { key: "basic", label: "基础设置" },
-    { key: "about", label: "关于我们" },
+    { key: "about", label: "Core Blocks" },
     { key: "books", label: "世界书" },
   ];
 
@@ -1030,7 +1059,7 @@ export default function AssistantEdit() {
               style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
             >
               <NmTextareaWithExpand
-                label="关于我（AI 视角）"
+                label="human block（关于她）"
                 value={humanBlock}
                 onChange={setHumanBlock}
                 placeholder="描述你自己，让 AI 了解你..."
@@ -1044,7 +1073,7 @@ export default function AssistantEdit() {
               style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
             >
               <NmTextareaWithExpand
-                label="关于他"
+                label="persona block（关于自己）"
                 value={personaBlock}
                 onChange={setPersonaBlock}
                 placeholder="AI 在相处中形成的自我认知..."
@@ -1087,7 +1116,7 @@ export default function AssistantEdit() {
           value={humanBlock}
           onChange={setHumanBlock}
           onClose={() => setHumanFullscreen(false)}
-          title="关于我（AI 视角）"
+          title="human block（关于她）"
           placeholder="描述你自己，让 AI 了解你..."
         />
       )}
@@ -1096,7 +1125,7 @@ export default function AssistantEdit() {
           value={personaBlock}
           onChange={setPersonaBlock}
           onClose={() => setPersonaFullscreen(false)}
-          title="关于他"
+          title="persona block（关于自己）"
           placeholder="AI 在相处中形成的自我认知..."
         />
       )}

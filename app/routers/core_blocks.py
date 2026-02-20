@@ -151,6 +151,39 @@ def list_core_blocks(
     return CoreBlocksResponse(blocks=items)
 
 
+class CoreBlockCreateRequest(BaseModel):
+    block_type: str
+    assistant_id: int | None = None
+    content: str = ""
+
+
+@router.post("/core-blocks", response_model=CoreBlockItem)
+def create_core_block(
+    payload: CoreBlockCreateRequest,
+    db: Session = Depends(get_db),
+) -> CoreBlockItem:
+    now = datetime.now(timezone.utc)
+    row = CoreBlock(
+        block_type=payload.block_type,
+        assistant_id=payload.assistant_id,
+        content=payload.content,
+        version=1,
+        updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return CoreBlockItem(
+        id=row.id,
+        block_type=row.block_type,
+        assistant_id=row.assistant_id,
+        content=row.content,
+        version=row.version,
+        updated_at=format_datetime(row.updated_at),
+        created_at=format_datetime(row.created_at),
+    )
+
+
 @router.put("/core-blocks/{block_id}", response_model=CoreBlockItem)
 def update_core_block(
     block_id: int,
