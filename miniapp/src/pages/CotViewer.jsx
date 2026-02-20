@@ -158,22 +158,40 @@ function fmtTokens(n) {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
-function TokenBadges({ prompt, completion }) {
-  if (!prompt && !completion) return null;
+function fmtElapsed(ms) {
+  if (!ms) return null;
+  const sec = ms / 1000;
+  return sec >= 100 ? `${Math.round(sec)}s` : `${sec.toFixed(1)}s`;
+}
+
+function TokenBadges({ prompt, completion, elapsedMs }) {
+  if (!prompt && !completion && !elapsedMs) return null;
   return (
     <>
-      <span
-        className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
-        style={{ background: "rgba(80,160,120,0.12)", color: "#3a8a5f" }}
-      >
-        ↑{fmtTokens(prompt)}
-      </span>
-      <span
-        className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
-        style={{ background: "rgba(160,100,220,0.12)", color: "#8a5abf" }}
-      >
-        ↓{fmtTokens(completion)}
-      </span>
+      {(prompt || completion) ? (
+        <>
+          <span
+            className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
+            style={{ background: "rgba(80,160,120,0.12)", color: "#3a8a5f" }}
+          >
+            ↑{fmtTokens(prompt)}
+          </span>
+          <span
+            className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
+            style={{ background: "rgba(160,100,220,0.12)", color: "#8a5abf" }}
+          >
+            ↓{fmtTokens(completion)}
+          </span>
+        </>
+      ) : null}
+      {elapsedMs ? (
+        <span
+          className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
+          style={{ background: "rgba(200,140,60,0.12)", color: "#b8820a" }}
+        >
+          {fmtElapsed(elapsedMs)}
+        </span>
+      ) : null}
     </>
   );
 }
@@ -205,7 +223,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
                 工具
               </span>
             )}
-            <TokenBadges prompt={item.prompt_tokens || 0} completion={item.completion_tokens || 0} />
+            <TokenBadges prompt={item.prompt_tokens || 0} completion={item.completion_tokens || 0} elapsedMs={item.elapsed_ms || 0} />
             <span className="text-[10px]" style={{ color: S.textMuted }}>
               {item.created_at || ""}
             </span>
@@ -352,12 +370,12 @@ export default function CotViewer() {
               next.delete(msg.request_id);
               return next;
             });
-            // Update token counts from done message
-            if (msg.prompt_tokens || msg.completion_tokens) {
+            // Update token counts and elapsed time from done message
+            if (msg.prompt_tokens || msg.completion_tokens || msg.elapsed_ms) {
               setItems((prev) =>
                 prev.map((it) =>
                   it.request_id === msg.request_id
-                    ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0 }
+                    ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, elapsed_ms: msg.elapsed_ms || 0 }
                     : it
                 )
               );

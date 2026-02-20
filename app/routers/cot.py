@@ -39,6 +39,7 @@ class CotItem(BaseModel):
     has_tool_calls: bool
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    elapsed_ms: int = 0
     rounds: list[CotRound]
 
 
@@ -162,6 +163,7 @@ def list_cot(
             has_tool_calls = False
             prompt_tokens = 0
             completion_tokens = 0
+            elapsed_ms = 0
 
             for round_idx in sorted(rounds_map.keys()):
                 blocks: list[CotBlock] = []
@@ -172,6 +174,7 @@ def list_cot(
                             usage = _json.loads(rec.content or "{}")
                             prompt_tokens = usage.get("prompt_tokens", 0)
                             completion_tokens = usage.get("completion_tokens", 0)
+                            elapsed_ms = usage.get("elapsed_ms", 0)
                         except Exception:
                             pass
                         continue
@@ -197,6 +200,7 @@ def list_cot(
                     has_tool_calls=has_tool_calls,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
+                    elapsed_ms=elapsed_ms,
                     rounds=rounds,
                 )
             )

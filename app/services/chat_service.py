@@ -4,6 +4,8 @@ import json
 import re
 import logging
 import math
+import time
+import threading
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -1021,6 +1023,7 @@ class ChatService:
         short_mode: bool = False,
     ) -> list[dict[str, Any]]:
         request_id = str(uuid.uuid4())
+        start_time = time.monotonic()
         self._total_prompt_tokens = 0
         self._total_completion_tokens = 0
         # Persist all NEW user messages (those without a DB id)
@@ -1101,7 +1104,7 @@ class ChatService:
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
         session = self.db.get(ChatSession, session_id)
-        if all_trimmed_messages and background_tasks:
+        if all_trimmed_messages:
             assistant_id = session.assistant_id if session and session.assistant_id else None
             if assistant_id is None:
                 assistant_row = self.db.query(Assistant).first()
@@ -1115,20 +1118,29 @@ class ChatService:
                         if isinstance(message_id, int)
                     )
                 )
-                background_tasks.add_task(
-                    self._trigger_summary,
-                    session_id,
-                    unique_trimmed_ids,
-                    assistant_id,
-                )
-        if self._total_prompt_tokens or self._total_completion_tokens:
+                if background_tasks:
+                    background_tasks.add_task(
+                        self._trigger_summary,
+                        session_id,
+                        unique_trimmed_ids,
+                        assistant_id,
+                    )
+                else:
+                    threading.Thread(
+                        target=self._trigger_summary,
+                        args=(session_id, unique_trimmed_ids, assistant_id),
+                        daemon=True,
+                    ).start()
+        elapsed_ms = int((time.monotonic() - start_time) * 1000)
+        if self._total_prompt_tokens or self._total_completion_tokens or elapsed_ms:
             self._write_cot_block(
                 request_id, 9999, "usage",
-                json.dumps({"prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens}),
+                json.dumps({"prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens, "elapsed_ms": elapsed_ms}),
             )
         cot_broadcaster.publish({
             "type": "done", "request_id": request_id,
             "prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens,
+            "elapsed_ms": elapsed_ms,
         })
         return messages
 
@@ -1399,6 +1411,7 @@ class ChatService:
     ) -> Iterable[str]:
         """Streaming chat completion. Yields SSE events."""
         request_id = str(uuid.uuid4())
+        start_time = time.monotonic()
         if messages:
             last_message = messages[-1]
             user_content = last_message.get("content", "")
@@ -1612,23 +1625,32 @@ class ChatService:
             if session:
                 session.updated_at = datetime.now(timezone.utc)
                 self.db.commit()
-            if all_trimmed_message_ids and background_tasks:
+            if all_trimmed_message_ids:
                 assistant_id = session.assistant_id if session else None
                 if assistant_id:
                     unique_ids = list(dict.fromkeys(
                         mid for mid in all_trimmed_message_ids if isinstance(mid, int)
                     ))
-                    background_tasks.add_task(
-                        self._trigger_summary, session_id, unique_ids, assistant_id,
-                    )
-            if total_prompt_tokens or total_completion_tokens:
+                    if background_tasks:
+                        background_tasks.add_task(
+                            self._trigger_summary, session_id, unique_ids, assistant_id,
+                        )
+                    else:
+                        threading.Thread(
+                            target=self._trigger_summary,
+                            args=(session_id, unique_ids, assistant_id),
+                            daemon=True,
+                        ).start()
+            elapsed_ms = int((time.monotonic() - start_time) * 1000)
+            if total_prompt_tokens or total_completion_tokens or elapsed_ms:
                 self._write_cot_block(
                     request_id, 9999, "usage",
-                    json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens}),
+                    json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms}),
                 )
             cot_broadcaster.publish({
                 "type": "done", "request_id": request_id,
                 "prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens,
+                "elapsed_ms": elapsed_ms,
             })
             yield 'data: [DONE]\n\n'
             return
