@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Trash2, RefreshCw, ChevronDown } from "lucide-react";
 import { apiFetch } from "../utils/api";
@@ -90,7 +90,14 @@ function SwipeRow({ children, onDelete }) {
 
 function MsgItem({ msg, roleLabel, roleColor, fmtTime, onDelete }) {
   const [expanded, setExpanded] = useState(false);
-  const isLong = msg.content.length > 100;
+  const [overflows, setOverflows] = useState(false);
+  const textRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [msg.content, expanded]);
+
   return (
     <SwipeRow onDelete={onDelete}>
       <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
@@ -99,13 +106,14 @@ function MsgItem({ msg, roleLabel, roleColor, fmtTime, onDelete }) {
           <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
         </div>
         <div
+          ref={textRef}
           className="text-[12px] leading-relaxed break-words cursor-pointer"
           style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}
           onClick={() => setExpanded(!expanded)}
         >
           {msg.content}
         </div>
-        {isLong && (
+        {(overflows || expanded) && (
           <div className="mt-1 flex justify-center">
             <button
               className="rounded-full px-2 py-0.5 text-[10px]"

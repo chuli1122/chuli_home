@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Trash2, ChevronDown, Pencil, Search, X, Check } from "lucide-react";
 import { apiFetch } from "../utils/api";
@@ -141,15 +141,23 @@ function SwipeRow({ children, onDelete }) {
 
 function ExpandableCard({ children, time, badge, keyword, onSwipeDelete, onEdit }) {
   const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const textRef = useRef(null);
   const text = typeof children === "string" ? children : "";
-  const isLong = text.length > 80;
   const inSwipe = !!onSwipeDelete;
+
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [text, expanded]);
+
   const inner = (
     <div className={inSwipe ? "rounded-[18px] p-3" : "mb-3 rounded-[18px] p-3"} style={{ background: S.bg, boxShadow: inSwipe ? "none" : "var(--card-shadow-sm)" }}>
       <div className="flex items-start justify-between gap-1">
         <div className="flex-1 min-w-0">
           {badge}
           <div
+            ref={textRef}
             className="text-[12px] leading-relaxed break-words cursor-pointer"
             style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
             onClick={() => setExpanded(!expanded)}
@@ -169,7 +177,7 @@ function ExpandableCard({ children, time, badge, keyword, onSwipeDelete, onEdit 
       </div>
       <div className="mt-1 flex items-center justify-between">
         <span className="text-[10px]" style={{ color: S.textMuted }}>{time || ""}</span>
-        {isLong && (
+        {(overflows || expanded) && (
           <button
             className="rounded-full px-2 py-0.5 text-[10px]"
             style={{ color: S.accentDark, background: "rgba(232,160,191,0.1)" }}
@@ -189,17 +197,25 @@ function ExpandableCard({ children, time, badge, keyword, onSwipeDelete, onEdit 
 
 function TrashCard({ content, deletedAt, keyword, onRestore, onPermanentDelete }) {
   const [expanded, setExpanded] = useState(false);
-  const isLong = (content || "").length > 80;
+  const [overflows, setOverflows] = useState(false);
+  const textRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [content, expanded]);
+
   return (
     <div className="mb-2 rounded-[14px] p-3" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", opacity: 0.75 }}>
       <div
+        ref={textRef}
         className="text-[12px] leading-relaxed break-words cursor-pointer"
         style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
         onClick={() => setExpanded(!expanded)}
       >
         <Highlight text={content} keyword={keyword} />
       </div>
-      {isLong && (
+      {(overflows || expanded) && (
         <div className="mt-1 flex justify-center">
           <button
             className="rounded-full px-2 py-0.5 text-[10px]"
@@ -225,7 +241,14 @@ function TrashCard({ content, deletedAt, keyword, onRestore, onPermanentDelete }
 
 function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
   const [expanded, setExpanded] = useState(false);
-  const isLong = msg.content.length > 100;
+  const [overflows, setOverflows] = useState(false);
+  const textRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [msg.content, expanded]);
+
   return (
     <SwipeRow onDelete={onDelete}>
       <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
@@ -234,13 +257,14 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
           <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
         </div>
         <div
+          ref={textRef}
           className="text-[12px] leading-relaxed break-words cursor-pointer"
           style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}
           onClick={() => setExpanded(!expanded)}
         >
           <Highlight text={msg.content} keyword={keyword} />
         </div>
-        {isLong && (
+        {(overflows || expanded) && (
           <div className="mt-1 flex justify-center">
             <button
               className="rounded-full px-2 py-0.5 text-[10px]"
@@ -275,6 +299,8 @@ export default function Memories() {
   const [trashMemories, setTrashMemories] = useState([]);
   const [trashSummaries, setTrashSummaries] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [hasMoreMem, setHasMoreMem] = useState(false);
+  const [hasMoreSum, setHasMoreSum] = useState(false);
   const [hasMoreMsg, setHasMoreMsg] = useState(false);
 
   // Load sessions
@@ -296,6 +322,8 @@ export default function Memories() {
   useEffect(() => { if (sessionId) loadData(); }, [sessionId, trashMode]);
   useEffect(() => { if (sessionId && !trashMode) loadData(); }, [tab]);
 
+  const PAGE_SIZE = 50;
+
   const loadData = async () => {
     if (!sessionId) return;
     setLoading(true);
@@ -308,16 +336,42 @@ export default function Memories() {
         setTrashMemories(memT.memories || []);
         setTrashSummaries(sumT.summaries || []);
       } else if (tab === "memories") {
-        const d = await apiFetch("/api/memories?limit=100");
+        const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=0`);
         setMemories(d.memories || []);
+        setHasMoreMem((d.total || 0) > (d.memories || []).length);
       } else if (tab === "summaries") {
-        const d = await apiFetch(`/api/sessions/${sessionId}/summaries`);
+        const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=0`);
         setSummaries(d.summaries || []);
+        setHasMoreSum((d.total || 0) > (d.summaries || []).length);
       } else {
         const d = await apiFetch(`/api/sessions/${sessionId}/messages?limit=50`);
         setMessages((d.messages || []).reverse());
         setHasMoreMsg(d.has_more || false);
       }
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  const loadMoreMem = async () => {
+    if (!hasMoreMem || loading) return;
+    setLoading(true);
+    try {
+      const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=${memories.length}`);
+      const more = d.memories || [];
+      setMemories((prev) => [...prev, ...more]);
+      setHasMoreMem((d.total || 0) > memories.length + more.length);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  const loadMoreSum = async () => {
+    if (!sessionId || !hasMoreSum || loading) return;
+    setLoading(true);
+    try {
+      const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=${summaries.length}`);
+      const more = d.summaries || [];
+      setSummaries((prev) => [...prev, ...more]);
+      setHasMoreSum((d.total || 0) > summaries.length + more.length);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -377,25 +431,43 @@ export default function Memories() {
   const renderMemories = () => {
     if (loading && memories.length === 0) return <Spinner />;
     if (filteredMemories.length === 0) return <Empty text={kw ? "无匹配记忆" : "暂无记忆"} />;
-    return filteredMemories.map((mem) => (
-      <ExpandableCard key={mem.id} time={fmtTime(mem.created_at)} keyword={kw}
-        onSwipeDelete={() => deleteMemory(mem.id)}
-        onEdit={() => setEditing({ type: "memory", id: mem.id, text: mem.content })}
-        badge={<span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{mem.klass}</span>}
-      >{mem.content}</ExpandableCard>
-    ));
+    return (
+      <>
+        {filteredMemories.map((mem) => (
+          <ExpandableCard key={mem.id} time={fmtTime(mem.created_at)} keyword={kw}
+            onSwipeDelete={() => deleteMemory(mem.id)}
+            onEdit={() => setEditing({ type: "memory", id: mem.id, text: mem.content })}
+            badge={<span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{mem.klass}</span>}
+          >{mem.content}</ExpandableCard>
+        ))}
+        {hasMoreMem && !kw && (
+          <button className="mx-auto mt-2 block rounded-[10px] px-4 py-2 text-[12px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }} onClick={loadMoreMem} disabled={loading}>
+            {loading ? "加载中..." : "加载更多"}
+          </button>
+        )}
+      </>
+    );
   };
 
   const renderSummaries = () => {
     if (loading && summaries.length === 0) return <Spinner />;
     if (filteredSummaries.length === 0) return <Empty text={kw ? "无匹配摘要" : "暂无摘要"} />;
-    return filteredSummaries.map((s) => (
-      <ExpandableCard key={s.id} time={fmtTime(s.created_at)} keyword={kw}
-        onSwipeDelete={() => deleteSummary(s.id)}
-        onEdit={() => setEditing({ type: "summary", id: s.id, text: s.summary_content })}
-        badge={s.mood_tag ? <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{s.mood_tag}</span> : null}
-      >{s.summary_content || "(空)"}</ExpandableCard>
-    ));
+    return (
+      <>
+        {filteredSummaries.map((s) => (
+          <ExpandableCard key={s.id} time={fmtTime(s.created_at)} keyword={kw}
+            onSwipeDelete={() => deleteSummary(s.id)}
+            onEdit={() => setEditing({ type: "summary", id: s.id, text: s.summary_content })}
+            badge={s.mood_tag ? <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{s.mood_tag}</span> : null}
+          >{s.summary_content || "(空)"}</ExpandableCard>
+        ))}
+        {hasMoreSum && !kw && (
+          <button className="mx-auto mt-2 block rounded-[10px] px-4 py-2 text-[12px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }} onClick={loadMoreSum} disabled={loading}>
+            {loading ? "加载中..." : "加载更多"}
+          </button>
+        )}
+      </>
+    );
   };
 
   const renderMessages = () => {

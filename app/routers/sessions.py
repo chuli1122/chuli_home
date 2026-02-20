@@ -85,6 +85,7 @@ class SessionSummaryItem(BaseModel):
 
 class SessionSummariesResponse(BaseModel):
     summaries: list[SessionSummaryItem]
+    total: int
 
 
 class MoodUpdateResponse(BaseModel):
@@ -232,16 +233,22 @@ def get_session_messages(
 @router.get("/sessions/{session_id}/summaries", response_model=SessionSummariesResponse)
 def get_session_summaries(
     session_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ) -> SessionSummariesResponse:
     session_row = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if session_row is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    base = db.query(SessionSummary).filter(
+        SessionSummary.session_id == session_id, SessionSummary.deleted_at.is_(None)
+    )
+    total = base.count()
     rows = (
-        db.query(SessionSummary)
-        .filter(SessionSummary.session_id == session_id, SessionSummary.deleted_at.is_(None))
-        .order_by(SessionSummary.created_at.desc(), SessionSummary.id.desc())
+        base.order_by(SessionSummary.created_at.desc(), SessionSummary.id.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
     items = [
@@ -259,7 +266,7 @@ def get_session_summaries(
         )
         for row in rows
     ]
-    return SessionSummariesResponse(summaries=items)
+    return SessionSummariesResponse(summaries=items, total=total)
 
 
 @router.put("/sessions/{session_id}/summaries/{summary_id}", response_model=MoodUpdateResponse)
