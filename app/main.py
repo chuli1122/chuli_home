@@ -44,12 +44,31 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Chuli Home Backend")
 
 
+def _run_migrations(eng) -> None:
+    """Add columns that create_all won't add to existing tables."""
+    from sqlalchemy import text, inspect
+    insp = inspect(eng)
+    # session_summaries.deleted_at
+    if "session_summaries" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("session_summaries")]
+        if "deleted_at" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE session_summaries ADD COLUMN deleted_at TIMESTAMPTZ"
+                ))
+            logger.info("Added deleted_at column to session_summaries")
+
+
 @app.on_event("startup")
 async def on_startup() -> None:
     try:
         Base.metadata.create_all(bind=engine)
     except Exception as exc:
         logger.warning("create_all failed (tables may already exist): %s", exc)
+    try:
+        _run_migrations(engine)
+    except Exception as exc:
+        logger.warning("migration failed: %s", exc)
     cot_broadcaster.set_loop(asyncio.get_running_loop())
     print(f"[startup] bots to register: {list(bots.keys())}")
     for key, bot in bots.items():

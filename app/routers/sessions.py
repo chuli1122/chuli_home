@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.models import ChatSession, Message, SessionSummary, UserProfile
+from app.models.models import Assistant, ChatSession, Message, SessionSummary, UserProfile
 from app.utils import format_datetime
 
 logger = logging.getLogger(__name__)
@@ -223,7 +223,7 @@ def get_session_summaries(
 
     rows = (
         db.query(SessionSummary)
-        .filter(SessionSummary.session_id == session_id)
+        .filter(SessionSummary.session_id == session_id, SessionSummary.deleted_at.is_(None))
         .order_by(SessionSummary.created_at.desc(), SessionSummary.id.desc())
         .all()
     )
@@ -471,3 +471,139 @@ def delete_message(
     db.commit()
 
     return MessageDeleteResponse(status="deleted", id=message_id)
+
+
+# ── Summary trash / restore / permanent delete ─────────────────────────────
+
+class TrashSummaryItem(BaseModel):
+    id: int
+    session_id: int
+    summary_content: str
+    mood_tag: str | None
+    deleted_at: str | None
+    created_at: str | None
+
+
+class TrashSummariesResponse(BaseModel):
+    summaries: list[TrashSummaryItem]
+    total: int
+
+
+class SummaryDeleteResponse(BaseModel):
+    status: str
+    id: int
+
+
+@router.get("/sessions/{session_id}/summaries/trash", response_model=TrashSummariesResponse)
+def list_summary_trash(
+    session_id: int,
+    db: Session = Depends(get_db),
+) -> TrashSummariesResponse:
+    query = db.query(SessionSummary).filter(
+        SessionSummary.session_id == session_id,
+        SessionSummary.deleted_at.is_not(None),
+    )
+    total = query.count()
+    rows = query.order_by(SessionSummary.deleted_at.desc(), SessionSummary.id.desc()).all()
+    items = [
+        TrashSummaryItem(
+            id=row.id,
+            session_id=row.session_id,
+            summary_content=row.summary_content,
+            mood_tag=row.mood_tag,
+            deleted_at=format_datetime(row.deleted_at),
+            created_at=format_datetime(row.created_at),
+        )
+        for row in rows
+    ]
+    return TrashSummariesResponse(summaries=items, total=total)
+
+
+@router.delete("/sessions/{session_id}/summaries/{summary_id}", response_model=SummaryDeleteResponse)
+def delete_summary(
+    session_id: int,
+    summary_id: int,
+    db: Session = Depends(get_db),
+) -> SummaryDeleteResponse:
+    row = (
+        db.query(SessionSummary)
+        .filter(
+            SessionSummary.id == summary_id,
+            SessionSummary.session_id == session_id,
+            SessionSummary.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Summary not found")
+    row.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+    return SummaryDeleteResponse(status="deleted", id=summary_id)
+
+
+@router.post("/sessions/{session_id}/summaries/{summary_id}/restore", response_model=SummaryDeleteResponse)
+def restore_summary(
+    session_id: int,
+    summary_id: int,
+    db: Session = Depends(get_db),
+) -> SummaryDeleteResponse:
+    row = (
+        db.query(SessionSummary)
+        .filter(SessionSummary.id == summary_id, SessionSummary.session_id == session_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Summary not found")
+    if row.deleted_at is None:
+        raise HTTPException(status_code=400, detail="Summary is not deleted")
+    row.deleted_at = None
+    db.commit()
+    return SummaryDeleteResponse(status="restored", id=summary_id)
+
+
+@router.delete("/sessions/{session_id}/summaries/{summary_id}/permanent", response_model=SummaryDeleteResponse)
+def delete_summary_permanent(
+    session_id: int,
+    summary_id: int,
+    db: Session = Depends(get_db),
+) -> SummaryDeleteResponse:
+    row = (
+        db.query(SessionSummary)
+        .filter(SessionSummary.id == summary_id, SessionSummary.session_id == session_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Summary not found")
+    db.delete(row)
+    db.commit()
+    return SummaryDeleteResponse(status="deleted_permanently", id=summary_id)
+
+
+# ── Session info with assistant name ────────────────────────────────────────
+
+class SessionInfoResponse(BaseModel):
+    id: int
+    assistant_id: int | None
+    assistant_name: str | None
+    title: str
+
+
+@router.get("/sessions/{session_id}/info", response_model=SessionInfoResponse)
+def get_session_info(
+    session_id: int,
+    db: Session = Depends(get_db),
+) -> SessionInfoResponse:
+    row = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    name = None
+    if row.assistant_id:
+        ast = db.query(Assistant).filter(Assistant.id == row.assistant_id).first()
+        if ast:
+            name = ast.name
+    return SessionInfoResponse(
+        id=row.id,
+        assistant_id=row.assistant_id,
+        assistant_name=name,
+        title=row.title or "",
+    )
