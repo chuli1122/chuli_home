@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.models import Settings
+from app.models.models import ChatSession, Message, SessionSummary, Settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -191,3 +192,85 @@ def update_buffer_seconds(
     _upsert_setting(db, "telegram_buffer_seconds", int(seconds))
     db.commit()
     return BufferSecondsResponse(seconds=seconds)
+
+
+# ── Mood ─────────────────────────────────────────────────────────────────────
+
+VALID_MOOD_TAGS = {
+    "happy", "sad", "angry", "anxious", "tired", "emo", "flirty", "proud", "calm",
+}
+
+
+class MoodResponse(BaseModel):
+    mood: str | None
+
+
+class MoodUpdateRequest(BaseModel):
+    mood: str
+
+
+@router.get("/settings/mood", response_model=MoodResponse)
+def get_mood(db: Session = Depends(get_db)) -> MoodResponse:
+    latest_summary = (
+        db.query(SessionSummary)
+        .filter(SessionSummary.mood_tag.isnot(None))
+        .order_by(SessionSummary.created_at.desc(), SessionSummary.id.desc())
+        .first()
+    )
+    mood = latest_summary.mood_tag if latest_summary else None
+    return MoodResponse(mood=mood)
+
+
+@router.put("/settings/mood", response_model=MoodResponse)
+def set_mood(
+    payload: MoodUpdateRequest,
+    db: Session = Depends(get_db),
+) -> MoodResponse:
+    mood = (payload.mood or "").strip().lower()
+    if mood not in VALID_MOOD_TAGS:
+        raise HTTPException(status_code=400, detail="Invalid mood")
+
+    # Find latest session
+    latest_session = (
+        db.query(ChatSession)
+        .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+        .first()
+    )
+    if not latest_session:
+        raise HTTPException(status_code=404, detail="No session found")
+
+    # Find latest summary for that session, or create placeholder
+    latest_summary = (
+        db.query(SessionSummary)
+        .filter(SessionSummary.session_id == latest_session.id)
+        .order_by(SessionSummary.created_at.desc(), SessionSummary.id.desc())
+        .first()
+    )
+    if latest_summary:
+        latest_summary.mood_tag = mood
+    else:
+        latest_summary = SessionSummary(
+            session_id=latest_session.id,
+            assistant_id=latest_session.assistant_id,
+            summary_content="(手动设置心情)",
+            perspective="user",
+            mood_tag=mood,
+        )
+        db.add(latest_summary)
+    db.flush()
+
+    # Write a user message (not shown in UI, but visible in AI context)
+    msg = Message(
+        session_id=latest_session.id,
+        role="user",
+        content=f"用户手动切换心情为：{mood}",
+        meta_info={"mood_switch": True},
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(msg)
+
+    # Mark as manual
+    _upsert_setting(db, "mood_manual", "true")
+
+    db.commit()
+    return MoodResponse(mood=mood)

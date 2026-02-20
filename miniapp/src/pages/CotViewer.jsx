@@ -24,6 +24,18 @@ const MODES = [
   { key: "theater", label: "小剧场" },
 ];
 
+const MOODS = [
+  { key: "happy", label: "开心" },
+  { key: "sad", label: "难过" },
+  { key: "angry", label: "生气" },
+  { key: "anxious", label: "焦虑" },
+  { key: "tired", label: "疲意" },
+  { key: "emo", label: "低落" },
+  { key: "flirty", label: "心动" },
+  { key: "proud", label: "得意" },
+  { key: "calm", label: "平静" },
+];
+
 function BlockChip({ block_type }) {
   const meta = BLOCK_COLORS[block_type] || { bg: "rgba(136,136,160,0.1)", color: S.textMuted, label: block_type };
   return (
@@ -137,6 +149,9 @@ export default function CotViewer() {
   const [wsConnected, setWsConnected] = useState(false);
   const [liveRequestIds, setLiveRequestIds] = useState(new Set());
   const wsRef = useRef(null);
+  const [mood, setMood] = useState("calm");
+  const [moodOpen, setMoodOpen] = useState(false);
+  const moodRef = useRef(null);
 
   const load = () => {
     setLoading(true);
@@ -147,6 +162,23 @@ export default function CotViewer() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Load current mood
+  useEffect(() => {
+    apiFetch("/api/settings/mood")
+      .then((data) => { if (data.mood) setMood(data.mood); })
+      .catch(() => {});
+  }, []);
+
+  // Close mood popup on outside click
+  useEffect(() => {
+    if (!moodOpen) return;
+    const handler = (e) => {
+      if (moodRef.current && !moodRef.current.contains(e.target)) setMoodOpen(false);
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
+  }, [moodOpen]);
 
   // WebSocket connection for real-time COT push
   useEffect(() => {
@@ -262,6 +294,12 @@ export default function CotViewer() {
     }).catch(() => {});
   }, [mode]);
 
+  const selectMood = (key) => {
+    setMood(key);
+    setMoodOpen(false);
+    apiFetch("/api/settings/mood", { method: "PUT", body: { mood: key } }).catch(() => {});
+  };
+
   return (
     <div className="flex h-full flex-col" style={{ background: S.bg }}>
       {/* Header */}
@@ -292,26 +330,74 @@ export default function CotViewer() {
         </div>
       </div>
 
-      {/* 3-segment mode selector */}
+      {/* Mood button + 3-segment mode selector */}
       <div className="shrink-0 px-5 pb-3">
-        <div
-          className="flex rounded-[14px] p-1"
-          style={{ boxShadow: "var(--inset-shadow)", background: S.bg }}
-        >
-          {MODES.map((m) => (
+        <div className="flex items-center gap-2">
+          {/* Mood selector */}
+          <div className="relative" ref={moodRef}>
             <button
-              key={m.key}
-              className="flex-1 rounded-[10px] py-2 text-[13px] font-semibold transition-all"
-              style={{
-                background: mode === m.key ? S.bg : "transparent",
-                boxShadow: mode === m.key ? "var(--card-shadow-sm)" : "none",
-                color: mode === m.key ? S.accentDark : S.textMuted,
-              }}
-              onClick={() => setMode(m.key)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]"
+              style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+              onClick={() => setMoodOpen(!moodOpen)}
             >
-              {m.label}
+              <img
+                src={`/miniapp/assets/mood/${mood}.png`}
+                alt={mood}
+                className="h-6 w-6"
+                style={{ imageRendering: "pixelated" }}
+              />
             </button>
-          ))}
+            {moodOpen && (
+              <div
+                className="absolute left-0 top-12 z-50 grid grid-cols-3 gap-1 rounded-[14px] p-2"
+                style={{
+                  background: "#e8eaed",
+                  boxShadow: "inset 2px 2px 5px rgba(0,0,0,0.08), inset -2px -2px 5px rgba(255,255,255,0.7), 4px 4px 12px rgba(0,0,0,0.12)",
+                  width: 180,
+                }}
+              >
+                {MOODS.map((m) => (
+                  <button
+                    key={m.key}
+                    className="flex flex-col items-center gap-0.5 rounded-[10px] py-1.5"
+                    style={{
+                      border: mood === m.key ? "2px solid #e8a0bf" : "2px solid transparent",
+                      background: mood === m.key ? "rgba(232,160,191,0.12)" : "transparent",
+                    }}
+                    onClick={() => selectMood(m.key)}
+                  >
+                    <img
+                      src={`/miniapp/assets/mood/${m.key}.png`}
+                      alt={m.label}
+                      className="h-7 w-7"
+                      style={{ imageRendering: "pixelated" }}
+                    />
+                    <span className="text-[10px]" style={{ color: S.text }}>{m.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* 3-segment mode selector */}
+          <div
+            className="flex flex-1 rounded-[14px] p-1"
+            style={{ boxShadow: "var(--inset-shadow)", background: S.bg }}
+          >
+            {MODES.map((m) => (
+              <button
+                key={m.key}
+                className="flex-1 rounded-[10px] py-2 text-[13px] font-semibold transition-all"
+                style={{
+                  background: mode === m.key ? S.bg : "transparent",
+                  boxShadow: mode === m.key ? "var(--card-shadow-sm)" : "none",
+                  color: mode === m.key ? S.accentDark : S.textMuted,
+                }}
+                onClick={() => setMode(m.key)}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

@@ -1146,7 +1146,10 @@ class ChatService:
                 summary_text += f"- {s.summary_content}\n"
             prompt_parts.append(summary_text.rstrip())
         if latest_mood_tag:
-            prompt_parts.append(f"[User recent mood: {latest_mood_tag}]")
+            manual_row = self.db.query(Settings).filter(Settings.key == "mood_manual").first()
+            manual = manual_row and manual_row.value == "true"
+            flag = " (manual)" if manual else ""
+            prompt_parts.append(f"[User recent mood: {latest_mood_tag}{flag}]")
         world_books_service = WorldBooksService(self.db)
         active_books = world_books_service.get_active_books(
             assistant.id, latest_user_message, latest_mood_tag

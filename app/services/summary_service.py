@@ -19,6 +19,7 @@ from app.models.models import (
     Message,
     ModelPreset,
     SessionSummary,
+    Settings,
     UserProfile,
 )
 from app.services.embedding_service import EmbeddingService
@@ -243,6 +244,14 @@ tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方�
             )
             db.add(summary)
             db.flush()
+
+            # Clear manual mood flag when auto-summary detects mood
+            if mood_tag:
+                manual_row = db.query(Settings).filter(Settings.key == "mood_manual").first()
+                if manual_row:
+                    manual_row.value = "false"
+                else:
+                    db.add(Settings(key="mood_manual", value="false"))
 
             if msg_ids:
                 db.query(Message).filter(Message.id.in_(msg_ids)).update(
