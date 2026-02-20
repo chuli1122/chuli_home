@@ -1396,6 +1396,13 @@ class ChatService:
                             "name": block.name,
                             "arguments": json.dumps(block.input),
                         }
+                    # Extract thinking blocks from Anthropic response
+                    thinking_parts = []
+                    for block in final_msg.content:
+                        if block.type == "thinking":
+                            thinking_parts.append(getattr(block, "thinking", ""))
+                    if thinking_parts:
+                        self._write_cot_block(request_id, current_round, "thinking", "".join(thinking_parts))
                 except Exception as e:
                     logger.error(f"Anthropic streaming error: {e}")
                     yield f'data: {json.dumps({"error": str(e)})}\n\n'
@@ -1650,10 +1657,13 @@ class ChatService:
                 _persist_error(e)
                 return []
             text_content = ""
+            thinking_content = ""
             tool_calls_payload: list[dict] = []
             tool_calls: list[ToolCall] = []
             for block in response.content:
-                if block.type == "text":
+                if block.type == "thinking":
+                    thinking_content += getattr(block, "thinking", "")
+                elif block.type == "text":
                     text_content += block.text
                 elif block.type == "tool_use":
                     tool_calls_payload.append({
@@ -1664,6 +1674,8 @@ class ChatService:
                     tool_calls.append(ToolCall(name=block.name, arguments=block.input, id=block.id))
             # Write COT blocks
             if request_id:
+                if thinking_content:
+                    self._write_cot_block(request_id, round_index, "thinking", thinking_content)
                 if text_content:
                     self._write_cot_block(request_id, round_index, "text", text_content)
                 for tc in tool_calls:
