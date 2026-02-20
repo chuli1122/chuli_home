@@ -1104,6 +1104,8 @@ class ChatService:
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
         session = self.db.get(ChatSession, session_id)
+        logger.info("[summary_check] all_trimmed_messages=%d, all_trimmed_message_ids=%d, background_tasks=%s",
+                    len(all_trimmed_messages), len(all_trimmed_message_ids), background_tasks is not None)
         if all_trimmed_messages:
             assistant_id = session.assistant_id if session and session.assistant_id else None
             if assistant_id is None:
@@ -1118,6 +1120,9 @@ class ChatService:
                         if isinstance(message_id, int)
                     )
                 )
+                logger.info("[summary_trigger] Launching summary for session=%s, trimmed_ids=%d, assistant_id=%s, via=%s",
+                            session_id, len(unique_trimmed_ids), assistant_id,
+                            "background_tasks" if background_tasks else "thread")
                 if background_tasks:
                     background_tasks.add_task(
                         self._trigger_summary,
@@ -1331,6 +1336,8 @@ class ChatService:
                 raw_content = message.get("content", "") or ""
                 text_for_tokens = self._content_to_storage(raw_content) if isinstance(raw_content, list) else raw_content
                 dialogue_token_total += self._estimate_tokens(text_for_tokens)
+        logger.info("[token_trim] dialogue_token_total=%d, trigger_threshold=%d, retain_budget=%d, msg_count=%d",
+                    dialogue_token_total, trigger_threshold, retain_budget, len(messages))
         message_index = 0
         if dialogue_token_total > trigger_threshold:
             while dialogue_token_total > retain_budget and message_index < len(messages):
@@ -1865,6 +1872,8 @@ class ChatService:
         message_ids: list[int],
         assistant_id: int,
     ) -> None:
+        logger.info("[_trigger_summary] ENTER session_id=%s, message_ids=%d, assistant_id=%s",
+                    session_id, len(message_ids), assistant_id)
         if not self.session_factory:
             logger.warning(
                 "Summary trigger skipped: session_factory is not configured (session_id=%s).",
