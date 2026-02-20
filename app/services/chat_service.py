@@ -215,6 +215,7 @@ class MemoryService:
         return utc_value.astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
 
     @staticmethod
+    @staticmethod
     def _parse_iso_datetime(raw_value: Any) -> datetime | None:
         if raw_value is None:
             return None
@@ -222,11 +223,23 @@ class MemoryService:
             text_value = str(raw_value).strip()
             if not text_value:
                 return None
+            # Normalize common non-ISO formats the model might produce
+            # "2025.2.20" or "2025.02.20" → "2025-02-20"
+            import re as _re
+            m = _re.match(r'^(\d{4})[./年](\d{1,2})[./月](\d{1,2})[日]?$', text_value)
+            if m:
+                text_value = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+            # "2025.2.20 14:30" style
+            m2 = _re.match(r'^(\d{4})[./年](\d{1,2})[./月](\d{1,2})[日]?\s+(\d{1,2}:\d{2}(?::\d{2})?)$', text_value)
+            if m2:
+                text_value = f"{m2.group(1)}-{int(m2.group(2)):02d}-{int(m2.group(3)):02d}T{m2.group(4)}"
             parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
             if parsed.tzinfo is None:
-                return parsed.replace(tzinfo=timezone.utc)
+                # Treat naive datetimes as East8 (China), not UTC
+                parsed = parsed.replace(tzinfo=TZ_EAST8)
             return parsed.astimezone(timezone.utc)
         except Exception:
+            logger.warning("Failed to parse datetime: %r", raw_value)
             return None
 
     def list_memories(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1298,9 +1311,9 @@ class ChatService:
             {"type": "function", "function": {"name": "update_memory", "description": "更新一条已有记忆的内容。传入记忆 ID 和新内容。只能更新自己创建的或 auto_extract 来源的记忆。", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}, "content": {"type": "string"}, "tags": {"type": "object"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "delete_memory", "description": "软删除一条记忆。传入记忆 ID。只能删除自己创建的或 auto_extract 来源的记忆。30天后自动永久清理。", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本，也可以写给她看的信。", "parameters": {"type": "object", "properties": {"title": {"type": "string"}, "content": {"type": "string"}, "is_read": {"type": "boolean"}}}}},
-            {"type": "function", "function": {"name": "list_memories", "description": "按时间范围或分类列出已存的记忆，不做搜索。用于回顾已存记忆、避免重复存储。", "parameters": {"type": "object", "properties": {"start_time": {"type": "string"}, "end_time": {"type": "string"}, "klass": {"type": "string"}, "limit": {"type": "integer"}}}}},
+            {"type": "function", "function": {"name": "list_memories", "description": "按时间范围或分类列出已存的记忆，不做搜索。用于回顾已存记忆、避免重复存储。", "parameters": {"type": "object", "properties": {"start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20 或 2025-02-20T14:00:00+08:00"}, "end_time": {"type": "string", "description": "结束时间，同上格式。不传则不限结束时间"}, "klass": {"type": "string", "description": "分类筛选: identity/relationship/bond/conflict/fact/preference/health/task/ephemeral/other"}, "limit": {"type": "integer", "description": "返回条数，默认20"}}}}},
             {"type": "function", "function": {"name": "search_memory", "description": "搜索记忆卡片。从长期记忆中按关键词或语义查找信息。返回匹配的记忆条目。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "source": {"type": "string"}}}}},
-            {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}}, "required": ["query"]}}},
+            {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20"}, "end_time": {"type": "string", "description": "结束时间，同上格式"}}, "required": ["query"]}}},
             {"type": "function", "function": {"name": "search_chat_history", "description": "搜索聊天记录原文。三种模式：\n1) 关键词搜索：传 query，返回命中消息（不带上下文）\n2) ID 范围：传 msg_id_start + msg_id_end，拉取该范围内的完整对话\n3) 单条 ID：传 message_id，返回该条及前后各 3 条上下文", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "session_id": {"type": "integer"}, "msg_id_start": {"type": "integer"}, "msg_id_end": {"type": "integer"}, "message_id": {"type": "integer"}}}}},
             {"type": "function", "function": {"name": "search_theater", "description": "搜索小剧场故事摘要。用于查找过去的 RP / 小剧场剧情记录，返回故事标题、AI伙伴、摘要全文、时间跨度。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}},
             {"type": "function", "function": {"name": "read_diary", "description": "读取交换日记。两种模式：\n1) list 模式：不传 diary_id，可选传 author（user/assistant）筛选，返回日记列表（id、title、author、created_at、unlock_at、read_at），不含正文。未解锁的定时日记也会列出但标记 locked=true。\n2) read 模式：传 diary_id，返回该日记完整内容（id、title、content、author、created_at、unlock_at）。用户写给你的日记（author=user）读取时自动记录已读时间。未解锁的定时日记不允许读取。", "parameters": {"type": "object", "properties": {"diary_id": {"type": "integer", "description": "日记ID，传入则为read模式"}, "author": {"type": "string", "enum": ["user", "assistant"], "description": "list模式下按作者筛选"}}}}},
