@@ -36,6 +36,8 @@ from app.telegram.router import router as telegram_router
 from app.telegram.bot_instance import bots
 from app.telegram.config import BOTS_CONFIG, WEBHOOK_BASE_URL
 from app.cot_broadcaster import cot_broadcaster
+from app.database import engine
+from app.models.models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ app = FastAPI(title="Chuli Home Backend")
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    Base.metadata.create_all(bind=engine)
     cot_broadcaster.set_loop(asyncio.get_running_loop())
     print(f"[startup] bots to register: {list(bots.keys())}")
     for key, bot in bots.items():
