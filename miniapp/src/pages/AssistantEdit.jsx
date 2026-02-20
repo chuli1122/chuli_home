@@ -63,21 +63,6 @@ function NmTextareaWithExpand({ label, value, onChange, placeholder, rows, onExp
           {label}
         </label>
         <div className="flex items-center gap-2">
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-full"
-            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
-            onClick={onExpand}
-          >
-            <Maximize2 size={13} style={{ color: S.accentDark }} />
-          </button>
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-full"
-            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
-            onClick={() => importRef.current?.click()}
-          >
-            <FileText size={13} style={{ color: S.textMuted }} />
-          </button>
-          <input ref={importRef} type="file" accept=".txt,.md,.text" className="hidden" onChange={handleImportFile} />
           {onHistory && (
             <button
               className="flex h-7 w-7 items-center justify-center rounded-full"
@@ -87,6 +72,21 @@ function NmTextareaWithExpand({ label, value, onChange, placeholder, rows, onExp
               <History size={13} style={{ color: S.textMuted }} />
             </button>
           )}
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+            onClick={() => importRef.current?.click()}
+          >
+            <FileText size={13} style={{ color: S.textMuted }} />
+          </button>
+          <input ref={importRef} type="file" accept=".txt,.md,.text" className="hidden" onChange={handleImportFile} />
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg }}
+            onClick={onExpand}
+          >
+            <Maximize2 size={13} style={{ color: S.accentDark }} />
+          </button>
         </div>
       </div>
       <textarea
