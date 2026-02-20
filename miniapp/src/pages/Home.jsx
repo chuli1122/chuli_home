@@ -85,8 +85,8 @@ export default function Home() {
 
   return (
     <div
-      className="flex flex-col"
-      style={{ background: S.bg, minHeight: "100%", paddingBottom: 16 }}
+      className="flex flex-col overflow-y-auto"
+      style={{ background: S.bg, height: "100%", paddingBottom: 16 }}
     >
       <div
         className="flex flex-col px-5"

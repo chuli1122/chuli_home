@@ -12,13 +12,29 @@ import Profile from "./pages/Profile";
 
 export default function App() {
   useEffect(() => {
+    const setViewportHeight = () => {
+      const tg = window.Telegram?.WebApp;
+      const h = tg?.viewportStableHeight || window.innerHeight;
+      document.documentElement.style.setProperty("--tg-viewport-height", h + "px");
+    };
+
+    setViewportHeight();
+
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.ready();
       // COT page stays half-screen; all other pages expand
       if (!window.location.hash.startsWith("#/cot")) {
         window.Telegram.WebApp.expand();
       }
+      window.Telegram.WebApp.onEvent("viewportChanged", setViewportHeight);
+      return () => {
+        window.Telegram.WebApp.offEvent("viewportChanged", setViewportHeight);
+      };
     }
+
+    // Fallback: listen to resize for non-Telegram environments
+    window.addEventListener("resize", setViewportHeight);
+    return () => window.removeEventListener("resize", setViewportHeight);
   }, []);
 
   return (
