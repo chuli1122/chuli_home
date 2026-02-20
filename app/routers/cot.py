@@ -171,11 +171,8 @@ def list_cot(
                     )
                     if rec.block_type == "tool_use":
                         has_tool_calls = True
-                    if not preview:
-                        if rec.block_type == "thinking":
-                            preview = (rec.content or "")[:80]
-                        elif rec.block_type == "tool_use" and rec.tool_name:
-                            preview = f"调用工具: {rec.tool_name}"
+                    if rec.block_type == "text" and not preview:
+                        preview = (rec.content or "")[:80]
                 rounds.append(CotRound(round_index=round_idx, blocks=blocks))
 
             result.append(

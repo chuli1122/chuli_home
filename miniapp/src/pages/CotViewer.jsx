@@ -347,7 +347,7 @@ export default function CotViewer() {
               }
               item.rounds = rounds;
               if (block_type === "tool_use") item.has_tool_calls = true;
-              if (block_type === "thinking" && !item.preview) item.preview = content.slice(0, 80);
+              if (block_type === "text" && !item.preview) item.preview = content.slice(0, 80);
               const next = [...prev];
               next[idx] = item;
               return next;
@@ -360,7 +360,7 @@ export default function CotViewer() {
               created_at: now.toLocaleDateString("zh-CN", {
                 month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
               }),
-              preview: block_type === "thinking" ? content.slice(0, 80) : "",
+              preview: block_type === "text" ? content.slice(0, 80) : "",
               has_tool_calls: block_type === "tool_use",
               rounds: [{ round_index, blocks: [{ block_type, content, tool_name }] }],
             };
