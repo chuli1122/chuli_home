@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.models import CotRecord
-from app.utils import format_datetime
+from app.utils import format_datetime_short
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -37,6 +37,8 @@ class CotItem(BaseModel):
     created_at: str | None
     preview: str
     has_tool_calls: bool
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     rounds: list[CotRound]
 
 
@@ -158,10 +160,21 @@ def list_cot(
             rounds: list[CotRound] = []
             preview = ""
             has_tool_calls = False
+            prompt_tokens = 0
+            completion_tokens = 0
 
             for round_idx in sorted(rounds_map.keys()):
                 blocks: list[CotBlock] = []
                 for rec in rounds_map[round_idx]:
+                    if rec.block_type == "usage":
+                        try:
+                            import json as _json
+                            usage = _json.loads(rec.content or "{}")
+                            prompt_tokens = usage.get("prompt_tokens", 0)
+                            completion_tokens = usage.get("completion_tokens", 0)
+                        except Exception:
+                            pass
+                        continue
                     blocks.append(
                         CotBlock(
                             block_type=rec.block_type or "text",
@@ -173,14 +186,17 @@ def list_cot(
                         has_tool_calls = True
                     if rec.block_type == "text" and not preview:
                         preview = (rec.content or "")[:80]
-                rounds.append(CotRound(round_index=round_idx, blocks=blocks))
+                if blocks:
+                    rounds.append(CotRound(round_index=round_idx, blocks=blocks))
 
             result.append(
                 CotItem(
                     request_id=req_id_str,
-                    created_at=format_datetime(first_ts_map.get(req_id_str)),
+                    created_at=format_datetime_short(first_ts_map.get(req_id_str)),
                     preview=preview,
                     has_tool_calls=has_tool_calls,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
                     rounds=rounds,
                 )
             )

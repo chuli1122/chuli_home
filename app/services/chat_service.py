@@ -1021,6 +1021,8 @@ class ChatService:
         short_mode: bool = False,
     ) -> list[dict[str, Any]]:
         request_id = str(uuid.uuid4())
+        self._total_prompt_tokens = 0
+        self._total_completion_tokens = 0
         # Persist all NEW user messages (those without a DB id)
         for msg in messages:
             if msg.get("role") == "user" and not msg.get("id"):
@@ -1119,7 +1121,15 @@ class ChatService:
                     unique_trimmed_ids,
                     assistant_id,
                 )
-        cot_broadcaster.publish({"type": "done", "request_id": request_id})
+        if self._total_prompt_tokens or self._total_completion_tokens:
+            self._write_cot_block(
+                request_id, 9999, "usage",
+                json.dumps({"prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens}),
+            )
+        cot_broadcaster.publish({
+            "type": "done", "request_id": request_id,
+            "prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens,
+        })
         return messages
 
     def _build_api_call_params(
@@ -1398,6 +1408,8 @@ class ChatService:
             if last_message.get("role") == "user" and has_content:
                 self._persist_message(session_id, "user", user_content, {}, request_id=request_id)
         all_trimmed_message_ids: list[int] = []
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
         round_index = 0
         while True:
             try:
@@ -1439,6 +1451,9 @@ class ChatService:
                             content_chunks.append(text)
                             yield f'data: {json.dumps({"content": text})}\n\n'
                         final_msg = anth_stream.get_final_message()
+                    if hasattr(final_msg, "usage") and final_msg.usage:
+                        total_prompt_tokens += getattr(final_msg.usage, "input_tokens", 0)
+                        total_completion_tokens += getattr(final_msg.usage, "output_tokens", 0)
                     for idx, block in enumerate(b for b in final_msg.content if b.type == "tool_use"):
                         tool_calls_acc[idx] = {
                             "id": block.id,
@@ -1478,6 +1493,9 @@ class ChatService:
                     return
                 try:
                     for chunk in stream:
+                        if hasattr(chunk, "usage") and chunk.usage:
+                            total_prompt_tokens += getattr(chunk.usage, "prompt_tokens", 0)
+                            total_completion_tokens += getattr(chunk.usage, "completion_tokens", 0)
                         if not chunk.choices:
                             continue
                         delta = chunk.choices[0].delta
@@ -1605,7 +1623,15 @@ class ChatService:
                     background_tasks.add_task(
                         self._trigger_summary, session_id, unique_ids, assistant_id,
                     )
-            cot_broadcaster.publish({"type": "done", "request_id": request_id})
+            if total_prompt_tokens or total_completion_tokens:
+                self._write_cot_block(
+                    request_id, 9999, "usage",
+                    json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens}),
+                )
+            cot_broadcaster.publish({
+                "type": "done", "request_id": request_id,
+                "prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens,
+            })
             yield 'data: [DONE]\n\n'
             return
 
@@ -1647,6 +1673,9 @@ class ChatService:
         request_id: str | None = None,
         round_index: int = 0,
     ) -> Iterable[ToolCall]:
+        if not hasattr(self, "_total_prompt_tokens"):
+            self._total_prompt_tokens = 0
+            self._total_completion_tokens = 0
         params = self._build_api_call_params(messages, session_id, short_mode=short_mode)
         if params is None:
             return []
@@ -1708,6 +1737,9 @@ class ChatService:
                 logger.error("[_fetch_next_tool_calls] Anthropic API FAILED (session=%s): %s", session_id, e)
                 _persist_error(e)
                 return []
+            if hasattr(response, "usage") and response.usage:
+                self._total_prompt_tokens += getattr(response.usage, "input_tokens", 0)
+                self._total_completion_tokens += getattr(response.usage, "output_tokens", 0)
             text_content = ""
             thinking_content = ""
             tool_calls_payload: list[dict] = []
@@ -1764,6 +1796,9 @@ class ChatService:
             logger.error("[_fetch_next_tool_calls] API request FAILED (session=%s): %s", session_id, e)
             _persist_error(e)
             return []
+        if hasattr(response, "usage") and response.usage:
+            self._total_prompt_tokens += getattr(response.usage, "prompt_tokens", 0)
+            self._total_completion_tokens += getattr(response.usage, "completion_tokens", 0)
         if not response.choices:
             logger.warning("[_fetch_next_tool_calls] LLM response had no choices (session=%s)", session_id)
             return []

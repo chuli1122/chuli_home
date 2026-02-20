@@ -152,11 +152,25 @@ function AvatarIcon({ avatarUrl }) {
 
 /* ── COT Card ── */
 
+function TokenBadge({ prompt, completion }) {
+  if (!prompt && !completion) return null;
+  const total = prompt + completion;
+  return (
+    <span
+      className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
+      style={{ background: "rgba(100,160,220,0.12)", color: "#4a8abf" }}
+      title={`prompt: ${prompt} / completion: ${completion}`}
+    >
+      {total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total}
+    </span>
+  );
+}
+
 function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
-  // Filter out "text" blocks — only show thinking, tool_use, tool_result
+  // Filter out "text" and "usage" blocks — only show thinking, tool_use, tool_result
   const filteredRounds = item.rounds.map((round) => ({
     ...round,
-    blocks: round.blocks.filter((b) => b.block_type !== "text"),
+    blocks: round.blocks.filter((b) => b.block_type !== "text" && b.block_type !== "usage"),
   })).filter((round) => round.blocks.length > 0);
 
   return (
@@ -164,7 +178,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
       <button className="flex w-full items-center gap-3 p-4" onClick={onToggle}>
         <AvatarIcon avatarUrl={avatarUrl} />
         <div className="flex-1 min-w-0 text-left">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {live && (
               <span
                 className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px]"
@@ -179,6 +193,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
                 工具
               </span>
             )}
+            <TokenBadge prompt={item.prompt_tokens || 0} completion={item.completion_tokens || 0} />
             <span className="text-[10px]" style={{ color: S.textMuted }}>
               {item.created_at || ""}
             </span>
@@ -325,6 +340,16 @@ export default function CotViewer() {
               next.delete(msg.request_id);
               return next;
             });
+            // Update token counts from done message
+            if (msg.prompt_tokens || msg.completion_tokens) {
+              setItems((prev) =>
+                prev.map((it) =>
+                  it.request_id === msg.request_id
+                    ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0 }
+                    : it
+                )
+              );
+            }
             return;
           }
 
