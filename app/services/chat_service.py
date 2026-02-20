@@ -1235,9 +1235,11 @@ class ChatService:
                 recall_text += "[如果以上记忆不够，可以使用 search_memory 或 search_chat_history 补充]\n"
                 full_system_prompt += recall_text
         if short_mode:
+            short_max_row = self.db.query(Settings).filter(Settings.key == "short_msg_max").first()
+            short_max = int(short_max_row.value) if short_max_row else 8
             full_system_prompt += (
                 "\n\n[短消息模式]\n"
-                "像真人发微信一样回复。用多条短消息，每条一个想法或一句话，最多8条。"
+                f"像真人发微信一样回复。用多条短消息，每条一个想法或一句话，最多{short_max}条。"
                 "可以很短（一个字、一个标点都行），可以中途补充，语气自然口语化。"
                 "不需要完整句子，不需要Markdown。用[NEXT]分隔每条消息。"
             )

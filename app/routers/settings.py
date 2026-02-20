@@ -194,6 +194,33 @@ def update_buffer_seconds(
     return BufferSecondsResponse(seconds=seconds)
 
 
+# ── Short message max count ───────────────────────────────────────────────────
+
+class ShortMsgMaxResponse(BaseModel):
+    max_count: int
+
+
+class ShortMsgMaxUpdateRequest(BaseModel):
+    max_count: int = Field(..., ge=2, le=20)
+
+
+@router.get("/settings/short-msg-max", response_model=ShortMsgMaxResponse)
+def get_short_msg_max(db: Session = Depends(get_db)) -> ShortMsgMaxResponse:
+    row = db.query(Settings).filter(Settings.key == "short_msg_max").first()
+    return ShortMsgMaxResponse(max_count=int(row.value) if row else 8)
+
+
+@router.put("/settings/short-msg-max", response_model=ShortMsgMaxResponse)
+def update_short_msg_max(
+    payload: ShortMsgMaxUpdateRequest,
+    db: Session = Depends(get_db),
+) -> ShortMsgMaxResponse:
+    count = max(2, min(20, payload.max_count))
+    _upsert_setting(db, "short_msg_max", str(count))
+    db.commit()
+    return ShortMsgMaxResponse(max_count=count)
+
+
 # ── Mood ─────────────────────────────────────────────────────────────────────
 
 VALID_MOOD_TAGS = {

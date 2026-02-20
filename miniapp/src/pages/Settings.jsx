@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Server, Mic2, MessageSquare, Database, Timer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Server, Mic2, MessageSquare, Database, Timer, Hash } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -103,6 +103,7 @@ export default function Settings() {
   const [tgBufferSec, setTgBufferSec] = useState(() =>
     parseInt(localStorage.getItem("telegram_buffer_seconds") || "15")
   );
+  const [shortMsgMax, setShortMsgMax] = useState(8);
 
   // API settings
   const [retainBudget, setRetainBudget] = useState(8000);
@@ -146,6 +147,20 @@ export default function Settings() {
       body: { seconds: tgBufferSec },
     }).catch(() => {});
   }, [tgBufferSec]);
+
+  // Load short msg max from backend
+  useEffect(() => {
+    apiFetch("/api/settings/short-msg-max")
+      .then((d) => setShortMsgMax(d.max_count || 8))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    apiFetch("/api/settings/short-msg-max", {
+      method: "PUT",
+      body: { max_count: shortMsgMax },
+    }).catch(() => {});
+  }, [shortMsgMax]);
 
   const saveBudget = async () => {
     setBudgetSaving(true);
@@ -239,12 +254,12 @@ export default function Settings() {
           )}
         </div>
 
-        {/* Telegram short-mode buffer */}
+        {/* Short-mode: buffer time + max count */}
         <div
-          className="rounded-[20px] p-4"
+          className="rounded-[20px] overflow-hidden"
           style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
         >
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 px-4 py-4">
             <div
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
               style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
@@ -258,6 +273,23 @@ export default function Settings() {
             <div className="flex items-center gap-1.5">
               <NumberInput value={tgBufferSec} onChange={setTgBufferSec} min={1} max={120} />
               <span className="text-[12px]" style={{ color: S.textMuted }}>秒</span>
+            </div>
+          </div>
+          <Divider />
+          <div className="flex items-center gap-4 px-4 py-4">
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+              style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
+            >
+              <Hash size={18} style={{ color: S.text }} />
+            </div>
+            <div className="flex-1">
+              <div className="text-[15px] font-semibold" style={{ color: S.text }}>短消息条数</div>
+              <div className="text-[11px]" style={{ color: S.textMuted }}>短消息模式最大回复条数</div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <NumberInput value={shortMsgMax} onChange={setShortMsgMax} min={2} max={20} />
+              <span className="text-[12px]" style={{ color: S.textMuted }}>条</span>
             </div>
           </div>
         </div>
