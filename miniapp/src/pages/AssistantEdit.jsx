@@ -1036,7 +1036,7 @@ export default function AssistantEdit() {
                 placeholder="描述你自己，让 AI 了解你..."
                 rows={7}
                 onExpand={() => setHumanFullscreen(true)}
-                onHistory={humanBlockId ? () => openHistory("human") : undefined}
+                onHistory={() => openHistory("human")}
               />
             </div>
             <div
@@ -1050,7 +1050,7 @@ export default function AssistantEdit() {
                 placeholder="AI 在相处中形成的自我认知..."
                 rows={7}
                 onExpand={() => setPersonaFullscreen(true)}
-                onHistory={personaBlockId ? () => openHistory("persona") : undefined}
+                onHistory={() => openHistory("persona")}
               />
             </div>
           </>
