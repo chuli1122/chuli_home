@@ -75,7 +75,7 @@ function SwipeRow({ children, onDelete }) {
     s.startX = t.clientX; s.startY = t.clientY;
     s.base = s.current; s.dragging = true;
     s.locked = false; s.isH = false;
-    if (rowRef.current) rowRef.current.style.transition = "none";
+    if (rowRef.current) { rowRef.current.style.transition = "none"; rowRef.current.style.willChange = "transform"; }
     if (actRef.current) actRef.current.style.transition = "none";
   };
 
@@ -102,6 +102,7 @@ function SwipeRow({ children, onDelete }) {
     state.current.dragging = false;
     if (state.current.current < -SNAP_THRESHOLD) translate(-SWIPE_WIDTH, true);
     else translate(0, true);
+    if (rowRef.current) rowRef.current.style.willChange = "auto";
   };
 
   return (
@@ -126,7 +127,7 @@ function SwipeRow({ children, onDelete }) {
       <div
         ref={rowRef}
         className="relative z-10"
-        style={{ transform: "translateX(0px)", willChange: "transform" }}
+        style={{ transform: "translateX(0px)" }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}

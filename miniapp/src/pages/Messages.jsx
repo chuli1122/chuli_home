@@ -51,13 +51,13 @@ function SwipeRow({ children, onDelete }) {
       <div
         ref={rowRef}
         className="relative z-10"
-        style={{ transform: "translateX(0)", willChange: "transform" }}
+        style={{ transform: "translateX(0)" }}
         onTouchStart={(e) => {
           const t = e.touches[0];
           const st = s.current;
           st.sx = t.clientX; st.sy = t.clientY;
           st.base = st.cur; st.drag = true; st.locked = false; st.horiz = false;
-          if (rowRef.current) rowRef.current.style.transition = "none";
+          if (rowRef.current) { rowRef.current.style.transition = "none"; rowRef.current.style.willChange = "transform"; }
           if (actRef.current) actRef.current.style.transition = "none";
         }}
         onTouchMove={(e) => {
@@ -80,6 +80,7 @@ function SwipeRow({ children, onDelete }) {
         onTouchEnd={() => {
           s.current.drag = false;
           snap(s.current.cur < -SNAP_THRESHOLD ? -ACTION_WIDTH : 0, true);
+          if (rowRef.current) rowRef.current.style.willChange = "auto";
         }}
       >
         {children}
