@@ -1379,9 +1379,7 @@ class ChatService:
                 else:
                     content = f"[{timestamp}] {content}"
             elif role == "assistant" and content is not None:
-                msg_time = message.get("created_at")
-                if msg_time:
-                    content = f"[{_ts_east8(msg_time)}] {content}"
+                pass
             api_message = {"role": role, "content": content}
             if "name" in message:
                 api_message["name"] = message["name"]
