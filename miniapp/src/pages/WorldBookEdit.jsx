@@ -76,6 +76,7 @@ function ActivationSelector({ value, onChange }) {
     { value: "always", label: "常驻" },
     { value: "keyword", label: "关键词" },
     { value: "mood", label: "情绪" },
+    { value: "message_mode", label: "消息模式" },
   ];
 
   return (
@@ -101,6 +102,43 @@ function ActivationSelector({ value, onChange }) {
             {opt.label}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function MessageModeChips({ selected, onChange }) {
+  const modes = [
+    { value: "long", label: "长消息" },
+    { value: "short", label: "短消息" },
+  ];
+
+  return (
+    <div className="mb-4">
+      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: S.textMuted }}>
+        消息模式
+      </label>
+      <div
+        className="flex flex-wrap gap-2 rounded-[14px] p-3"
+        style={{ boxShadow: "var(--inset-shadow)", background: S.bg, minHeight: 48 }}
+      >
+        {modes.map((m) => {
+          const isSel = selected === m.value;
+          return (
+            <button
+              key={m.value}
+              className="rounded-full px-3 py-1.5 text-[13px] font-medium transition-all"
+              style={{
+                background: isSel ? S.accentDark : S.bg,
+                color: isSel ? "white" : S.textMuted,
+                boxShadow: isSel ? "none" : "var(--card-shadow-sm)",
+              }}
+              onClick={() => onChange(m.value)}
+            >
+              {m.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -246,6 +284,7 @@ export default function WorldBookEdit() {
   const [folder, setFolder] = useState("");
   const [activation, setActivation] = useState("always");
   const [keywords, setKeywords] = useState([]);
+  const [messageMode, setMessageMode] = useState("long");
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(!isNew);
@@ -283,6 +322,7 @@ export default function WorldBookEdit() {
             setFolder(book.folder || "");
             setActivation(book.activation);
             setKeywords(book.keywords || []);
+            setMessageMode(book.message_mode || "long");
             setContent(book.content);
           }
         }
@@ -299,7 +339,8 @@ export default function WorldBookEdit() {
         name: name.trim(),
         folder: folder.trim() || null,
         activation,
-        keywords: activation !== "always" ? keywords : [],
+        keywords: activation === "keyword" || activation === "mood" ? keywords : [],
+        message_mode: activation === "message_mode" ? messageMode : null,
         content,
       };
       if (isNew) {
@@ -365,6 +406,9 @@ export default function WorldBookEdit() {
           )}
           {activation === "mood" && (
             <MoodChips selected={keywords} onChange={setKeywords} />
+          )}
+          {activation === "message_mode" && (
+            <MessageModeChips selected={messageMode} onChange={setMessageMode} />
           )}
         </div>
 

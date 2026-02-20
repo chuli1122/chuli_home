@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.models.models import Assistant, WorldBook
+from app.models.models import Assistant, Settings, WorldBook
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,10 @@ class WorldBooksService:
                 except (TypeError, ValueError):
                     continue
         return result
+
+    def _get_current_chat_mode(self) -> str:
+        row = self.db.query(Settings).filter(Settings.key == "chat_mode").first()
+        return row.value if row and row.value in ("short", "long", "theater") else "long"
 
     def get_active_books(
         self,
@@ -109,6 +113,11 @@ class WorldBooksService:
                             is_active = True
                     except Exception as exc:
                         logger.warning("Mood activation check failed: %s", exc)
+            elif book.activation == "message_mode":
+                if book.message_mode:
+                    current_mode = self._get_current_chat_mode()
+                    if current_mode == book.message_mode:
+                        is_active = True
             if not is_active:
                 continue
 

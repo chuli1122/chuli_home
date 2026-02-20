@@ -21,6 +21,7 @@ class WorldBookItem(BaseModel):
     content: str
     activation: str
     keywords: list[Any] | None
+    message_mode: str | None = None
     folder: str | None
     created_at: str | None
 
@@ -35,6 +36,7 @@ class WorldBookCreateRequest(BaseModel):
     content: str = ""
     activation: str = "always"
     keywords: list[Any] | None = None
+    message_mode: str | None = None
     folder: str | None = None
 
 
@@ -43,6 +45,7 @@ class WorldBookUpdateRequest(BaseModel):
     content: str | None = None
     activation: str | None = None
     keywords: list[Any] | None = None
+    message_mode: str | None = None
     folder: str | None = None
 
 
@@ -72,6 +75,7 @@ def list_world_books(
             content=row.content,
             activation=row.activation,
             keywords=row.keywords or [],
+            message_mode=row.message_mode,
             folder=row.folder,
             created_at=format_datetime(row.created_at),
         )
@@ -90,6 +94,7 @@ def create_world_book(
         content=payload.content,
         activation=payload.activation,
         keywords=payload.keywords or [],
+        message_mode=payload.message_mode,
         folder=payload.folder,
     )
     db.add(row)

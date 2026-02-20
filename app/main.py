@@ -95,6 +95,13 @@ def _run_migrations(eng) -> None:
                 conn.execute(text("ALTER TABLE diary ADD COLUMN deleted_at TIMESTAMPTZ"))
             if "read_at" not in cols:
                 conn.execute(text("ALTER TABLE diary ADD COLUMN read_at TIMESTAMPTZ"))
+    # world_books.message_mode
+    if "world_books" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("world_books")]
+        if "message_mode" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE world_books ADD COLUMN message_mode VARCHAR(16)"))
+            logger.info("Added message_mode column to world_books")
 
 
 @app.on_event("startup")

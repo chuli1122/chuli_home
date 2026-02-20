@@ -100,6 +100,7 @@ class WorldBook(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     activation: Mapped[str] = mapped_column(String(16), nullable=False, default="always")
     keywords: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True, default=list)
+    message_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     folder: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
