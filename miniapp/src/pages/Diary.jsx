@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Trash2, Plus, X, Lock } from "lucide-react";
+import { ChevronLeft, Trash2, Plus, X, Lock, Maximize2, Minimize2 } from "lucide-react";
 import { apiFetch } from "../utils/api";
+import { getAvatar } from "../utils/db";
 
 const S = {
   bg: "var(--bg)",
@@ -16,8 +17,8 @@ const TABS = [
   { key: "mine", label: "我的日记" },
 ];
 
-const ACTION_WIDTH = 72;
-const SNAP_THRESHOLD = 36;
+const ACTION_WIDTH = 80;
+const SNAP_THRESHOLD = 40;
 
 function fmtTime(ts) {
   if (!ts) return "";
@@ -30,22 +31,23 @@ function fmtTime(ts) {
   return `${d.getMonth() + 1}/${d.getDate()} ${time}`;
 }
 
-/* ── Confirm ── */
+/* ── Confirm dialog (centered, assistant-page style) ── */
 function ConfirmDialog({ message, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onCancel}>
-      <div className="mx-8 w-full max-w-[280px] rounded-[18px] p-5" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={(e) => e.stopPropagation()}>
-        <p className="mb-4 text-center text-[13px]" style={{ color: S.text }}>{message}</p>
+      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={(e) => e.stopPropagation()}>
+        <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>确认删除</p>
+        <p className="mb-5 text-center text-[13px]" style={{ color: S.textMuted }}>{message}</p>
         <div className="flex gap-3">
-          <button className="flex-1 rounded-[12px] py-2 text-[12px] font-medium" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.textMuted }} onClick={onCancel}>取消</button>
-          <button className="flex-1 rounded-[12px] py-2 text-[12px] font-medium" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }} onClick={onConfirm}>确认</button>
+          <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text }} onClick={onCancel}>取消</button>
+          <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold text-white" style={{ background: "#ff4d6d", boxShadow: "4px 4px 10px rgba(255,77,109,0.4)" }} onClick={onConfirm}>删除</button>
         </div>
       </div>
     </div>
   );
 }
 
-/* ── SwipeRow ── */
+/* ── SwipeRow (assistant-page style) ── */
 function SwipeRow({ children, onDelete }) {
   const rowRef = useRef(null);
   const actRef = useRef(null);
@@ -53,18 +55,18 @@ function SwipeRow({ children, onDelete }) {
   const snap = useCallback((x, anim) => {
     const el = rowRef.current, act = actRef.current;
     if (!el) return;
-    const t = anim ? "all .25s ease" : "none";
+    const t = anim ? "all 0.25s cubic-bezier(.4,0,.2,1)" : "none";
     el.style.transition = t; el.style.transform = `translateX(${x}px)`;
     if (act) { act.style.transition = t; act.style.opacity = `${Math.min(1, Math.abs(x) / ACTION_WIDTH)}`; }
     s.current.cur = x;
   }, []);
   const close = useCallback(() => snap(0, true), [snap]);
   return (
-    <div className="relative overflow-hidden rounded-[14px]">
+    <div className="relative mb-3 overflow-hidden rounded-[18px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
       <div ref={actRef} className="absolute right-0 top-0 bottom-0 flex items-center pr-2" style={{ opacity: 0 }}>
-        <button onClick={() => { close(); onDelete(); }} className="flex h-[calc(100%-8px)] w-[56px] flex-col items-center justify-center gap-0.5 rounded-xl" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.2)" }}>
-          <Trash2 size={14} color="#ef4444" />
-          <span className="text-[9px] font-medium" style={{ color: "#ef4444" }}>删除</span>
+        <button onClick={() => { close(); onDelete(); }} className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]" style={{ background: "#ff4d6d" }}>
+          <Trash2 size={16} color="white" />
+          <span className="text-[11px] font-medium text-white">删除</span>
         </button>
       </div>
       <div ref={rowRef} className="relative z-10" style={{ transform: "translateX(0)", willChange: "transform" }}
@@ -98,28 +100,31 @@ function Countdown({ unlockAt }) {
   );
 }
 
-/* ── Assistant picker popup ── */
-function AssistantPicker({ assistants, currentId, onSelect, onClose }) {
+/* ── Assistant picker (centered) ── */
+function AssistantPicker({ assistants, avatarMap, currentId, onSelect, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.2)" }} onClick={onClose}>
-      <div className="w-full max-w-[400px] rounded-t-[20px] pb-6" style={{ background: S.bg, boxShadow: "0 -4px 20px rgba(0,0,0,0.1)" }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-          <span className="text-[14px] font-bold" style={{ color: S.text }}>选择助手</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onClose}>
+      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-5" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[15px] font-bold" style={{ color: S.text }}>选择助手</span>
           <button onClick={onClose}><X size={18} style={{ color: S.textMuted }} /></button>
         </div>
-        <div className="max-h-[50vh] overflow-y-auto px-5">
-          {assistants.map((a) => (
-            <button key={a.id} className="mb-2 flex w-full items-center gap-3 rounded-[14px] p-3 text-left"
-              style={{ background: S.bg, boxShadow: a.id === currentId ? "var(--inset-shadow)" : "var(--card-shadow-sm)" }}
-              onClick={() => { onSelect(a.id); onClose(); }}>
-              <div className="shrink-0 rounded-full" style={{ width: 36, height: 36, border: a.id === currentId ? "2px solid #e8a0bf" : "2px solid transparent", padding: 2 }}>
-                <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full" style={{ background: S.bg }}>
-                  {a.avatar_url ? <img src={a.avatar_url} alt="" className="h-full w-full object-cover rounded-full" /> : <span style={{ fontSize: 16 }}>🤖</span>}
+        <div className="max-h-[50vh] overflow-y-auto">
+          {assistants.map((a) => {
+            const src = avatarMap[a.id] || a.avatar_url;
+            return (
+              <button key={a.id} className="mb-2 flex w-full items-center gap-3 rounded-[14px] p-3 text-left"
+                style={{ background: S.bg, boxShadow: a.id === currentId ? "var(--inset-shadow)" : "var(--card-shadow-sm)" }}
+                onClick={() => { onSelect(a.id); onClose(); }}>
+                <div className="shrink-0 rounded-full" style={{ width: 36, height: 36, background: "linear-gradient(135deg, #f0c4d8, var(--accent))", padding: 2 }}>
+                  <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full" style={{ background: S.bg }}>
+                    {src ? <img src={src} alt="" className="h-full w-full object-cover rounded-full" /> : <span className="text-[14px]" style={{ color: S.accentDark }}>{a.name?.[0] || "?"}</span>}
+                  </div>
                 </div>
-              </div>
-              <span className="text-[13px] font-medium truncate" style={{ color: S.text }}>{a.name}</span>
-            </button>
-          ))}
+                <span className="text-[13px] font-medium truncate" style={{ color: S.text }}>{a.name}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -147,7 +152,7 @@ function DiaryDetail({ diary, onBack, onMarkRead }) {
       <div className="flex-1 overflow-y-auto px-5 pb-8">
         <div className="rounded-[18px] p-5" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
           <div className="mb-3 text-[10px]" style={{ color: S.textMuted }}>{fmtTime(diary.created_at)}</div>
-          <div className="diary-lines text-[13px] leading-[28px]" style={{ color: S.text }}>
+          <div className="text-[13px] leading-[28px]" style={{ color: S.text }}>
             {diary.content.split("\n").map((line, i) => (
               <div key={i} style={{ borderBottom: "1px solid rgba(0,0,0,0.06)", minHeight: 28 }}>{line || "\u00A0"}</div>
             ))}
@@ -165,17 +170,13 @@ function NewDiaryForm({ assistantId, onSave, onCancel }) {
   const [timed, setTimed] = useState(false);
   const [unlockDate, setUnlockDate] = useState("");
   const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const handleSave = async () => {
     if (!content.trim() || saving) return;
     setSaving(true);
     try {
-      const body = {
-        assistant_id: assistantId,
-        author: "user",
-        title: title.trim(),
-        content: content.trim(),
-      };
+      const body = { assistant_id: assistantId, author: "user", title: title.trim(), content: content.trim() };
       if (timed && unlockDate) body.unlock_at = new Date(unlockDate).toISOString();
       await onSave(body);
     } finally { setSaving(false); }
@@ -188,45 +189,58 @@ function NewDiaryForm({ assistantId, onSave, onCancel }) {
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
         <h1 className="text-[15px] font-bold" style={{ color: S.text }}>写日记</h1>
-        <button
-          className="flex h-10 w-10 items-center justify-center rounded-full"
+        <button className="flex h-10 w-10 items-center justify-center rounded-full"
           style={{ background: S.bg, boxShadow: content.trim() ? "var(--card-shadow-sm)" : "var(--inset-shadow)" }}
-          onClick={handleSave} disabled={!content.trim() || saving}
-        >
+          onClick={handleSave} disabled={!content.trim() || saving}>
           <span className="text-[12px] font-bold" style={{ color: content.trim() ? S.accentDark : S.textMuted }}>存</span>
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-5 pb-8">
-        <input
-          className="mb-3 w-full rounded-[12px] px-3 py-2.5 text-[13px] font-medium outline-none"
-          style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text }}
-          placeholder="标题（可选）"
-          value={title} onChange={(e) => setTitle(e.target.value)}
-        />
-        <textarea
-          className="mb-3 w-full rounded-[14px] p-3 text-[13px] leading-[28px] resize-none outline-none"
-          style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text, minHeight: 200, backgroundImage: "repeating-linear-gradient(transparent, transparent 27px, rgba(0,0,0,0.05) 27px, rgba(0,0,0,0.05) 28px)", backgroundPositionY: 9 }}
-          placeholder="写点什么..."
-          value={content} onChange={(e) => setContent(e.target.value)}
-          autoFocus
-        />
-        <div className="flex items-center justify-between rounded-[12px] px-3 py-2.5" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
-          <span className="text-[12px] font-medium" style={{ color: S.text }}>定时解锁</span>
+        {!expanded && (
+          <input className="mb-3 w-full rounded-[12px] px-3 py-2.5 text-[13px] font-medium outline-none"
+            style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text }}
+            placeholder="标题（可选）" value={title} onChange={(e) => setTitle(e.target.value)} />
+        )}
+        <div className="relative mb-3">
+          <textarea
+            className="w-full rounded-[14px] p-3 text-[13px] leading-[28px] resize-none outline-none"
+            style={{
+              background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text,
+              minHeight: expanded ? "calc(100vh - 120px)" : 200,
+              backgroundImage: "repeating-linear-gradient(transparent, transparent 27px, rgba(0,0,0,0.05) 27px, rgba(0,0,0,0.05) 28px)",
+              backgroundPositionY: 9,
+            }}
+            placeholder="写点什么..." value={content} onChange={(e) => setContent(e.target.value)} autoFocus
+          />
           <button
-            className="relative h-6 w-11 rounded-full transition-colors"
-            style={{ background: timed ? S.accent : "rgba(0,0,0,0.1)" }}
-            onClick={() => setTimed(!timed)}
+            className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+            onClick={() => setExpanded(!expanded)}
           >
-            <div className="absolute top-0.5 h-5 w-5 rounded-full transition-transform" style={{ background: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transform: timed ? "translateX(22px)" : "translateX(2px)" }} />
+            {expanded ? <Minimize2 size={13} style={{ color: S.accentDark }} /> : <Maximize2 size={13} style={{ color: S.accentDark }} />}
           </button>
         </div>
-        {timed && (
-          <input
-            type="datetime-local"
-            className="mt-2 w-full rounded-[12px] px-3 py-2.5 text-[12px] outline-none"
-            style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text }}
-            value={unlockDate} onChange={(e) => setUnlockDate(e.target.value)}
-          />
+        {!expanded && (
+          <>
+            {/* Timed unlock toggle */}
+            <div className="mb-2 flex items-center justify-between rounded-[14px] px-4 py-3" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
+              <div>
+                <span className="text-[13px] font-medium" style={{ color: S.text }}>定时解锁</span>
+                <p className="text-[10px]" style={{ color: S.textMuted }}>对方需要等到指定时间才能查看</p>
+              </div>
+              <button className="relative h-7 w-12 rounded-full transition-colors" style={{ background: timed ? S.accent : "rgba(0,0,0,0.1)" }} onClick={() => setTimed(!timed)}>
+                <div className="absolute top-0.5 h-6 w-6 rounded-full transition-transform" style={{ background: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transform: timed ? "translateX(22px)" : "translateX(2px)" }} />
+              </button>
+            </div>
+            {timed && (
+              <div className="rounded-[14px] px-4 py-3" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
+                <p className="mb-2 text-[12px] font-medium" style={{ color: S.text }}>选择解锁时间</p>
+                <input type="datetime-local" className="w-full rounded-[10px] px-3 py-2 text-[13px] outline-none"
+                  style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text }}
+                  value={unlockDate} onChange={(e) => setUnlockDate(e.target.value)} />
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -238,29 +252,35 @@ export default function DiaryPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("theirs");
   const [assistants, setAssistants] = useState([]);
+  const [avatarMap, setAvatarMap] = useState({});
   const [assistantId, setAssistantId] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [diaries, setDiaries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState(null);
-  const [detail, setDetail] = useState(null);      // diary object
+  const [detail, setDetail] = useState(null);
   const [newForm, setNewForm] = useState(false);
 
-  // Load assistants
+  // Load assistants + avatars
   useEffect(() => {
-    apiFetch("/api/assistants").then((d) => {
+    apiFetch("/api/assistants").then(async (d) => {
       const list = d.assistants || [];
       setAssistants(list);
       if (list.length > 0 && !assistantId) setAssistantId(list[0].id);
+      const map = {};
+      await Promise.all(list.map(async (a) => {
+        const b64 = await getAvatar(`assistant-avatar-${a.id}`).catch(() => null);
+        if (b64) map[a.id] = b64;
+      }));
+      setAvatarMap(map);
     }).catch(() => {});
   }, []);
 
   const currentAssistant = assistants.find((a) => a.id === assistantId);
+  const currentAvatar = (assistantId && avatarMap[assistantId]) || currentAssistant?.avatar_url;
 
   // Load diaries
-  useEffect(() => {
-    if (assistantId != null) loadDiaries();
-  }, [assistantId, tab]);
+  useEffect(() => { if (assistantId != null) loadDiaries(); }, [assistantId, tab]);
 
   const loadDiaries = async () => {
     setLoading(true);
@@ -273,47 +293,23 @@ export default function DiaryPage() {
   };
 
   const deleteDiary = (id) => {
-    setConfirm({
-      message: "确定要删除这篇日记吗？",
-      action: async () => {
-        await apiFetch(`/api/diary/${id}`, { method: "DELETE" });
-        setDiaries((p) => p.filter((d) => d.id !== id));
-      },
-    });
+    setConfirm({ message: "确定要删除这篇日记吗？", action: async () => { await apiFetch(`/api/diary/${id}`, { method: "DELETE" }); setDiaries((p) => p.filter((d) => d.id !== id)); } });
   };
 
   const markRead = async (id) => {
-    try {
-      await apiFetch(`/api/diary/${id}/read`, { method: "POST" });
-      setDiaries((p) => p.map((d) => d.id === id ? { ...d, is_read: true } : d));
-    } catch (e) { console.error(e); }
+    try { await apiFetch(`/api/diary/${id}/read`, { method: "POST" }); setDiaries((p) => p.map((d) => d.id === id ? { ...d, is_read: true } : d)); } catch (e) { console.error(e); }
   };
 
-  const handleCreate = async (body) => {
-    await apiFetch("/api/diary", { method: "POST", body: JSON.stringify(body) });
-    setNewForm(false);
-    loadDiaries();
-  };
+  const handleCreate = async (body) => { await apiFetch("/api/diary", { method: "POST", body: JSON.stringify(body) }); setNewForm(false); loadDiaries(); };
 
   const openDiary = (diary) => {
     const locked = diary.unlock_at && new Date(diary.unlock_at) > new Date();
-    if (locked) return; // locked diaries can't be opened
+    if (locked) return;
     setDetail(diary);
   };
 
-  // ── Sub-views ──
-  if (detail) {
-    return (
-      <DiaryDetail
-        diary={detail}
-        onBack={() => { setDetail(null); loadDiaries(); }}
-        onMarkRead={markRead}
-      />
-    );
-  }
-  if (newForm) {
-    return <NewDiaryForm assistantId={assistantId} onSave={handleCreate} onCancel={() => setNewForm(false)} />;
-  }
+  if (detail) return <DiaryDetail diary={detail} onBack={() => { setDetail(null); loadDiaries(); }} onMarkRead={markRead} />;
+  if (newForm) return <NewDiaryForm assistantId={assistantId} onSave={handleCreate} onCancel={() => setNewForm(false)} />;
 
   return (
     <div className="flex h-full flex-col" style={{ background: S.bg }}>
@@ -323,16 +319,12 @@ export default function DiaryPage() {
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
         <h1 className="text-[17px] font-bold" style={{ color: S.text }}>日记</h1>
-        {/* Assistant avatar button */}
-        <button
-          className="flex h-10 w-10 items-center justify-center rounded-full"
-          style={{ border: "2px solid #e8a0bf", padding: 2 }}
-          onClick={() => setPickerOpen(true)}
-        >
+        {/* Assistant avatar */}
+        <button className="flex h-10 w-10 items-center justify-center rounded-full" style={{ border: "2px solid #e8a0bf", padding: 2 }} onClick={() => setPickerOpen(true)}>
           <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full" style={{ background: S.bg }}>
-            {currentAssistant?.avatar_url
-              ? <img src={currentAssistant.avatar_url} alt="" className="h-full w-full object-cover rounded-full" />
-              : <span style={{ fontSize: 16 }}>🤖</span>
+            {currentAvatar
+              ? <img src={currentAvatar} alt="" className="h-full w-full object-cover rounded-full" />
+              : <span className="text-[14px]" style={{ color: S.accentDark }}>{currentAssistant?.name?.[0] || "?"}</span>
             }
           </div>
         </button>
@@ -366,20 +358,13 @@ export default function DiaryPage() {
             const locked = diary.unlock_at && new Date(diary.unlock_at) > new Date();
             return (
               <SwipeRow key={diary.id} onDelete={() => deleteDiary(diary.id)}>
-                <div
-                  className="mb-2 rounded-[14px] p-3 cursor-pointer"
-                  style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-                  onClick={() => openDiary(diary)}
-                >
+                <div className="p-4 rounded-[18px]" style={{ background: S.bg, userSelect: "none" }} onClick={() => openDiary(diary)}>
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2 min-w-0">
-                      {/* Unread dot */}
                       {!diary.is_read && diary.author === "assistant" && !locked && (
                         <div className="h-2 w-2 shrink-0 rounded-full" style={{ background: "#ef4444" }} />
                       )}
-                      <span className="text-[13px] font-medium truncate" style={{ color: S.text }}>
-                        {diary.title || "无题"}
-                      </span>
+                      <span className="text-[13px] font-medium truncate" style={{ color: S.text }}>{diary.title || "无题"}</span>
                     </div>
                     <span className="text-[10px] shrink-0 ml-2" style={{ color: S.textMuted }}>{fmtTime(diary.created_at)}</span>
                   </div>
@@ -397,28 +382,23 @@ export default function DiaryPage() {
         )}
       </div>
 
-      {/* New diary FAB (only on "mine" tab) */}
+      {/* New diary FAB */}
       {tab === "mine" && (
         <div className="fixed bottom-6 left-0 right-0 flex justify-center" style={{ zIndex: 30 }}>
-          <button
-            className="flex h-12 w-12 items-center justify-center rounded-full"
+          <button className="flex h-12 w-12 items-center justify-center rounded-full"
             style={{ background: "linear-gradient(135deg, #f0c4d8, var(--accent))", boxShadow: "0 4px 14px rgba(232,160,191,0.4)" }}
-            onClick={() => setNewForm(true)}
-          >
+            onClick={() => setNewForm(true)}>
             <Plus size={22} color="white" />
           </button>
         </div>
       )}
 
       {/* Modals */}
-      {pickerOpen && (
-        <AssistantPicker assistants={assistants} currentId={assistantId} onSelect={setAssistantId} onClose={() => setPickerOpen(false)} />
-      )}
+      {pickerOpen && <AssistantPicker assistants={assistants} avatarMap={avatarMap} currentId={assistantId} onSelect={setAssistantId} onClose={() => setPickerOpen(false)} />}
       {confirm && (
         <ConfirmDialog message={confirm.message}
           onConfirm={async () => { try { await confirm.action(); } catch (e) { console.error(e); } setConfirm(null); }}
-          onCancel={() => setConfirm(null)}
-        />
+          onCancel={() => setConfirm(null)} />
       )}
     </div>
   );

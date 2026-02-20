@@ -254,19 +254,19 @@ export default function Assistants() {
       {/* Delete confirm */}
       {deleteTarget && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center"
+          className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ background: "rgba(0,0,0,0.25)" }}
           onClick={() => setDeleteTarget(null)}
         >
           <div
-            className="w-full rounded-t-[28px] p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-            style={{ background: S.bg, boxShadow: "0 -4px 20px rgba(0,0,0,0.12)" }}
+            className="mx-6 w-full max-w-[300px] rounded-[22px] p-6"
+            style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>
               删除助手
             </p>
-            <p className="mb-6 text-center text-[13px]" style={{ color: S.textMuted }}>
+            <p className="mb-5 text-center text-[13px]" style={{ color: S.textMuted }}>
               确定要删除「{deleteTarget.name}」吗？
             </p>
             <div className="flex gap-3">

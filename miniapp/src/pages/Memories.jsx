@@ -17,8 +17,8 @@ const TABS = [
   { key: "messages", label: "消息记录" },
 ];
 
-const ACTION_WIDTH = 72;
-const SNAP_THRESHOLD = 36;
+const ACTION_WIDTH = 80;
+const SNAP_THRESHOLD = 40;
 
 /* ── Helpers ── */
 
@@ -59,11 +59,12 @@ function Highlight({ text, keyword }) {
 function ConfirmDialog({ message, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onCancel}>
-      <div className="mx-8 w-full max-w-[280px] rounded-[18px] p-5" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={(e) => e.stopPropagation()}>
-        <p className="mb-4 text-center text-[13px]" style={{ color: S.text }}>{message}</p>
+      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={(e) => e.stopPropagation()}>
+        <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>确认删除</p>
+        <p className="mb-5 text-center text-[13px]" style={{ color: S.textMuted }}>{message}</p>
         <div className="flex gap-3">
-          <button className="flex-1 rounded-[12px] py-2 text-[12px] font-medium" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.textMuted }} onClick={onCancel}>取消</button>
-          <button className="flex-1 rounded-[12px] py-2 text-[12px] font-medium" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }} onClick={onConfirm}>确认</button>
+          <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text }} onClick={onCancel}>取消</button>
+          <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold text-white" style={{ background: "#ff4d6d", boxShadow: "4px 4px 10px rgba(255,77,109,0.4)" }} onClick={onConfirm}>删除</button>
         </div>
       </div>
     </div>
@@ -122,9 +123,9 @@ function SwipeRow({ children, onDelete }) {
   return (
     <div className="relative overflow-hidden rounded-[14px]">
       <div ref={actRef} className="absolute right-0 top-0 bottom-0 flex items-center pr-2" style={{ opacity: 0 }}>
-        <button onClick={() => { close(); onDelete(); }} className="flex h-[calc(100%-8px)] w-[56px] flex-col items-center justify-center gap-0.5 rounded-xl" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.2)" }}>
-          <Trash2 size={14} color="#ef4444" />
-          <span className="text-[9px] font-medium" style={{ color: "#ef4444" }}>删除</span>
+        <button onClick={() => { close(); onDelete(); }} className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]" style={{ background: "#ff4d6d" }}>
+          <Trash2 size={16} color="white" />
+          <span className="text-[11px] font-medium text-white">删除</span>
         </button>
       </div>
       <div ref={rowRef} className="relative z-10" style={{ transform: "translateX(0)", willChange: "transform" }}

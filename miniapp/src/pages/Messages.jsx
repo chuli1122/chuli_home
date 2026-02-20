@@ -11,8 +11,8 @@ const S = {
   textMuted: "var(--text-muted)",
 };
 
-const ACTION_WIDTH = 72;
-const SNAP_THRESHOLD = 36;
+const ACTION_WIDTH = 80;
+const SNAP_THRESHOLD = 40;
 
 function SwipeRow({ children, onDelete }) {
   const rowRef = useRef(null);
@@ -41,11 +41,11 @@ function SwipeRow({ children, onDelete }) {
       <div ref={actRef} className="absolute right-0 top-0 bottom-0 flex items-center pr-2" style={{ opacity: 0 }}>
         <button
           onClick={() => { close(); onDelete(); }}
-          className="flex h-[calc(100%-8px)] w-[56px] flex-col items-center justify-center gap-0.5 rounded-xl"
-          style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.2)" }}
+          className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]"
+          style={{ background: "#ff4d6d" }}
         >
-          <Trash2 size={14} color="#ef4444" />
-          <span className="text-[9px] font-medium" style={{ color: "#ef4444" }}>删除</span>
+          <Trash2 size={16} color="white" />
+          <span className="text-[11px] font-medium text-white">删除</span>
         </button>
       </div>
       <div
