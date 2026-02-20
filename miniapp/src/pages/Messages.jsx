@@ -57,7 +57,7 @@ function SwipeRow({ children, onDelete }) {
           const st = s.current;
           st.sx = t.clientX; st.sy = t.clientY;
           st.base = st.cur; st.drag = true; st.locked = false; st.horiz = false;
-          if (rowRef.current) { rowRef.current.style.transition = "none"; rowRef.current.style.willChange = "transform"; }
+          if (rowRef.current) rowRef.current.style.transition = "none";
           if (actRef.current) actRef.current.style.transition = "none";
         }}
         onTouchMove={(e) => {
@@ -69,6 +69,7 @@ function SwipeRow({ children, onDelete }) {
             if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
             st.locked = true;
             st.horiz = Math.abs(dx) > Math.abs(dy);
+            if (st.horiz && rowRef.current) rowRef.current.style.willChange = "transform";
           }
           if (!st.horiz) { st.drag = false; return; }
           e.preventDefault();

@@ -47,7 +47,7 @@ function SwipeRow({ children, onDelete }) {
     s.startX = t.clientX; s.startY = t.clientY;
     s.base = s.current; s.dragging = true;
     s.locked = false; s.isH = false;
-    if (rowRef.current) { rowRef.current.style.transition = "none"; rowRef.current.style.willChange = "transform"; }
+    if (rowRef.current) rowRef.current.style.transition = "none";
     if (actRef.current) actRef.current.style.transition = "none";
   };
 
@@ -61,6 +61,7 @@ function SwipeRow({ children, onDelete }) {
       if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
       s.locked = true;
       s.isH = Math.abs(dx) > Math.abs(dy);
+      if (s.isH && rowRef.current) rowRef.current.style.willChange = "transform";
     }
     if (!s.isH) { s.dragging = false; return; }
     e.preventDefault();
