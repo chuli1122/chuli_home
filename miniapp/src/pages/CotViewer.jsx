@@ -332,12 +332,12 @@ export default function CotViewer() {
 
       {/* Mood button + 3-segment mode selector */}
       <div className="shrink-0 px-5 pb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 justify-center">
           {/* Mood selector */}
           <div className="relative" ref={moodRef}>
             <button
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]"
-              style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+              className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[12px]"
+              style={{ background: S.bg, boxShadow: "var(--inset-shadow)" }}
               onClick={() => setMoodOpen(!moodOpen)}
             >
               <img
@@ -349,39 +349,54 @@ export default function CotViewer() {
             </button>
             {moodOpen && (
               <div
-                className="absolute left-0 top-12 z-50 grid grid-cols-3 gap-1 rounded-[14px] p-2"
+                className="absolute left-0 top-12 z-50 rounded-[16px] p-1"
                 style={{
-                  background: "#e8eaed",
-                  boxShadow: "inset 2px 2px 5px rgba(0,0,0,0.08), inset -2px -2px 5px rgba(255,255,255,0.7), 4px 4px 12px rgba(0,0,0,0.12)",
-                  width: 180,
+                  background: S.bg,
+                  boxShadow: "var(--card-shadow-sm)",
+                  width: 174,
                 }}
               >
-                {MOODS.map((m) => (
-                  <button
-                    key={m.key}
-                    className="flex flex-col items-center gap-0.5 rounded-[10px] py-1.5"
-                    style={{
-                      border: mood === m.key ? "2px solid #e8a0bf" : "2px solid transparent",
-                      background: mood === m.key ? "rgba(232,160,191,0.12)" : "transparent",
-                    }}
-                    onClick={() => selectMood(m.key)}
-                  >
-                    <img
-                      src={`/miniapp/assets/mood/${m.key}.png`}
-                      alt={m.label}
-                      className="h-7 w-7"
-                      style={{ imageRendering: "pixelated" }}
-                    />
-                    <span className="text-[10px]" style={{ color: S.text }}>{m.label}</span>
-                  </button>
-                ))}
+                {MOODS.map((m, i) => {
+                  const row = Math.floor(i / 3);
+                  const col = i % 3;
+                  return (
+                    <button
+                      key={m.key}
+                      className="inline-flex flex-col items-center justify-center"
+                      style={{
+                        width: "calc(100% / 3)",
+                        padding: "8px 0 6px",
+                        background: mood === m.key ? "rgba(232,160,191,0.12)" : "transparent",
+                        borderRight: col < 2 ? "1px solid rgba(136,136,160,0.12)" : "none",
+                        borderBottom: row < 2 ? "1px solid rgba(136,136,160,0.12)" : "none",
+                      }}
+                      onClick={() => selectMood(m.key)}
+                    >
+                      <img
+                        src={`/miniapp/assets/mood/${m.key}.png`}
+                        alt={m.label}
+                        className="h-7 w-7"
+                        style={{
+                          imageRendering: "pixelated",
+                          filter: mood === m.key ? "drop-shadow(0 0 3px #e8a0bf)" : "none",
+                        }}
+                      />
+                      <span
+                        className="text-[10px] mt-0.5"
+                        style={{ color: mood === m.key ? "#d48aab" : S.textMuted }}
+                      >
+                        {m.label}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
           {/* 3-segment mode selector */}
           <div
-            className="flex flex-1 rounded-[14px] p-1"
-            style={{ boxShadow: "var(--inset-shadow)", background: S.bg }}
+            className="flex rounded-[14px] p-1"
+            style={{ boxShadow: "var(--inset-shadow)", background: S.bg, width: "calc(100% - 50px)", maxWidth: 260 }}
           >
             {MODES.map((m) => (
               <button
