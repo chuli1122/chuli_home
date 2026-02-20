@@ -5,7 +5,7 @@ import traceback
 from collections import defaultdict
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import func, text
@@ -171,7 +171,7 @@ def list_cot(
                     )
                     if rec.block_type == "tool_use":
                         has_tool_calls = True
-                    if rec.block_type == "text" and not preview:
+                    if rec.block_type == "thinking" and not preview:
                         preview = (rec.content or "")[:80]
                 rounds.append(CotRound(round_index=round_idx, blocks=blocks))
 
@@ -193,3 +193,19 @@ def list_cot(
             status_code=500,
             content={"detail": f"COT加载失败: {exc}"},
         )
+
+
+@router.delete("/cot/{request_id}")
+def delete_cot(
+    request_id: str,
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    count = (
+        db.query(CotRecord)
+        .filter(CotRecord.request_id == request_id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    if count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"status": "deleted", "request_id": request_id}
