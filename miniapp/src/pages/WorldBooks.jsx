@@ -162,8 +162,8 @@ function SortableWorldBookItem({ book, onTap, onDelete }) {
           <div
             {...attributes}
             {...listeners}
-            className="drag-handle flex h-10 w-10 shrink-0 items-center justify-center rounded-full cursor-grab touch-none"
-            style={{ boxShadow: "var(--icon-inset)", background: S.bg, cursor: isDragging ? "grabbing" : "grab" }}
+            className="drag-handle shrink-0 cursor-grab touch-none px-1"
+            style={{ cursor: isDragging ? "grabbing" : "grab" }}
           >
             <GripVertical size={18} style={{ color: S.textMuted }} />
           </div>
@@ -280,10 +280,7 @@ function FolderGroup({ folder, books, onDelete, onTap, onReorder }) {
                 className="flex items-center gap-3 rounded-[18px] p-4"
                 style={{ background: S.bg, boxShadow: "var(--card-shadow)", opacity: 0.9 }}
               >
-                <div
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-                  style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
-                >
+                <div className="shrink-0 px-1">
                   <GripVertical size={18} style={{ color: S.textMuted }} />
                 </div>
                 <div className="flex-1 min-w-0">
