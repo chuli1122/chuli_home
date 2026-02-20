@@ -319,6 +319,8 @@ LIMIT 1
                 db.add(memory)
 
             db.commit()
+            logger.info("Summary generated OK (session_id=%s, summary_id=%s, memories=%d, mood=%s).",
+                        session_id, summary.id, len(memory_candidates), mood_tag)
             self._dispatch_core_block_signal(summary.id, assistant.id)
         except Exception:
             logger.exception("Failed to generate summary (session_id=%s).", session_id)
