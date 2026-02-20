@@ -1333,6 +1333,18 @@ class ChatService:
                     continue
                 message_index += 1
         # Format api_messages
+        def _ts_east8(dt):
+            """Convert a datetime (possibly naive UTC) to East8 timestamp string."""
+            if isinstance(dt, str):
+                return dt
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
+
+        def _get_ts(message):
+            msg_time = message.get("created_at")
+            return _ts_east8(msg_time) if msg_time else datetime.now(timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
+
         api_messages = []
         first_system_seen = False
         for message in messages:
@@ -1344,18 +1356,9 @@ class ChatService:
                     first_system_seen = True
                 else:
                     # System notification (e.g. mood change) — add timestamp
-                    msg_time = message.get("created_at")
-                    if msg_time:
-                        timestamp = msg_time if isinstance(msg_time, str) else msg_time.strftime("%Y.%m.%d %H:%M")
-                    else:
-                        timestamp = datetime.now(timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
-                    content = f"[{timestamp}] {content}"
+                    content = f"[{_get_ts(message)}] {content}"
             elif role == "user" and content is not None:
-                msg_time = message.get("created_at")
-                if msg_time:
-                    timestamp = msg_time if isinstance(msg_time, str) else msg_time.strftime("%Y.%m.%d %H:%M")
-                else:
-                    timestamp = datetime.now(timezone.utc).astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
+                timestamp = _get_ts(message)
                 if isinstance(content, list):
                     for part in content:
                         if isinstance(part, dict) and part.get("type") == "text":
@@ -1366,8 +1369,7 @@ class ChatService:
             elif role == "assistant" and content is not None:
                 msg_time = message.get("created_at")
                 if msg_time:
-                    timestamp = msg_time if isinstance(msg_time, str) else msg_time.strftime("%Y.%m.%d %H:%M")
-                    content = f"[{timestamp}] {content}"
+                    content = f"[{_ts_east8(msg_time)}] {content}"
             api_message = {"role": role, "content": content}
             if "name" in message:
                 api_message["name"] = message["name"]
