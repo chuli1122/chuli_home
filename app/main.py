@@ -46,7 +46,10 @@ app = FastAPI(title="Chuli Home Backend")
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        logger.warning("create_all failed (tables may already exist): %s", exc)
     cot_broadcaster.set_loop(asyncio.get_running_loop())
     print(f"[startup] bots to register: {list(bots.keys())}")
     for key, bot in bots.items():
