@@ -351,8 +351,7 @@ function SortableBookItem({ item, book, position, sectionList, onRemove, onChang
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.35 : 1,
-    zIndex: isDragging ? 10 : undefined,
+    opacity: isDragging ? 0 : 1,
   };
 
   if (!book) return null;

@@ -147,8 +147,7 @@ function SortableWorldBookItem({ book, onTap, onDelete }) {
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
-    zIndex: isDragging ? 10 : undefined,
+    opacity: isDragging ? 0 : 1,
   };
 
   return (
@@ -278,16 +277,25 @@ function FolderGroup({ folder, books, onDelete, onTap, onReorder }) {
             {activeBook && (
               <div
                 className="flex items-center gap-3 rounded-[18px] p-4"
-                style={{ background: S.bg, boxShadow: "var(--card-shadow)", opacity: 0.9 }}
+                style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
               >
                 <div className="shrink-0 px-1">
                   <GripVertical size={18} style={{ color: S.textMuted }} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="truncate text-[14px] font-semibold" style={{ color: S.text }}>
-                    {activeBook.name}
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-[14px] font-semibold" style={{ color: S.text }}>
+                      {activeBook.name}
+                    </span>
+                    <ActivationBadge activation={activeBook.activation} />
                   </div>
+                  {activeBook.folder && (
+                    <div className="mt-0.5 text-[11px]" style={{ color: S.textMuted }}>
+                      {activeBook.folder}
+                    </div>
+                  )}
                 </div>
+                <ChevronRight size={16} style={{ color: S.textMuted, flexShrink: 0 }} />
               </div>
             )}
           </DragOverlay>
