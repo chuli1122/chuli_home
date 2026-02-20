@@ -70,8 +70,9 @@ function SwipeRow({ children, onDelete }) {
     if (!el) return;
     const t = anim ? "all .25s ease" : "none";
     el.style.transition = t;
-    el.style.transform = `translateX(${x}px)`;
+    el.style.transform = x ? `translateX(${x}px)` : "";
     if (act) { act.style.transition = t; act.style.opacity = `${Math.min(1, Math.abs(x) / ACTION_WIDTH)}`; }
+    if (!x) el.style.willChange = "auto";
     s.current.cur = x;
   }, []);
   const close = useCallback(() => snap(0, true), [snap]);
@@ -84,10 +85,10 @@ function SwipeRow({ children, onDelete }) {
           <span className="text-[11px] font-medium text-white">删除</span>
         </button>
       </div>
-      <div ref={rowRef} className="relative z-10" style={{ transform: "translateX(0)" }}
+      <div ref={rowRef} className="relative z-10"
         onTouchStart={(e) => { const t = e.touches[0]; const st = s.current; st.sx = t.clientX; st.sy = t.clientY; st.base = st.cur; st.drag = true; st.locked = false; st.horiz = false; if (rowRef.current) rowRef.current.style.transition = "none"; if (actRef.current) actRef.current.style.transition = "none"; }}
         onTouchMove={(e) => { const st = s.current; if (!st.drag) return; const t = e.touches[0]; const dx = t.clientX - st.sx, dy = t.clientY - st.sy; if (!st.locked) { if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return; st.locked = true; st.horiz = Math.abs(dx) > Math.abs(dy); if (st.horiz && rowRef.current) rowRef.current.style.willChange = "transform"; } if (!st.horiz) { st.drag = false; return; } e.preventDefault(); const nx = Math.max(-ACTION_WIDTH, Math.min(0, st.base + dx)); if (rowRef.current) rowRef.current.style.transform = `translateX(${nx}px)`; if (actRef.current) actRef.current.style.opacity = `${Math.min(1, Math.abs(nx) / ACTION_WIDTH)}`; st.cur = nx; }}
-        onTouchEnd={() => { s.current.drag = false; snap(s.current.cur < -SNAP_THRESHOLD ? -ACTION_WIDTH : 0, true); if (rowRef.current) rowRef.current.style.willChange = "auto"; }}
+        onTouchEnd={() => { s.current.drag = false; snap(s.current.cur < -SNAP_THRESHOLD ? -ACTION_WIDTH : 0, true); }}
       >{children}</div>
     </div>
   );

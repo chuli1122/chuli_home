@@ -30,12 +30,13 @@ function SwipeRow({ children, onDelete }) {
     if (!el) return;
     const ease = animate ? "all 0.25s cubic-bezier(.4,0,.2,1)" : "none";
     el.style.transition = ease;
-    el.style.transform = `translateX(${x}px)`;
+    el.style.transform = x ? `translateX(${x}px)` : "";
     if (act) {
       const p = Math.min(1, Math.abs(x) / SWIPE_WIDTH);
       act.style.transition = ease;
       act.style.opacity = `${p}`;
     }
+    if (!x) el.style.willChange = "auto";
     state.current.current = x;
   };
 
@@ -75,7 +76,6 @@ function SwipeRow({ children, onDelete }) {
     state.current.dragging = false;
     if (state.current.current < -SNAP_THRESHOLD) translate(-SWIPE_WIDTH, true);
     else translate(0, true);
-    if (rowRef.current) rowRef.current.style.willChange = "auto";
   };
 
   return (
@@ -100,7 +100,6 @@ function SwipeRow({ children, onDelete }) {
       <div
         ref={rowRef}
         className="relative z-10"
-        style={{ transform: "translateX(0px)" }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
