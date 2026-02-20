@@ -684,7 +684,7 @@ export default function AssistantEdit() {
 
   const tabs = [
     { key: "basic", label: "基础设置" },
-    { key: "about", label: "Core Blocks" },
+    { key: "about", label: "关于我们" },
     { key: "books", label: "世界书" },
   ];
 
@@ -876,10 +876,10 @@ export default function AssistantEdit() {
               style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
             >
               <NmTextareaWithExpand
-                label="关于我们的默契"
+                label="关于他"
                 value={personaBlock}
                 onChange={setPersonaBlock}
-                placeholder="描述你们之间的默契..."
+                placeholder="AI 在相处中形成的自我认知..."
                 rows={7}
                 onExpand={() => setPersonaFullscreen(true)}
               />
@@ -927,8 +927,8 @@ export default function AssistantEdit() {
           value={personaBlock}
           onChange={setPersonaBlock}
           onClose={() => setPersonaFullscreen(false)}
-          title="关于我们的默契"
-          placeholder="描述你们之间的默契..."
+          title="关于他"
+          placeholder="AI 在相处中形成的自我认知..."
         />
       )}
 

@@ -140,6 +140,11 @@ export default function Settings() {
 
   useEffect(() => {
     localStorage.setItem("telegram_buffer_seconds", String(tgBufferSec));
+    // sync to backend so Telegram bot picks it up
+    apiFetch("/api/settings/buffer-seconds", {
+      method: "PUT",
+      body: { seconds: tgBufferSec },
+    }).catch(() => {});
   }, [tgBufferSec]);
 
   const saveBudget = async () => {

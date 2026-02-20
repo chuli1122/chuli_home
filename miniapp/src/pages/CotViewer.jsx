@@ -148,6 +148,11 @@ export default function CotViewer() {
       shortMode: mode === "short",
       theaterMode: mode === "theater",
     }));
+    // sync to backend so Telegram bot picks it up
+    apiFetch("/api/settings/chat-mode", {
+      method: "PUT",
+      body: { mode },
+    }).catch(() => {});
   }, [mode]);
 
   return (

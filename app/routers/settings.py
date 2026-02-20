@@ -63,7 +63,7 @@ def _read_context_budget(db: Session) -> tuple[int, int]:
     return retain_budget, trigger_threshold
 
 
-def _upsert_setting(db: Session, key: str, value: int) -> None:
+def _upsert_setting(db: Session, key: str, value: str | int) -> None:
     row = db.query(Settings).filter(Settings.key == key).first()
     if row:
         row.value = str(value)
@@ -139,3 +139,55 @@ def update_group_chat_settings(
         wait_seconds=wait_seconds,
         max_tokens=max_tokens,
     )
+
+
+# ── Chat mode ────────────────────────────────────────────────────────────────
+
+VALID_CHAT_MODES = ("short", "long", "theater")
+
+
+class ChatModeResponse(BaseModel):
+    mode: str
+
+
+class ChatModeUpdateRequest(BaseModel):
+    mode: str
+
+
+@router.get("/settings/chat-mode", response_model=ChatModeResponse)
+def get_chat_mode(db: Session = Depends(get_db)) -> ChatModeResponse:
+    row = db.query(Settings).filter(Settings.key == "chat_mode").first()
+    mode = row.value if row and row.value in VALID_CHAT_MODES else "long"
+    return ChatModeResponse(mode=mode)
+
+
+@router.put("/settings/chat-mode", response_model=ChatModeResponse)
+def update_chat_mode(
+    payload: ChatModeUpdateRequest,
+    db: Session = Depends(get_db),
+) -> ChatModeResponse:
+    mode = payload.mode if payload.mode in VALID_CHAT_MODES else "long"
+    _upsert_setting(db, "chat_mode", mode)
+    db.commit()
+    return ChatModeResponse(mode=mode)
+
+
+# ── Buffer seconds ────────────────────────────────────────────────────────────
+
+class BufferSecondsResponse(BaseModel):
+    seconds: float
+
+
+class BufferSecondsUpdateRequest(BaseModel):
+    seconds: float = Field(..., ge=1, le=120)
+
+
+@router.put("/settings/buffer-seconds", response_model=BufferSecondsResponse)
+def update_buffer_seconds(
+    payload: BufferSecondsUpdateRequest,
+    db: Session = Depends(get_db),
+) -> BufferSecondsResponse:
+    seconds = max(1.0, float(payload.seconds))
+    _upsert_setting(db, "telegram_buffer_seconds", int(seconds))
+    db.commit()
+    return BufferSecondsResponse(seconds=seconds)

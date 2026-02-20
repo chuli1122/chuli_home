@@ -98,7 +98,8 @@ def _chat_completion_sync(
             background_tasks=None,
             short_mode=short_mode,
         )
-        return result
+        # Only return NEW assistant messages (history msgs have 'id' from DB)
+        return [m for m in result if m.get("role") == "assistant" and "id" not in m]
     finally:
         db.close()
 
@@ -126,3 +127,8 @@ async def get_buffer_seconds() -> float:
         return max(1.0, float(raw))
     except ValueError:
         return 15.0
+
+
+async def get_chat_mode() -> str:
+    raw = await get_setting("chat_mode", "long")
+    return raw if raw in ("short", "long", "theater") else "long"

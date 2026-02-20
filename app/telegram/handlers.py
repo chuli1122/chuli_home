@@ -11,7 +11,7 @@ from aiogram.types import Message
 
 from .config import ALLOWED_CHAT_ID
 from .keyboards import get_main_keyboard
-from .service import call_chat_completion, get_buffer_seconds, get_session_info
+from .service import call_chat_completion, get_buffer_seconds, get_chat_mode, get_session_info
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -26,7 +26,6 @@ class _ChatBuffer:
 
 @dataclass
 class _BotState:
-    short_mode: bool = False
     buffers: dict[int, _ChatBuffer] = field(default_factory=dict)
 
 
@@ -80,15 +79,15 @@ async def _process_request(
     bot: Bot,
     bot_key: str,
     assistant_id: int,
+    is_short: bool = False,
 ) -> None:
-    state = _get_state(bot_key)
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(_typing_loop(bot, chat_id, stop_event))
 
     try:
         session_id, assistant_name = await get_session_info(assistant_id)
         result_messages = await call_chat_completion(
-            session_id, assistant_name, combined_text, short_mode=state.short_mode
+            session_id, assistant_name, combined_text, short_mode=is_short
         )
 
         stop_event.set()
@@ -101,7 +100,7 @@ async def _process_request(
                 continue
             if sent_count > 0:
                 await asyncio.sleep(1.0)
-            await _send_reply(bot, chat_id, content, is_short=state.short_mode)
+            await _send_reply(bot, chat_id, content, is_short=is_short)
             sent_count += 1
 
     except Exception as exc:
@@ -120,7 +119,8 @@ async def _buffer_fire(chat_id: int, bot: Bot, delay: float, bot_key: str, assis
     buf = state.buffers.pop(chat_id, None)
     if buf and buf.messages:
         combined = "\n".join(buf.messages)
-        await _process_request(chat_id, combined, bot, bot_key, assistant_id)
+        mode = await get_chat_mode()
+        await _process_request(chat_id, combined, bot, bot_key, assistant_id, is_short=(mode == "short"))
 
 
 # ── Command handlers ─────────────────────────────────────────────────────────
@@ -151,8 +151,9 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
 
     chat_id = message.chat.id
     state = _get_state(bot_key)
+    mode = await get_chat_mode()
 
-    if state.short_mode:
+    if mode == "short":
         delay = await get_buffer_seconds()
         buf = state.buffers.setdefault(chat_id, _ChatBuffer())
         buf.messages.append(text)
@@ -164,4 +165,4 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
             _buffer_fire(chat_id, bot, delay, bot_key, assistant_id)
         )
     else:
-        await _process_request(chat_id, text, bot, bot_key, assistant_id)
+        await _process_request(chat_id, text, bot, bot_key, assistant_id, is_short=False)
