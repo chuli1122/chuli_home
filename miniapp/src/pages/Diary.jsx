@@ -307,7 +307,7 @@ export default function DiaryPage() {
     try { await apiFetch(`/api/diary/${id}/read`, { method: "POST" }); setDiaries((p) => p.map((d) => d.id === id ? { ...d, is_read: true } : d)); } catch (e) { console.error(e); }
   };
 
-  const handleCreate = async (body) => { await apiFetch("/api/diary", { method: "POST", body: JSON.stringify(body) }); setNewForm(false); loadDiaries(); };
+  const handleCreate = async (body) => { await apiFetch("/api/diary", { method: "POST", body }); setNewForm(false); loadDiaries(); };
 
   const openDiary = (diary) => {
     const locked = diary.unlock_at && new Date(diary.unlock_at) > new Date();

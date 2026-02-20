@@ -300,10 +300,10 @@ export default function Memories() {
     if (!editing) return;
     try {
       if (editing.type === "memory") {
-        await apiFetch(`/api/memories/${editing.id}`, { method: "PUT", body: JSON.stringify({ content: text }) });
+        await apiFetch(`/api/memories/${editing.id}`, { method: "PUT", body: { content: text } });
         setMemories((p) => p.map((m) => m.id === editing.id ? { ...m, content: text } : m));
       } else {
-        await apiFetch(`/api/sessions/${sessionId}/summaries/${editing.id}`, { method: "PATCH", body: JSON.stringify({ summary_content: text }) });
+        await apiFetch(`/api/sessions/${sessionId}/summaries/${editing.id}`, { method: "PATCH", body: { summary_content: text } });
         setSummaries((p) => p.map((s) => s.id === editing.id ? { ...s, summary_content: text } : s));
       }
     } catch (e) { console.error(e); }
