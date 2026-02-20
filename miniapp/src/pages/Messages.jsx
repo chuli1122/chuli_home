@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Trash2, RefreshCw } from "lucide-react";
+import { ChevronLeft, Trash2, RefreshCw, ChevronDown } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -85,6 +85,32 @@ function SwipeRow({ children, onDelete }) {
         {children}
       </div>
     </div>
+  );
+}
+
+function MsgItem({ msg, roleLabel, roleColor, fmtTime, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <SwipeRow onDelete={onDelete}>
+      <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>{roleLabel(msg.role)}</span>
+          <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
+        </div>
+        <div
+          className="text-[12px] leading-relaxed break-words overflow-hidden cursor-pointer transition-all"
+          style={{ color: S.text, maxHeight: expanded ? "none" : 80 }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {msg.content}
+        </div>
+        {!expanded && msg.content.length > 120 && (
+          <div className="mt-1 flex justify-end">
+            <ChevronDown size={12} style={{ color: S.textMuted }} />
+          </div>
+        )}
+      </div>
+    </SwipeRow>
   );
 }
 
@@ -203,25 +229,7 @@ export default function Messages() {
         ) : (
           <>
             {messages.map((msg) => (
-              <SwipeRow key={msg.id} onDelete={() => deleteMsg(msg.id)}>
-                <div
-                  className="rounded-[18px] p-3"
-                  style={{ background: S.bg }}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>
-                      {roleLabel(msg.role)}
-                    </span>
-                    <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
-                  </div>
-                  <p
-                    className="text-[12px] leading-relaxed break-words"
-                    style={{ color: S.text, maxHeight: 120, overflow: "hidden" }}
-                  >
-                    {msg.content.length > 200 ? msg.content.slice(0, 200) + "..." : msg.content}
-                  </p>
-                </div>
-              </SwipeRow>
+              <MsgItem key={msg.id} msg={msg} roleLabel={roleLabel} roleColor={roleColor} fmtTime={fmtTime} onDelete={() => deleteMsg(msg.id)} />
             ))}
             {hasMore && (
               <button

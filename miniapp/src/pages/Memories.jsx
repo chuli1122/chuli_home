@@ -197,6 +197,34 @@ function TrashCard({ content, deletedAt, keyword, onRestore, onPermanentDelete }
   );
 }
 
+/* ── Message card (expandable) ── */
+
+function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <SwipeRow onDelete={onDelete}>
+      <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>{roleLabel(msg.role)}</span>
+          <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
+        </div>
+        <div
+          className="text-[12px] leading-relaxed break-words overflow-hidden cursor-pointer transition-all"
+          style={{ color: S.text, maxHeight: expanded ? "none" : 80 }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <Highlight text={msg.content} keyword={keyword} />
+        </div>
+        {!expanded && msg.content.length > 120 && (
+          <div className="mt-1 flex justify-end">
+            <ChevronDown size={12} style={{ color: S.textMuted }} />
+          </div>
+        )}
+      </div>
+    </SwipeRow>
+  );
+}
+
 /* ── Main page ── */
 
 export default function Memories() {
@@ -346,17 +374,7 @@ export default function Memories() {
       <>
         <p className="mb-2 text-[11px]" style={{ color: S.textMuted }}>左滑消息可删除</p>
         {filteredMessages.map((msg) => (
-          <SwipeRow key={msg.id} onDelete={() => deleteMessage(msg.id)}>
-            <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>{roleLabel(msg.role)}</span>
-                <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
-              </div>
-              <p className="text-[12px] leading-relaxed break-words" style={{ color: S.text, maxHeight: 120, overflow: "hidden" }}>
-                <Highlight text={msg.content.length > 200 ? msg.content.slice(0, 200) + "..." : msg.content} keyword={kw} />
-              </p>
-            </div>
-          </SwipeRow>
+          <MessageCard key={msg.id} msg={msg} keyword={kw} roleLabel={roleLabel} roleColor={roleColor} onDelete={() => deleteMessage(msg.id)} />
         ))}
         {hasMoreMsg && !kw && (
           <button className="mx-auto mt-2 block rounded-[10px] px-4 py-2 text-[12px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }} onClick={loadMoreMsg} disabled={loading}>

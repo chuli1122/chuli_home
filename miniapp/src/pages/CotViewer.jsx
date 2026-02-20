@@ -148,6 +148,7 @@ export default function CotViewer() {
   );
   const [wsConnected, setWsConnected] = useState(false);
   const [liveRequestIds, setLiveRequestIds] = useState(new Set());
+  const [error, setError] = useState(null);
   const wsRef = useRef(null);
   const [mood, setMood] = useState(null);
   const [moodOpen, setMoodOpen] = useState(false);
@@ -155,9 +156,15 @@ export default function CotViewer() {
 
   const load = () => {
     setLoading(true);
+    setError(null);
     apiFetch("/api/cot?limit=30")
-      .then((data) => setItems(data))
-      .catch(() => {})
+      .then((data) => {
+        setItems(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        console.error("COT load error:", err);
+        setError(err.message || "加载失败");
+      })
       .finally(() => setLoading(false));
   };
 
@@ -428,6 +435,11 @@ export default function CotViewer() {
         {loading ? (
           <div className="flex justify-center py-16">
             <div className="h-8 w-8 animate-spin rounded-full border-2" style={{ borderColor: S.accent, borderTopColor: "transparent" }} />
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-3 py-16">
+            <Cpu size={36} style={{ color: "#ef4444", opacity: 0.5 }} />
+            <p className="text-[14px]" style={{ color: "#ef4444" }}>{error}</p>
           </div>
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-16">

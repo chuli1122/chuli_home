@@ -330,6 +330,7 @@ function HistoryOverlay({ items, currentContent, onApply, onClose }) {
 function activationLabel(a) {
   if (a === "always") return "常驻";
   if (a === "keyword") return "关键词";
+  if (a === "message_mode") return "消息模式";
   return "情绪";
 }
 

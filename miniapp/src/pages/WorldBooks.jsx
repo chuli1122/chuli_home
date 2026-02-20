@@ -15,6 +15,7 @@ const ACTIVATION_LABELS = {
   always: { label: "常驻", color: "#6b9b6e", bg: "#e0f0e1" },
   keyword: { label: "关键词", color: "#9b6b6b", bg: "#f0e0e0" },
   mood: { label: "情绪", color: "#9b7a3b", bg: "#f0ebd8" },
+  message_mode: { label: "消息模式", color: "#6b7b9b", bg: "#e0e6f0" },
 };
 
 function ActivationBadge({ activation }) {
