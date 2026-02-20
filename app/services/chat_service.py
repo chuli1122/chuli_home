@@ -1379,18 +1379,18 @@ class ChatService:
                 anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
                 anth_tools = _oai_tools_to_anthropic(tools)
                 try:
+                        thinking_budget = max(1024, preset_max_tokens // 2)
                     anth_kwargs: dict[str, Any] = {
                         "model": model_name,
-                        "max_tokens": preset_max_tokens,
+                        "max_tokens": preset_max_tokens + thinking_budget,
                         "messages": anth_msgs,
+                        "thinking": {"type": "enabled", "budget_tokens": thinking_budget},
                     }
                     if anth_system:
                         anth_kwargs["system"] = anth_system
                     if anth_tools:
                         anth_kwargs["tools"] = anth_tools
                         anth_kwargs["tool_choice"] = {"type": "auto"}
-                    if preset_temperature is not None:
-                        anth_kwargs["temperature"] = preset_temperature
                     if preset_top_p is not None:
                         anth_kwargs["top_p"] = preset_top_p
                     with client.messages.stream(**anth_kwargs) as anth_stream:
@@ -1646,18 +1646,18 @@ class ChatService:
             anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
             anth_tools = _oai_tools_to_anthropic(tools)
             try:
+                thinking_budget = max(1024, preset_max_tokens // 2)
                 anth_kwargs: dict[str, Any] = {
                     "model": model_name,
-                    "max_tokens": preset_max_tokens,
+                    "max_tokens": preset_max_tokens + thinking_budget,
                     "messages": anth_msgs,
+                    "thinking": {"type": "enabled", "budget_tokens": thinking_budget},
                 }
                 if anth_system:
                     anth_kwargs["system"] = anth_system
                 if anth_tools:
                     anth_kwargs["tools"] = anth_tools
                     anth_kwargs["tool_choice"] = {"type": "auto"}
-                if preset_temperature is not None:
-                    anth_kwargs["temperature"] = preset_temperature
                 if preset_top_p is not None:
                     anth_kwargs["top_p"] = preset_top_p
                 response = client.messages.create(**anth_kwargs)
