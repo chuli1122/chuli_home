@@ -12,7 +12,7 @@ const S = {
   textMuted: "var(--text-muted)",
 };
 
-function GridCard({ icon, label, desc, disabled, onClick }) {
+function GridCard({ icon, label, desc, disabled, onClick, badge }) {
   const [pressed, setPressed] = useState(false);
 
   const start = () => !disabled && setPressed(true);
@@ -40,11 +40,16 @@ function GridCard({ icon, label, desc, disabled, onClick }) {
       onMouseUp={end}
       onMouseLeave={() => setPressed(false)}
     >
-      <div
-        className="flex h-10 w-10 items-center justify-center rounded-[12px]"
-        style={{ background: "linear-gradient(135deg, #f0c4d8, var(--accent))" }}
-      >
-        {icon}
+      <div className="relative">
+        <div
+          className="flex h-10 w-10 items-center justify-center rounded-[12px]"
+          style={{ background: "linear-gradient(135deg, #f0c4d8, var(--accent))" }}
+        >
+          {icon}
+        </div>
+        {badge && (
+          <div className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full" style={{ background: "#ef4444", border: "2px solid var(--bg)" }} />
+        )}
       </div>
       <div className="pl-1">
         <div className="text-[13px] font-medium" style={{ color: S.text }}>{label}</div>
@@ -72,6 +77,7 @@ export default function Home() {
     catch (_e) { return null; }
   });
   const [avatarUrl, setAvatarUrl] = useState(null);
+  const [diaryUnread, setDiaryUnread] = useState(false);
 
   useEffect(() => {
     apiFetch("/api/user/profile").then((d) => {
@@ -79,6 +85,7 @@ export default function Home() {
       localStorage.setItem("whisper_profile", JSON.stringify(d));
     }).catch(() => {});
     getAvatar("user-avatar").then((b64) => { if (b64) setAvatarUrl(b64); }).catch(function() {});
+    apiFetch("/api/diary/unread-count").then((d) => { if (d.count > 0) setDiaryUnread(true); }).catch(() => {});
   }, []);
   const nickname = profile?.nickname || "阿怀";
   const signature = profile?.background_url || "今晚的月亮很圆";
@@ -174,7 +181,8 @@ export default function Home() {
             icon={<BookMarked size={18} color="white" />}
             label="日记"
             desc="写给彼此的"
-            disabled
+            badge={diaryUnread}
+            onClick={() => navigate("/diary")}
           />
           <GridCard
             icon={<Theater size={18} color="white" />}

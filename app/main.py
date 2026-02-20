@@ -57,6 +57,18 @@ def _run_migrations(eng) -> None:
                     "ALTER TABLE session_summaries ADD COLUMN deleted_at TIMESTAMPTZ"
                 ))
             logger.info("Added deleted_at column to session_summaries")
+    # diary new columns
+    if "diary" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("diary")]
+        with eng.begin() as conn:
+            if "assistant_id" not in cols:
+                conn.execute(text("ALTER TABLE diary ADD COLUMN assistant_id INTEGER REFERENCES assistants(id)"))
+            if "author" not in cols:
+                conn.execute(text("ALTER TABLE diary ADD COLUMN author VARCHAR(16) NOT NULL DEFAULT 'assistant'"))
+            if "unlock_at" not in cols:
+                conn.execute(text("ALTER TABLE diary ADD COLUMN unlock_at TIMESTAMPTZ"))
+            if "deleted_at" not in cols:
+                conn.execute(text("ALTER TABLE diary ADD COLUMN deleted_at TIMESTAMPTZ"))
 
 
 @app.on_event("startup")

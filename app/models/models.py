@@ -125,9 +125,13 @@ class Diary(Base):
     __tablename__ = "diary"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    assistant_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("assistants.id"), nullable=True, index=True)
+    author: Mapped[str] = mapped_column(String(16), nullable=False, default="assistant")  # "assistant" | "user"
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    unlock_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
