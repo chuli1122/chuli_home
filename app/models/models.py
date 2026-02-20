@@ -102,6 +102,7 @@ class WorldBook(Base):
     keywords: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True, default=list)
     message_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     folder: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 

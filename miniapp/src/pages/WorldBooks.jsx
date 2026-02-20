@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Plus, ChevronDown, ChevronRight, Globe, Trash2 } from "lucide-react";
+import { ChevronLeft, Plus, ChevronDown, ChevronRight, GripVertical, Trash2 } from "lucide-react";
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor,
+  useSensor, useSensors, DragOverlay,
+} from "@dnd-kit/core";
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -60,6 +68,8 @@ function SwipeRow({ children, onDelete }) {
   const close = () => translate(0, true);
 
   const onTouchStart = (e) => {
+    // Don't interfere with drag handle
+    if (e.target.closest('.drag-handle')) return;
     const t = e.touches[0];
     const s = state.current;
     s.startX = t.clientX; s.startY = t.clientY;
@@ -96,7 +106,7 @@ function SwipeRow({ children, onDelete }) {
 
   return (
     <div
-      className="relative mb-3 overflow-hidden rounded-[18px]"
+      className="relative overflow-hidden rounded-[18px]"
       style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
     >
       <div
@@ -127,57 +137,101 @@ function SwipeRow({ children, onDelete }) {
   );
 }
 
-function WorldBookItem({ book, onTap }) {
+// ── Sortable world book item ──
+
+function SortableWorldBookItem({ book, onTap, onDelete }) {
+  const {
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: String(book.id) });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
   return (
-    <div
-      className="flex items-center gap-3 rounded-[18px] p-4"
-      style={{ background: S.bg, userSelect: "none" }}
-      onClick={() => onTap(book)}
-    >
-      <div
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-        style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
-      >
-        <Globe size={18} style={{ color: S.accentDark }} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-[14px] font-semibold" style={{ color: S.text }}>
-            {book.name}
-          </span>
-          <ActivationBadge activation={book.activation} />
-        </div>
-        {book.folder && (
-          <div className="mt-0.5 text-[11px]" style={{ color: S.textMuted }}>
-            {book.folder}
+    <div ref={setNodeRef} style={style} className="mb-3">
+      <SwipeRow onDelete={() => onDelete(book)}>
+        <div
+          className="flex items-center gap-3 rounded-[18px] p-4"
+          style={{ background: S.bg, userSelect: "none" }}
+        >
+          {/* Drag handle */}
+          <div
+            {...attributes}
+            {...listeners}
+            className="drag-handle flex h-10 w-10 shrink-0 items-center justify-center rounded-full cursor-grab touch-none"
+            style={{ boxShadow: "var(--icon-inset)", background: S.bg, cursor: isDragging ? "grabbing" : "grab" }}
+          >
+            <GripVertical size={18} style={{ color: S.textMuted }} />
           </div>
-        )}
-        {book.activation === "keyword" && book.keywords?.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {book.keywords.slice(0, 3).map((kw, i) => (
-              <span
-                key={i}
-                className="rounded-full px-1.5 py-0.5 text-[10px]"
-                style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}
-              >
-                {kw}
+
+          <div className="flex-1 min-w-0" onClick={() => onTap(book)}>
+            <div className="flex items-center gap-2">
+              <span className="truncate text-[14px] font-semibold" style={{ color: S.text }}>
+                {book.name}
               </span>
-            ))}
-            {book.keywords.length > 3 && (
-              <span className="text-[10px]" style={{ color: S.textMuted }}>
-                +{book.keywords.length - 3}
-              </span>
+              <ActivationBadge activation={book.activation} />
+            </div>
+            {book.folder && (
+              <div className="mt-0.5 text-[11px]" style={{ color: S.textMuted }}>
+                {book.folder}
+              </div>
+            )}
+            {book.activation === "keyword" && book.keywords?.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {book.keywords.slice(0, 3).map((kw, i) => (
+                  <span
+                    key={i}
+                    className="rounded-full px-1.5 py-0.5 text-[10px]"
+                    style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}
+                  >
+                    {kw}
+                  </span>
+                ))}
+                {book.keywords.length > 3 && (
+                  <span className="text-[10px]" style={{ color: S.textMuted }}>
+                    +{book.keywords.length - 3}
+                  </span>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
-      <ChevronRight size={16} style={{ color: S.textMuted, flexShrink: 0 }} />
+          <ChevronRight
+            size={16}
+            style={{ color: S.textMuted, flexShrink: 0 }}
+            onClick={() => onTap(book)}
+          />
+        </div>
+      </SwipeRow>
     </div>
   );
 }
 
-function FolderGroup({ folder, books, onDelete, onTap }) {
+// ── Folder group with its own DndContext ──
+
+function FolderGroup({ folder, books, onDelete, onTap, onReorder }) {
   const [open, setOpen] = useState(true);
+  const [activeId, setActiveId] = useState(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  );
+
+  const handleDragEnd = ({ active, over }) => {
+    setActiveId(null);
+    if (!over || active.id === over.id) return;
+    const oldIdx = books.findIndex((b) => String(b.id) === String(active.id));
+    const newIdx = books.findIndex((b) => String(b.id) === String(over.id));
+    if (oldIdx < 0 || newIdx < 0) return;
+    const reordered = arrayMove(books, oldIdx, newIdx);
+    onReorder(folder, reordered);
+  };
+
+  const activeBook = activeId ? books.find((b) => String(b.id) === String(activeId)) : null;
 
   return (
     <div className="mb-4">
@@ -200,11 +254,48 @@ function FolderGroup({ folder, books, onDelete, onTap }) {
           {books.length}
         </span>
       </button>
-      {open && books.map((b) => (
-        <SwipeRow key={b.id} onDelete={() => onDelete(b)}>
-          <WorldBookItem book={b} onTap={onTap} />
-        </SwipeRow>
-      ))}
+      {open && (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={({ active }) => setActiveId(active.id)}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={books.map((b) => String(b.id))}
+            strategy={verticalListSortingStrategy}
+          >
+            {books.map((b) => (
+              <SortableWorldBookItem
+                key={b.id}
+                book={b}
+                onTap={onTap}
+                onDelete={onDelete}
+              />
+            ))}
+          </SortableContext>
+          <DragOverlay>
+            {activeBook && (
+              <div
+                className="flex items-center gap-3 rounded-[18px] p-4"
+                style={{ background: S.bg, boxShadow: "var(--card-shadow)", opacity: 0.9 }}
+              >
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+                  style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
+                >
+                  <GripVertical size={18} style={{ color: S.textMuted }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="truncate text-[14px] font-semibold" style={{ color: S.text }}>
+                    {activeBook.name}
+                  </div>
+                </div>
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
+      )}
     </div>
   );
 }
@@ -240,6 +331,18 @@ export default function WorldBooks() {
     } catch (_e) {
       showToast("删除失败");
     }
+  };
+
+  const handleReorder = (folder, reorderedBooks) => {
+    const folderKey = folder || "";
+    setBooks((prev) => {
+      const others = prev.filter((b) => (b.folder || "") !== folderKey);
+      return [...others, ...reorderedBooks];
+    });
+    apiFetch("/api/world-books/reorder", {
+      method: "PUT",
+      body: { ordered_ids: reorderedBooks.map((b) => b.id) },
+    }).catch(() => showToast("排序保存失败"));
   };
 
   // Group by folder
@@ -285,7 +388,7 @@ export default function WorldBooks() {
           </div>
         ) : books.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-20">
-            <Globe size={36} style={{ color: S.textMuted, opacity: 0.5 }} />
+            <GripVertical size={36} style={{ color: S.textMuted, opacity: 0.5 }} />
             <p className="text-[14px]" style={{ color: S.textMuted }}>
               还没有世界书，点击 + 创建
             </p>
@@ -298,6 +401,7 @@ export default function WorldBooks() {
               books={grouped[folder]}
               onDelete={(b) => setDeleteTarget(b)}
               onTap={(b) => navigate(`/world-books/${b.id}`)}
+              onReorder={handleReorder}
             />
           ))
         )}
