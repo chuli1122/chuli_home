@@ -20,6 +20,19 @@ const TABS = [
 const ACTION_WIDTH = 80;
 const SNAP_THRESHOLD = 40;
 
+const KLASS_COLORS = {
+  identity:     { color: "#7b5ea7", bg: "#ede4f7" },
+  relationship: { color: "#c26a8a", bg: "#f7e0ea" },
+  bond:         { color: "#d48aab", bg: "#fce8f0" },
+  conflict:     { color: "#b5454a", bg: "#f5dede" },
+  fact:         { color: "#4a8ab5", bg: "#deedf5" },
+  preference:   { color: "#9b7a3b", bg: "#f0ebd8" },
+  health:       { color: "#4a9b6e", bg: "#ddf0e5" },
+  task:         { color: "#6b7b9b", bg: "#e0e6f0" },
+  ephemeral:    { color: "#9b9b9b", bg: "#ececec" },
+  other:        { color: "#8a7a6a", bg: "#efe8df" },
+};
+
 /* ── Helpers ── */
 
 function fmtTime(ts) {
@@ -455,7 +468,7 @@ export default function Memories() {
           <ExpandableCard key={mem.id} time={fmtTime(mem.created_at)} keyword={kw}
             onSwipeDelete={() => deleteMemory(mem.id)}
             onEdit={() => setEditing({ type: "memory", id: mem.id, text: mem.content })}
-            badge={<span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{mem.klass}</span>}
+            badge={(() => { const c = KLASS_COLORS[mem.klass] || KLASS_COLORS.other; return <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: c.bg, color: c.color }}>{mem.klass}</span>; })()}
           >{mem.content}</ExpandableCard>
         ))}
         {hasMoreMem && (
