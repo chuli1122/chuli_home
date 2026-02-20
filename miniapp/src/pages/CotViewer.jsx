@@ -331,12 +331,12 @@ export default function CotViewer() {
       </div>
 
       {/* Mood button + 3-segment mode selector */}
-      <div className="shrink-0 px-5 pb-3">
-        <div className="flex items-center gap-3 justify-center">
+      <div className="shrink-0 pb-3" style={{ paddingLeft: 20, paddingRight: 20 }}>
+        <div className="flex items-stretch gap-4 justify-center">
           {/* Mood selector */}
-          <div className="relative" ref={moodRef}>
+          <div className="relative flex" ref={moodRef}>
             <button
-              className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[12px]"
+              className="flex w-[42px] shrink-0 items-center justify-center rounded-[14px]"
               style={{ background: S.bg, boxShadow: "var(--inset-shadow)" }}
               onClick={() => setMoodOpen(!moodOpen)}
             >
@@ -349,7 +349,7 @@ export default function CotViewer() {
             </button>
             {moodOpen && (
               <div
-                className="absolute left-0 top-12 z-50 rounded-[16px] p-1"
+                className="absolute left-0 top-12 z-50 rounded-[16px] overflow-hidden"
                 style={{
                   background: S.bg,
                   boxShadow: "var(--card-shadow-sm)",
@@ -359,6 +359,7 @@ export default function CotViewer() {
                 {MOODS.map((m, i) => {
                   const row = Math.floor(i / 3);
                   const col = i % 3;
+                  const selected = mood === m.key;
                   return (
                     <button
                       key={m.key}
@@ -366,9 +367,11 @@ export default function CotViewer() {
                       style={{
                         width: "calc(100% / 3)",
                         padding: "8px 0 6px",
-                        background: mood === m.key ? "rgba(232,160,191,0.12)" : "transparent",
-                        borderRight: col < 2 ? "1px solid rgba(136,136,160,0.12)" : "none",
-                        borderBottom: row < 2 ? "1px solid rgba(136,136,160,0.12)" : "none",
+                        background: selected ? "rgba(232,160,191,0.18)" : "transparent",
+                        boxShadow: [
+                          col < 2 ? "inset -1px 0 0 rgba(136,136,160,0.12)" : "",
+                          row < 2 ? "inset 0 -1px 0 rgba(136,136,160,0.12)" : "",
+                        ].filter(Boolean).join(", ") || "none",
                       }}
                       onClick={() => selectMood(m.key)}
                     >
@@ -378,12 +381,12 @@ export default function CotViewer() {
                         className="h-7 w-7"
                         style={{
                           imageRendering: "pixelated",
-                          filter: mood === m.key ? "drop-shadow(0 0 3px #e8a0bf)" : "none",
+                          filter: selected ? "drop-shadow(0 0 3px #e8a0bf)" : "none",
                         }}
                       />
                       <span
                         className="text-[10px] mt-0.5"
-                        style={{ color: mood === m.key ? "#d48aab" : S.textMuted }}
+                        style={{ color: selected ? "#d48aab" : S.textMuted }}
                       >
                         {m.label}
                       </span>
@@ -396,7 +399,7 @@ export default function CotViewer() {
           {/* 3-segment mode selector */}
           <div
             className="flex rounded-[14px] p-1"
-            style={{ boxShadow: "var(--inset-shadow)", background: S.bg, width: "calc(100% - 50px)", maxWidth: 260 }}
+            style={{ boxShadow: "var(--inset-shadow)", background: S.bg, width: 240 }}
           >
             {MODES.map((m) => (
               <button
