@@ -259,10 +259,10 @@ def set_mood(
         db.add(latest_summary)
     db.flush()
 
-    # Write a user message (not shown in UI, but visible in AI context)
+    # Write a system message (status change, not a user message)
     msg = Message(
         session_id=latest_session.id,
-        role="user",
+        role="system",
         content=f"用户手动切换心情为：{mood}",
         meta_info={"mood_switch": True},
         created_at=datetime.now(timezone.utc),
