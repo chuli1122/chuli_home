@@ -8,6 +8,7 @@ import AssistantEdit from "./pages/AssistantEdit";
 import Settings from "./pages/Settings";
 import ApiSettings from "./pages/ApiSettings";
 import CotViewer from "./pages/CotViewer";
+import Messages from "./pages/Messages";
 import Profile from "./pages/Profile";
 
 export default function App() {
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/api" element={<ApiSettings />} />
         <Route path="/cot" element={<CotViewer />} />
+        <Route path="/messages" element={<Messages />} />
       </Routes>
     </HashRouter>
   );

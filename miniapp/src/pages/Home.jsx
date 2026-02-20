@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, Brain, Bot, Settings, BookMarked, Theater, Heart, ChevronRight } from "lucide-react";
+import { BookOpen, Brain, Bot, Settings, BookMarked, Theater, Heart, ChevronRight, MessageCircle } from "lucide-react";
 import { apiFetch } from "../utils/api";
 import { getAvatar } from "../utils/db";
 
@@ -148,10 +148,10 @@ export default function Home() {
             onClick={() => navigate("/world-books")}
           />
           <GridCard
-            icon={<Brain size={18} color="white" />}
-            label="记忆管理"
-            desc="记忆卡片·摘要·回收站"
-            disabled
+            icon={<MessageCircle size={18} color="white" />}
+            label="消息记录"
+            desc="查看·删除聊天消息"
+            onClick={() => navigate("/messages")}
           />
           <GridCard
             icon={<Bot size={18} color="white" />}
