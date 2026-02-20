@@ -17,29 +17,26 @@ export default function App() {
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
 
+    // Use viewportHeight (real-time) — NOT viewportStableHeight which
+    // lags behind during expand/collapse animations.
+    const syncHeight = () => {
+      const h = tg?.viewportHeight || window.innerHeight;
+      document.documentElement.style.setProperty("--tg-viewport-height", h + "px");
+    };
+
     if (tg) {
       tg.ready();
-      // COT page stays half-screen; all other pages expand
       if (!window.location.hash.startsWith("#/cot")) {
         tg.expand();
       }
-      // The Telegram SDK automatically manages --tg-viewport-height
-      // on the <html> element. Do NOT override it — our old code was
-      // setting it to viewportStableHeight which lags behind during
-      // expand animation, causing the bottom of pages to be cut off.
-      return;
+      syncHeight();
+      tg.onEvent("viewportChanged", syncHeight);
+      return () => tg.offEvent("viewportChanged", syncHeight);
     }
 
-    // Non-Telegram fallback: manually set viewport height
-    const setHeight = () => {
-      document.documentElement.style.setProperty(
-        "--tg-viewport-height",
-        window.innerHeight + "px",
-      );
-    };
-    setHeight();
-    window.addEventListener("resize", setHeight);
-    return () => window.removeEventListener("resize", setHeight);
+    syncHeight();
+    window.addEventListener("resize", syncHeight);
+    return () => window.removeEventListener("resize", syncHeight);
   }, []);
 
   return (
