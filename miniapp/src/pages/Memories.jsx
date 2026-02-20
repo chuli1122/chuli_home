@@ -59,7 +59,7 @@ function Highlight({ text, keyword }) {
 function ConfirmDialog({ message, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onCancel}>
-      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={(e) => e.stopPropagation()}>
+      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
         <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>确认删除</p>
         <p className="mb-5 text-center text-[13px]" style={{ color: S.textMuted }}>{message}</p>
         <div className="flex gap-3">
@@ -77,7 +77,7 @@ function EditModal({ initialText, onSave, onCancel }) {
   const [text, setText] = useState(initialText);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onCancel}>
-      <div className="mx-5 w-full max-w-[340px] rounded-[18px] p-4" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={(e) => e.stopPropagation()}>
+      <div className="mx-5 w-full max-w-[340px] rounded-[18px] p-4" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
         <textarea
           className="w-full rounded-[12px] p-3 text-[12px] leading-relaxed resize-none outline-none"
           style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text, minHeight: 140, maxHeight: 280 }}
@@ -121,7 +121,7 @@ function SwipeRow({ children, onDelete }) {
   const close = useCallback(() => snap(0, true), [snap]);
 
   return (
-    <div className="relative overflow-hidden rounded-[14px]">
+    <div className="relative mb-3 overflow-hidden rounded-[18px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
       <div ref={actRef} className="absolute right-0 top-0 bottom-0 flex items-center pr-2" style={{ opacity: 0 }}>
         <button onClick={() => { close(); onDelete(); }} className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]" style={{ background: "#ff4d6d" }}>
           <Trash2 size={16} color="white" />
@@ -141,8 +141,9 @@ function SwipeRow({ children, onDelete }) {
 
 function ExpandableCard({ children, time, badge, keyword, onSwipeDelete, onEdit }) {
   const [expanded, setExpanded] = useState(false);
+  const inSwipe = !!onSwipeDelete;
   const inner = (
-    <div className="mb-2 rounded-[14px] p-3" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
+    <div className={inSwipe ? "rounded-[18px] p-3" : "mb-3 rounded-[18px] p-3"} style={{ background: S.bg, boxShadow: inSwipe ? "none" : "var(--card-shadow-sm)" }}>
       <div className="flex items-start justify-between gap-1">
         <div className="flex-1 min-w-0">
           {badge}
@@ -346,7 +347,7 @@ export default function Memories() {
         <p className="mb-2 text-[11px]" style={{ color: S.textMuted }}>左滑消息可删除</p>
         {filteredMessages.map((msg) => (
           <SwipeRow key={msg.id} onDelete={() => deleteMessage(msg.id)}>
-            <div className="mb-2 rounded-[14px] p-3" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
+            <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>{roleLabel(msg.role)}</span>
                 <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>

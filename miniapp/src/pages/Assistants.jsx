@@ -260,7 +260,7 @@ export default function Assistants() {
         >
           <div
             className="mx-6 w-full max-w-[300px] rounded-[22px] p-6"
-            style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+            style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>

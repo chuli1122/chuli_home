@@ -35,7 +35,7 @@ function fmtTime(ts) {
 function ConfirmDialog({ message, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onCancel}>
-      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={(e) => e.stopPropagation()}>
+      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
         <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>确认删除</p>
         <p className="mb-5 text-center text-[13px]" style={{ color: S.textMuted }}>{message}</p>
         <div className="flex gap-3">
@@ -104,7 +104,7 @@ function Countdown({ unlockAt }) {
 function AssistantPicker({ assistants, avatarMap, currentId, onSelect, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onClose}>
-      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-5" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={(e) => e.stopPropagation()}>
+      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-5" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-[15px] font-bold" style={{ color: S.text }}>选择助手</span>
           <button onClick={onClose}><X size={18} style={{ color: S.textMuted }} /></button>
@@ -228,7 +228,14 @@ function NewDiaryForm({ assistantId, onSave, onCancel }) {
                 <span className="text-[13px] font-medium" style={{ color: S.text }}>定时解锁</span>
                 <p className="text-[10px]" style={{ color: S.textMuted }}>对方需要等到指定时间才能查看</p>
               </div>
-              <button className="relative h-7 w-12 rounded-full transition-colors" style={{ background: timed ? S.accent : "rgba(0,0,0,0.1)" }} onClick={() => setTimed(!timed)}>
+              <button className="relative h-7 w-12 rounded-full transition-colors" style={{ background: timed ? S.accent : "rgba(0,0,0,0.1)" }} onClick={() => {
+                if (!timed && !unlockDate) {
+                  const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+                  const pad = (n) => String(n).padStart(2, "0");
+                  setUnlockDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                }
+                setTimed(!timed);
+              }}>
                 <div className="absolute top-0.5 h-6 w-6 rounded-full transition-transform" style={{ background: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transform: timed ? "translateX(22px)" : "translateX(2px)" }} />
               </button>
             </div>

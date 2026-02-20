@@ -37,7 +37,7 @@ function SwipeRow({ children, onDelete }) {
   const close = useCallback(() => snap(0, true), [snap]);
 
   return (
-    <div className="relative overflow-hidden rounded-[14px]">
+    <div className="relative mb-3 overflow-hidden rounded-[18px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
       <div ref={actRef} className="absolute right-0 top-0 bottom-0 flex items-center pr-2" style={{ opacity: 0 }}>
         <button
           onClick={() => { close(); onDelete(); }}
@@ -205,8 +205,8 @@ export default function Messages() {
             {messages.map((msg) => (
               <SwipeRow key={msg.id} onDelete={() => deleteMsg(msg.id)}>
                 <div
-                  className="mb-2 rounded-[14px] p-3"
-                  style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+                  className="rounded-[18px] p-3"
+                  style={{ background: S.bg }}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>
