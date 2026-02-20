@@ -54,7 +54,7 @@ class WorldBooksService:
         return result
 
     def _get_current_chat_mode(self) -> str:
-        row = self.db.query(Settings).filter(Settings.key == "chat_mode").first()
+        row = self.db.query(Settings).filter(Settings.key == "message_mode").first()
         return row.value if row and row.value in ("short", "long", "theater") else "long"
 
     def get_active_books(
