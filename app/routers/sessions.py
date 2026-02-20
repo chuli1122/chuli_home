@@ -63,6 +63,7 @@ class SessionMessageItem(BaseModel):
     content: str
     meta_info: dict
     created_at: str | None
+    summarized: bool = False
 
 
 class SessionMessagesResponse(BaseModel):
@@ -223,6 +224,7 @@ def get_session_messages(
             content=row.content,
             meta_info=row.meta_info or {},
             created_at=format_datetime(row.created_at),
+            summarized=row.summary_group_id is not None,
         )
         for row in rows
     ]
