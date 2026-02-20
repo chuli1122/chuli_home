@@ -61,8 +61,16 @@ def _get_session_info_sync(assistant_id: int) -> tuple[int, str]:
             )
             return session.id, name
 
-        logger.warning("No chat session found; defaulting to session_id=1")
-        return 1, name
+        logger.warning("No chat session found; creating one for assistant_id=%d", assistant_id)
+        new_session = ChatSession(
+            assistant_id=assistant_id,
+            title="Telegram",
+            type="chat",
+        )
+        db.add(new_session)
+        db.commit()
+        db.refresh(new_session)
+        return new_session.id, name
     finally:
         db.close()
 
