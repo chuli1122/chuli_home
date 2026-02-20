@@ -319,14 +319,32 @@ export default function Memories() {
   }, [sessionId]);
 
   // Load data
+  const PAGE_SIZE = 50;
+  const searchRef = useRef("");
+  const debounceRef = useRef(null);
+
   useEffect(() => { if (sessionId) loadData(); }, [sessionId, trashMode]);
   useEffect(() => { if (sessionId && !trashMode) loadData(); }, [tab]);
 
-  const PAGE_SIZE = 50;
+  // Debounced server-side search
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const kw = searchText.trim();
+      if (kw !== searchRef.current) {
+        searchRef.current = kw;
+        if (sessionId) loadData(kw);
+      }
+    }, 400);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [searchText]);
 
-  const loadData = async () => {
+  const _searchParam = (kw) => { const s = (kw ?? (searchRef.current || "")).trim(); return s ? `&search=${encodeURIComponent(s)}` : ""; };
+
+  const loadData = async (kwOverride) => {
     if (!sessionId) return;
     setLoading(true);
+    const sp = _searchParam(kwOverride);
     try {
       if (trashMode) {
         const [memT, sumT] = await Promise.all([
@@ -336,15 +354,15 @@ export default function Memories() {
         setTrashMemories(memT.memories || []);
         setTrashSummaries(sumT.summaries || []);
       } else if (tab === "memories") {
-        const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=0`);
+        const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=0${sp}`);
         setMemories(d.memories || []);
         setHasMoreMem((d.total || 0) > (d.memories || []).length);
       } else if (tab === "summaries") {
-        const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=0`);
+        const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=0${sp}`);
         setSummaries(d.summaries || []);
         setHasMoreSum((d.total || 0) > (d.summaries || []).length);
       } else {
-        const d = await apiFetch(`/api/sessions/${sessionId}/messages?limit=50`);
+        const d = await apiFetch(`/api/sessions/${sessionId}/messages?limit=50${sp}`);
         setMessages((d.messages || []).reverse());
         setHasMoreMsg(d.has_more || false);
       }
@@ -355,8 +373,9 @@ export default function Memories() {
   const loadMoreMem = async () => {
     if (!hasMoreMem || loading) return;
     setLoading(true);
+    const sp = _searchParam();
     try {
-      const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=${memories.length}`);
+      const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=${memories.length}${sp}`);
       const more = d.memories || [];
       setMemories((prev) => [...prev, ...more]);
       setHasMoreMem((d.total || 0) > memories.length + more.length);
@@ -367,8 +386,9 @@ export default function Memories() {
   const loadMoreSum = async () => {
     if (!sessionId || !hasMoreSum || loading) return;
     setLoading(true);
+    const sp = _searchParam();
     try {
-      const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=${summaries.length}`);
+      const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=${summaries.length}${sp}`);
       const more = d.summaries || [];
       setSummaries((prev) => [...prev, ...more]);
       setHasMoreSum((d.total || 0) > summaries.length + more.length);
@@ -381,21 +401,19 @@ export default function Memories() {
     const oldest = messages[messages.length - 1];
     if (!oldest) return;
     setLoading(true);
+    const sp = _searchParam();
     try {
-      const d = await apiFetch(`/api/sessions/${sessionId}/messages?limit=50&before_id=${oldest.id}`);
+      const d = await apiFetch(`/api/sessions/${sessionId}/messages?limit=50&before_id=${oldest.id}${sp}`);
       setMessages((prev) => [...prev, ...(d.messages || []).reverse()]);
       setHasMoreMsg(d.has_more || false);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
 
-  // Filter by search keyword
-  const kw = searchText.trim().toLowerCase();
-  const filteredMemories = useMemo(() => kw ? memories.filter((m) => m.content.toLowerCase().includes(kw)) : memories, [memories, kw]);
-  const filteredSummaries = useMemo(() => kw ? summaries.filter((s) => (s.summary_content || "").toLowerCase().includes(kw)) : summaries, [summaries, kw]);
-  const filteredMessages = useMemo(() => kw ? messages.filter((m) => m.content.toLowerCase().includes(kw)) : messages, [messages, kw]);
-  const filteredTrashMem = useMemo(() => kw ? trashMemories.filter((m) => m.content.toLowerCase().includes(kw)) : trashMemories, [trashMemories, kw]);
-  const filteredTrashSum = useMemo(() => kw ? trashSummaries.filter((s) => (s.summary_content || "").toLowerCase().includes(kw)) : trashSummaries, [trashSummaries, kw]);
+  const kw = searchText.trim();
+  // Trash tabs still use local filtering (no backend search for trash)
+  const filteredTrashMem = useMemo(() => kw ? trashMemories.filter((m) => m.content.toLowerCase().includes(kw.toLowerCase())) : trashMemories, [trashMemories, kw]);
+  const filteredTrashSum = useMemo(() => kw ? trashSummaries.filter((s) => (s.summary_content || "").toLowerCase().includes(kw.toLowerCase())) : trashSummaries, [trashSummaries, kw]);
 
   // Actions
   const confirmAction = (message, action) => setConfirm({ message, action });
@@ -430,17 +448,17 @@ export default function Memories() {
 
   const renderMemories = () => {
     if (loading && memories.length === 0) return <Spinner />;
-    if (filteredMemories.length === 0) return <Empty text={kw ? "无匹配记忆" : "暂无记忆"} />;
+    if (memories.length === 0) return <Empty text={kw ? "无匹配记忆" : "暂无记忆"} />;
     return (
       <>
-        {filteredMemories.map((mem) => (
+        {memories.map((mem) => (
           <ExpandableCard key={mem.id} time={fmtTime(mem.created_at)} keyword={kw}
             onSwipeDelete={() => deleteMemory(mem.id)}
             onEdit={() => setEditing({ type: "memory", id: mem.id, text: mem.content })}
             badge={<span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{mem.klass}</span>}
           >{mem.content}</ExpandableCard>
         ))}
-        {hasMoreMem && !kw && (
+        {hasMoreMem && (
           <button className="mx-auto mt-2 block rounded-[10px] px-4 py-2 text-[12px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }} onClick={loadMoreMem} disabled={loading}>
             {loading ? "加载中..." : "加载更多"}
           </button>
@@ -451,17 +469,17 @@ export default function Memories() {
 
   const renderSummaries = () => {
     if (loading && summaries.length === 0) return <Spinner />;
-    if (filteredSummaries.length === 0) return <Empty text={kw ? "无匹配摘要" : "暂无摘要"} />;
+    if (summaries.length === 0) return <Empty text={kw ? "无匹配摘要" : "暂无摘要"} />;
     return (
       <>
-        {filteredSummaries.map((s) => (
+        {summaries.map((s) => (
           <ExpandableCard key={s.id} time={fmtTime(s.created_at)} keyword={kw}
             onSwipeDelete={() => deleteSummary(s.id)}
             onEdit={() => setEditing({ type: "summary", id: s.id, text: s.summary_content })}
             badge={s.mood_tag ? <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{s.mood_tag}</span> : null}
           >{s.summary_content || "(空)"}</ExpandableCard>
         ))}
-        {hasMoreSum && !kw && (
+        {hasMoreSum && (
           <button className="mx-auto mt-2 block rounded-[10px] px-4 py-2 text-[12px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }} onClick={loadMoreSum} disabled={loading}>
             {loading ? "加载中..." : "加载更多"}
           </button>
@@ -472,14 +490,14 @@ export default function Memories() {
 
   const renderMessages = () => {
     if (loading && messages.length === 0) return <Spinner />;
-    if (filteredMessages.length === 0) return <Empty text={kw ? "无匹配消息" : "暂无消息"} />;
+    if (messages.length === 0) return <Empty text={kw ? "无匹配消息" : "暂无消息"} />;
     return (
       <>
         <p className="mb-2 text-[11px]" style={{ color: S.textMuted }}>左滑消息可删除</p>
-        {filteredMessages.map((msg) => (
+        {messages.map((msg) => (
           <MessageCard key={msg.id} msg={msg} keyword={kw} roleLabel={roleLabel} roleColor={roleColor} onDelete={() => deleteMessage(msg.id)} />
         ))}
-        {hasMoreMsg && !kw && (
+        {hasMoreMsg && (
           <button className="mx-auto mt-2 block rounded-[10px] px-4 py-2 text-[12px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }} onClick={loadMoreMsg} disabled={loading}>
             {loading ? "加载中..." : "加载更多"}
           </button>

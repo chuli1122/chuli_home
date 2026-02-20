@@ -87,6 +87,7 @@ def _compute_decayed_score(memory: Memory) -> float:
 def list_memories(
     klass: str | None = Query(None),
     source: str | None = Query(None),
+    search: str | None = Query(None, min_length=1),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -96,6 +97,8 @@ def list_memories(
         query = query.filter(Memory.klass == klass)
     if source:
         query = query.filter(Memory.source == source)
+    if search:
+        query = query.filter(Memory.content.ilike(f"%{search}%"))
 
     total = query.count()
     rows = (

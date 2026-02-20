@@ -233,6 +233,7 @@ def get_session_messages(
 @router.get("/sessions/{session_id}/summaries", response_model=SessionSummariesResponse)
 def get_session_summaries(
     session_id: int,
+    search: str | None = Query(None, min_length=1),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -244,6 +245,8 @@ def get_session_summaries(
     base = db.query(SessionSummary).filter(
         SessionSummary.session_id == session_id, SessionSummary.deleted_at.is_(None)
     )
+    if search:
+        base = base.filter(SessionSummary.summary_content.ilike(f"%{search}%"))
     total = base.count()
     rows = (
         base.order_by(SessionSummary.created_at.desc(), SessionSummary.id.desc())
