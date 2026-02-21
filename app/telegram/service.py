@@ -97,18 +97,28 @@ def _chat_completion_sync(
 
     db = SessionLocal()
     try:
-        # 1. Pre-store user message with telegram_message_id
-        user_msg = Message(
-            session_id=session_id,
-            role="user",
-            content=message,
-            meta_info={},
-            telegram_message_id=telegram_message_id,
-        )
-        db.add(user_msg)
-        db.commit()
-        db.refresh(user_msg)
-        max_id_before = user_msg.id
+        # 1. Pre-store user messages — one row per telegram message
+        #    When buffer merges multiple messages, split them back out
+        parts = message.split("\n") if telegram_message_id and len(telegram_message_id) > 1 else [message]
+        tg_ids = telegram_message_id or []
+
+        max_id_before = 0
+        for i, part in enumerate(parts):
+            part_text = part.strip()
+            if not part_text:
+                continue
+            tg_id_for_part = [tg_ids[i]] if i < len(tg_ids) else None
+            user_msg = Message(
+                session_id=session_id,
+                role="user",
+                content=part_text,
+                meta_info={},
+                telegram_message_id=tg_id_for_part,
+            )
+            db.add(user_msg)
+            db.commit()
+            db.refresh(user_msg)
+            max_id_before = user_msg.id
 
         # 2. Load history (includes the message we just stored, all have 'id')
         chat_service = ChatService(db, assistant_name)

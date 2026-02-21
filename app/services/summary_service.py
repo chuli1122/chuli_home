@@ -87,6 +87,7 @@ class SummaryService:
 重点记录：聊了什么、做了什么决定、情绪变化、新暴露的信息。
 时间用具体描述如"2.5晚上20点左右"，不要用"刚才""昨天"这类相对时间。
 亲密场景：只记场景设定、她表达的偏好、情绪变化，不记具体行为描写。
+如果对话中有工具调用（如存储记忆、搜索记忆等），在摘要正文中自然地概括，例如'我存储了一条关于xxx的记忆'。
 单条摘要不超过500字，尽量精简，只记关键信息。
 
 任务二：记忆提取
@@ -138,6 +139,7 @@ tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方�
 重点记录：聊了什么、做了什么决定、情绪变化、新暴露的信息。
 时间用具体描述如"2.5晚上20点左右"，不要用"刚才""昨天"这类相对时间。
 亲密场景：只记场景设定、她表达的偏好、情绪变化，不记具体行为描写。
+如果对话中有工具调用（如存储记忆、搜索记忆等），在摘要正文中自然地概括，例如'我存储了一条关于xxx的记忆'。
 单条摘要不超过500字，尽量精简，只记关键信息。
 
 任务二：记忆提取
@@ -270,6 +272,8 @@ tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方�
             anchor_text = anchor_utc.astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
             embedding_service = EmbeddingService()
 
+            # Insert memories first, collect their IDs
+            inserted_memory_ids: list[int] = []
             for item in memory_candidates:
                 if not isinstance(item, dict):
                     continue
@@ -322,6 +326,13 @@ LIMIT 1
                     created_at=anchor_utc,
                 )
                 db.add(memory)
+                db.flush()
+                inserted_memory_ids.append(memory.id)
+
+            # Append memory IDs to summary text
+            if inserted_memory_ids:
+                id_list = ", ".join(f"id={mid}" for mid in inserted_memory_ids)
+                summary.summary_content += f"\n[本次提取记忆] {id_list}"
 
             db.commit()
             logger.info("Summary generated OK (session_id=%s, summary_id=%s, memories=%d, mood=%s).",
@@ -452,21 +463,44 @@ LIMIT 1
         lines: list[str] = []
         for message in messages:
             role = (message.role or "").lower()
+            meta = message.meta_info or {}
+
             if role == "user":
                 speaker = user_name
+                content = (message.content or "").strip()
             elif role == "assistant":
-                speaker = assistant_name
+                if "tool_call" in meta:
+                    # Tool call placeholder — format as tool invocation
+                    tc = meta["tool_call"]
+                    tool_name = tc.get("tool_name", "unknown")
+                    args = tc.get("arguments", {})
+                    content = f"[调用工具] {tool_name}({json.dumps(args, ensure_ascii=False)})"
+                    speaker = assistant_name
+                else:
+                    speaker = assistant_name
+                    content = (message.content or "").strip()
+            elif role == "tool":
+                # Tool result — keep full content for summary model
+                tool_name = meta.get("tool_name", "unknown")
+                raw = (message.content or "").strip()
+                content = f"[工具结果] {tool_name}: {raw}"
+                speaker = ""
             else:
                 speaker = role or "unknown"
-            content = (message.content or "").strip()
+                content = (message.content or "").strip()
+
             if not content:
                 continue
             created_at = self._to_utc(message.created_at)
-            if created_at:
-                ts = created_at.astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
-                lines.append(f"[{ts}] {speaker}: {content}")
+            if speaker:
+                if created_at:
+                    ts = created_at.astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
+                    lines.append(f"[{ts}] {speaker}: {content}")
+                else:
+                    lines.append(f"{speaker}: {content}")
             else:
-                lines.append(f"{speaker}: {content}")
+                # Tool results without speaker prefix
+                lines.append(content)
         return "\n".join(lines)
 
     def _to_utc(self, value: datetime | None) -> datetime | None:

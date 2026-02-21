@@ -134,6 +134,7 @@ class MemoryService:
             memory.content = f"[{now_east8.strftime('%Y.%m.%d %H:%M')}] {new_content}"
         if "tags" in payload:
             memory.tags = payload["tags"]
+        memory.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(memory)
         return {

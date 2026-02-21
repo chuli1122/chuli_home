@@ -120,6 +120,14 @@ def _run_migrations(eng) -> None:
                 conn.execute(text("ALTER TABLE world_books ADD COLUMN message_mode VARCHAR(16)"))
             logger.info("Added message_mode column to world_books")
 
+    # memories.updated_at
+    if "memories" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("memories")]
+        if "updated_at" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE memories ADD COLUMN updated_at TIMESTAMPTZ"))
+            logger.info("Added updated_at column to memories")
+
 
 @app.on_event("startup")
 async def on_startup() -> None:
