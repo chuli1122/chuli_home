@@ -356,7 +356,7 @@ export default function CotViewer() {
   const load = () => {
     setLoading(true);
     setError(null);
-    apiFetch("/api/cot?limit=30")
+    apiFetch("/api/cot?limit=100")
       .then((data) => {
         setItems(Array.isArray(data) ? data : []);
       })
