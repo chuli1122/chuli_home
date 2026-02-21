@@ -55,52 +55,14 @@ function BlockChip({ block_type }) {
 
 /* ── Expandable block content ── */
 
-function BlockContent({ content, blockType }) {
+function BlockContent({ content }) {
   const [expanded, setExpanded] = useState(false);
-  const [translated, setTranslated] = useState(null);
-  const [showTranslated, setShowTranslated] = useState(false);
-  const [translating, setTranslating] = useState(false);
   const isLong = content.length > COLLAPSE_THRESHOLD;
-
-  const handleTranslate = async (e) => {
-    e.stopPropagation();
-    if (translated) {
-      setShowTranslated(!showTranslated);
-      return;
-    }
-    setTranslating(true);
-    try {
-      const data = await apiFetch("/api/cot/translate", {
-        method: "POST",
-        body: { text: content },
-      });
-      setTranslated(data.translated);
-      setShowTranslated(true);
-    } catch (err) {
-      console.error("Translation failed:", err);
-    } finally {
-      setTranslating(false);
-    }
-  };
-
-  const displayContent = showTranslated && translated ? translated : content;
 
   return (
     <>
-      {blockType === "thinking" && (
-        <div className="mb-1 flex justify-end">
-          <button
-            className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-            style={{ color: "#8860c8", background: "rgba(168,130,200,0.18)" }}
-            onClick={handleTranslate}
-            disabled={translating}
-          >
-            {translating ? "翻译中..." : showTranslated ? "原文" : "翻译"}
-          </button>
-        </div>
-      )}
       <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed" style={{ color: S.text }}>
-        {isLong && !expanded ? displayContent.slice(0, COLLAPSE_THRESHOLD) + "..." : displayContent}
+        {isLong && !expanded ? content.slice(0, COLLAPSE_THRESHOLD) + "..." : content}
       </p>
       {isLong && (
         <div className="mt-1.5 flex justify-center">
@@ -114,6 +76,45 @@ function BlockContent({ content, blockType }) {
         </div>
       )}
     </>
+  );
+}
+
+/* ── Thinking block with translate ── */
+
+function ThinkingBlock({ block }) {
+  const [translated, setTranslated] = useState(null);
+  const [showTranslated, setShowTranslated] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const meta = BLOCK_COLORS.thinking;
+
+  const handleTranslate = async (e) => {
+    e.stopPropagation();
+    if (translated) { setShowTranslated(!showTranslated); return; }
+    setTranslating(true);
+    try {
+      const data = await apiFetch("/api/cot/translate", { method: "POST", body: { text: block.content } });
+      setTranslated(data.translated);
+      setShowTranslated(true);
+    } catch (err) { console.error("Translation failed:", err); }
+    finally { setTranslating(false); }
+  };
+
+  return (
+    <div className="mb-2 rounded-[12px] p-3" style={{ background: meta.bg }}>
+      <div className="mb-1 flex items-center gap-2">
+        <BlockChip block_type="thinking" />
+        <span className="flex-1" />
+        <button
+          className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+          style={{ color: "#1a7ab0", background: "rgba(80,160,200,0.15)" }}
+          onClick={handleTranslate}
+          disabled={translating}
+        >
+          {translating ? "翻译中..." : showTranslated ? "原文" : "翻译"}
+        </button>
+      </div>
+      <BlockContent content={showTranslated && translated ? translated : block.content} />
+    </div>
   );
 }
 
@@ -290,6 +291,9 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
                 </div>
               )}
               {round.blocks.map((block, i) => {
+                if (block.block_type === "thinking") {
+                  return <ThinkingBlock key={i} block={block} />;
+                }
                 const meta = BLOCK_COLORS[block.block_type] || { bg: "rgba(136,136,160,0.08)", color: S.textMuted, label: block.block_type };
                 return (
                   <div key={i} className="mb-2 rounded-[12px] p-3" style={{ background: meta.bg }}>
@@ -301,7 +305,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
                         </span>
                       )}
                     </div>
-                    <BlockContent content={block.content} blockType={block.block_type} />
+                    <BlockContent content={block.content} />
                   </div>
                 );
               })}
