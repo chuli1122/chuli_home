@@ -56,6 +56,8 @@ class MemoryService:
 
     def save_memory(self, payload: dict[str, Any]) -> dict[str, Any]:
         content = payload.get("content", "")
+        if len(content) > 120:
+            return {"error": "内容超过120字，请精简后重试"}
         raw_klass = payload.get("klass", "other")
         klass = raw_klass if raw_klass in KLASS_DEFAULTS else "other"
         klass_config = KLASS_DEFAULTS[klass]
@@ -338,17 +340,18 @@ class MemoryService:
             )
             pgroonga_rows = self.db.execute(pgroonga_sql, pgroonga_params).all()
 
-        # Merge by memory id, deduplicate, return all without truncation
+        # Merge by memory id, deduplicate, truncate content for model context
         results = []
         seen_ids = set()
         for row in vector_rows:
             if row.id in seen_ids:
                 continue
             seen_ids.add(row.id)
+            c = row.content or ""
             results.append(
                 {
                     "id": row.id,
-                    "content": row.content,
+                    "content": c[:100] + "..." if len(c) > 100 else c,
                     "tags": row.tags,
                     "klass": row.klass,
                     "created_at": self._format_time_east8(row.created_at),
@@ -359,10 +362,11 @@ class MemoryService:
             if row.id in seen_ids:
                 continue
             seen_ids.add(row.id)
+            c = row.content or ""
             results.append(
                 {
                     "id": row.id,
-                    "content": row.content,
+                    "content": c[:100] + "..." if len(c) > 100 else c,
                     "tags": row.tags,
                     "klass": row.klass,
                     "created_at": self._format_time_east8(row.created_at),
@@ -1287,6 +1291,7 @@ class ChatService:
         save_memory_description = (
             "主动存储有价值的长期记忆。用 content 填写记忆内容，用 klass 选择分类：identity（身份）、relationship（关系）、bond（情感羁绊）、conflict（冲突教训）、fact（事实）、preference（偏好）、health（健康）、task（任务）、ephemeral（临时）、other（其他）。\n"
             "时间戳由后端自动添加，不需要在 content 里写时间。\n"
+            "单条记忆不超过100字，只记关键信息。用'我'指自己，用名字/昵称指代她，避免人称混乱。\n"
             "存储时注意：涉及的人写清楚名字或昵称，避免纯代词；带 tags；选对 klass。\n"
             "检测到偏好、重要事实、情感节点时主动存储。"
         )
