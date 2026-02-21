@@ -64,6 +64,7 @@ class SessionMessageItem(BaseModel):
     meta_info: dict
     created_at: str | None
     summarized: bool = False
+    summary_group_id: int | None = None
 
 
 class SessionMessagesResponse(BaseModel):
@@ -225,6 +226,7 @@ def get_session_messages(
             meta_info=row.meta_info or {},
             created_at=format_datetime(row.created_at),
             summarized=row.summary_group_id is not None,
+            summary_group_id=row.summary_group_id,
         )
         for row in rows
     ]
@@ -272,6 +274,28 @@ def get_session_summaries(
         for row in rows
     ]
     return SessionSummariesResponse(summaries=items, total=total)
+
+
+@router.get("/summaries/{summary_id}", response_model=SessionSummaryItem)
+def get_summary_by_id(
+    summary_id: int,
+    db: Session = Depends(get_db),
+) -> SessionSummaryItem:
+    row = db.get(SessionSummary, summary_id)
+    if row is None or row.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Summary not found")
+    return SessionSummaryItem(
+        id=row.id,
+        session_id=row.session_id,
+        summary_content=row.summary_content,
+        perspective=row.perspective,
+        msg_id_start=row.msg_id_start,
+        msg_id_end=row.msg_id_end,
+        time_start=format_datetime(row.time_start),
+        time_end=format_datetime(row.time_end),
+        mood_tag=row.mood_tag,
+        created_at=format_datetime(row.created_at),
+    )
 
 
 @router.put("/sessions/{session_id}/summaries/{summary_id}", response_model=MoodUpdateResponse)
@@ -473,6 +497,8 @@ def update_message(
         content=message_row.content,
         meta_info=message_row.meta_info or {},
         created_at=format_datetime(message_row.created_at),
+        summarized=message_row.summary_group_id is not None,
+        summary_group_id=message_row.summary_group_id,
     )
 
 

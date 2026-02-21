@@ -95,6 +95,11 @@ def _compress_tool_result(tool_name: str, content: str) -> str:
         ids = [str(r.get("id", "?")) for r in results]
         return f"[已搜索摘要] 关键词={query}, 返回{len(results)}条, ids=[{','.join(ids)}]"
 
+    if tool_name == "get_summary_by_id":
+        sid = data.get("id", "?")
+        sc = str(data.get("summary_content", ""))[:40]
+        return f"[已查看摘要] id={sid}, {sc}..."
+
     if tool_name == "search_chat_history":
         results = data.get("results", [])
         query = data.get("query", "")

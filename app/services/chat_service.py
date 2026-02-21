@@ -430,6 +430,24 @@ class MemoryService:
         ]
         return {"query": query, "results": results}
 
+    def get_summary_by_id(self, payload: dict[str, Any]) -> dict[str, Any]:
+        summary_id = payload.get("id")
+        if summary_id is None:
+            return {"error": "id is required"}
+        row = self.db.get(SessionSummary, summary_id)
+        if not row or row.deleted_at is not None:
+            return {"error": "summary not found"}
+        return {
+            "id": row.id,
+            "summary_content": row.summary_content,
+            "session_id": row.session_id,
+            "msg_id_start": row.msg_id_start,
+            "msg_id_end": row.msg_id_end,
+            "time_start": self._format_time_east8(row.time_start),
+            "time_end": self._format_time_east8(row.time_end),
+            "mood_tag": row.mood_tag,
+        }
+
     def search_chat_history(self, payload: dict[str, Any]) -> dict[str, Any]:
         query = str(payload.get("query", "") or "").strip()
         session_id = payload.get("session_id")
@@ -955,7 +973,7 @@ class ChatService:
         "write_diary",
         "web_search",
     }
-    silent_tools = {"list_memories", "search_memory", "search_summary", "search_chat_history", "search_theater", "read_diary"}
+    silent_tools = {"list_memories", "search_memory", "search_summary", "get_summary_by_id", "search_chat_history", "search_theater", "read_diary"}
     tool_display_names = {
         "save_memory": "创建记忆",
         "update_memory": "更新记忆",
@@ -964,6 +982,7 @@ class ChatService:
         "list_memories": "列出记忆",
         "search_memory": "搜索记忆",
         "search_summary": "搜索对话摘要",
+        "get_summary_by_id": "查看摘要",
         "search_chat_history": "搜索聊天记录",
         "search_theater": "搜索小剧场",
     }
@@ -1328,6 +1347,7 @@ class ChatService:
             {"type": "function", "function": {"name": "list_memories", "description": "按时间范围或分类列出已存的记忆，不做搜索。用于回顾已存记忆、避免重复存储。", "parameters": {"type": "object", "properties": {"start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20 或 2025-02-20T14:00:00+08:00"}, "end_time": {"type": "string", "description": "结束时间，同上格式。不传则不限结束时间"}, "klass": {"type": "string", "description": "分类筛选: identity/relationship/bond/conflict/fact/preference/health/task/ephemeral/other"}, "limit": {"type": "integer", "description": "返回条数，默认10，最大20。一般只在需要回顾已存记忆、避免重复存储时使用，不要一次拉太多，够用就不要加大limit"}}}}},
             {"type": "function", "function": {"name": "search_memory", "description": "搜索记忆卡片。从长期记忆中按关键词或语义查找信息。返回匹配的记忆条目。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "source": {"type": "string"}}}}},
             {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20"}, "end_time": {"type": "string", "description": "结束时间，同上格式"}}, "required": ["query"]}}},
+            {"type": "function", "function": {"name": "get_summary_by_id", "description": "按id查看摘要详情，返回摘要完整内容", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "search_chat_history", "description": "搜索聊天记录原文。三种模式：\n1) 关键词搜索：传 query，返回命中消息（不带上下文）\n2) ID 范围：传 msg_id_start + msg_id_end，拉取该范围内的完整对话\n3) 单条 ID：传 message_id，返回该条及前后各 3 条上下文", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "session_id": {"type": "integer"}, "msg_id_start": {"type": "integer"}, "msg_id_end": {"type": "integer"}, "message_id": {"type": "integer"}}}}},
             {"type": "function", "function": {"name": "search_theater", "description": "搜索小剧场故事摘要。用于查找过去的 RP / 小剧场剧情记录，返回故事标题、AI伙伴、摘要全文、时间跨度。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}},
             {"type": "function", "function": {"name": "read_diary", "description": "读取交换日记。两种模式：\n1) list 模式：不传 diary_id，可选传 author（user/assistant）筛选，返回日记列表（id、title、author、created_at、unlock_at、read_at），不含正文。未解锁的定时日记也会列出但标记 locked=true。\n2) read 模式：传 diary_id，返回该日记完整内容（id、title、content、author、created_at、unlock_at）。用户写给你的日记（author=user）读取时自动记录已读时间。未解锁的定时日记不允许读取。", "parameters": {"type": "object", "properties": {"diary_id": {"type": "integer", "description": "日记ID，传入则为read模式"}, "author": {"type": "string", "enum": ["user", "assistant"], "description": "list模式下按作者筛选"}}}}},
@@ -1711,6 +1731,8 @@ class ChatService:
             return self.memory_service.search_memory(tool_call.arguments)
         if tool_name == "search_summary":
             return self.memory_service.search_summary(tool_call.arguments)
+        if tool_name == "get_summary_by_id":
+            return self.memory_service.get_summary_by_id(tool_call.arguments)
         if tool_name == "search_chat_history":
             return self.memory_service.search_chat_history(tool_call.arguments)
         if tool_name == "search_theater":

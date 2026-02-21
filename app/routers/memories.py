@@ -27,6 +27,7 @@ class MemoryItem(BaseModel):
     manual_boost: float
     hits: int
     last_access_ts: str | None
+    updated_at: str | None = None
     created_at: str | None
     decayed_score: float
 
@@ -118,6 +119,7 @@ def list_memories(
             manual_boost=row.manual_boost,
             hits=row.hits,
             last_access_ts=format_datetime(row.last_access_ts),
+            updated_at=format_datetime(row.updated_at),
             created_at=format_datetime(row.created_at),
             decayed_score=_compute_decayed_score(row),
         )

@@ -253,7 +253,7 @@ function TrashCard({ content, deletedAt, keyword, onRestore, onPermanentDelete }
 
 /* ── Message card (expandable) ── */
 
-function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
+function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete, onEdit }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const textRef = useRef(null);
@@ -267,8 +267,26 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
     <SwipeRow onDelete={onDelete}>
       <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
         <div className="flex items-center justify-between mb-1">
-          <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>{roleLabel(msg.role)}</span>
-          <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>{roleLabel(msg.role)}</span>
+            {msg.summary_group_id && (
+              <span className="rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: "rgba(74,138,181,0.1)", color: "#4a8ab5" }}>
+                已摘要：{msg.summary_group_id}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
+            {onEdit && (
+              <button
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
+                style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              >
+                <Pencil size={9} style={{ color: S.accentDark }} />
+              </button>
+            )}
+          </div>
         </div>
         <div
           ref={textRef}
@@ -447,6 +465,9 @@ export default function Memories() {
       if (editing.type === "memory") {
         await apiFetch(`/api/memories/${editing.id}`, { method: "PUT", body: { content: text } });
         setMemories((p) => p.map((m) => m.id === editing.id ? { ...m, content: text } : m));
+      } else if (editing.type === "message") {
+        await apiFetch(`/api/sessions/${sessionId}/messages/${editing.id}`, { method: "PUT", body: { content: text } });
+        setMessages((p) => p.map((m) => m.id === editing.id ? { ...m, content: text } : m));
       } else {
         await apiFetch(`/api/sessions/${sessionId}/summaries/${editing.id}`, { method: "PATCH", body: { summary_content: text } });
         setSummaries((p) => p.map((s) => s.id === editing.id ? { ...s, summary_content: text } : s));
@@ -466,10 +487,12 @@ export default function Memories() {
     return (
       <>
         {memories.map((mem) => (
-          <ExpandableCard key={mem.id} time={fmtTime(mem.created_at)} keyword={kw}
+          <ExpandableCard key={mem.id}
+            time={mem.updated_at ? `${fmtTime(mem.created_at)} · 更新于 ${fmtTime(mem.updated_at)}` : fmtTime(mem.created_at)}
+            keyword={kw}
             onSwipeDelete={() => deleteMemory(mem.id)}
             onEdit={() => setEditing({ type: "memory", id: mem.id, text: mem.content })}
-            badge={(() => { const c = KLASS_COLORS[mem.klass] || KLASS_COLORS.other; return <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: c.bg, color: c.color }}>{mem.klass}</span>; })()}
+            badge={(() => { const c = KLASS_COLORS[mem.klass] || KLASS_COLORS.other; return (<><span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: c.bg, color: c.color }}>{mem.klass}</span><span className="mb-1 ml-1 inline-block text-[10px]" style={{ color: S.textMuted }}>#{mem.id}</span></>); })()}
           >{mem.content}</ExpandableCard>
         ))}
         {hasMoreMem && (
@@ -490,7 +513,7 @@ export default function Memories() {
           <ExpandableCard key={s.id} time={fmtTime(s.created_at)} keyword={kw}
             onSwipeDelete={() => deleteSummary(s.id)}
             onEdit={() => setEditing({ type: "summary", id: s.id, text: s.summary_content })}
-            badge={s.mood_tag ? <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{s.mood_tag}</span> : null}
+            badge={<>{s.mood_tag && <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{s.mood_tag}</span>}<span className="mb-1 ml-1 inline-block text-[10px]" style={{ color: S.textMuted }}>#{s.id}</span></>}
           >{s.summary_content || "(空)"}</ExpandableCard>
         ))}
         {hasMoreSum && (
@@ -509,7 +532,10 @@ export default function Memories() {
       <>
         <p className="mb-2 text-[11px]" style={{ color: S.textMuted }}>左滑消息可删除</p>
         {messages.map((msg) => (
-          <MessageCard key={msg.id} msg={msg} keyword={kw} roleLabel={roleLabel} roleColor={roleColor} onDelete={() => deleteMessage(msg.id)} />
+          <MessageCard key={msg.id} msg={msg} keyword={kw} roleLabel={roleLabel} roleColor={roleColor}
+            onDelete={() => deleteMessage(msg.id)}
+            onEdit={() => setEditing({ type: "message", id: msg.id, text: msg.content })}
+          />
         ))}
         {hasMoreMsg && (
           <button className="mx-auto mt-2 block rounded-[10px] px-4 py-2 text-[12px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }} onClick={loadMoreMsg} disabled={loading}>
