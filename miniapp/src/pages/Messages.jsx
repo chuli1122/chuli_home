@@ -108,8 +108,8 @@ function MsgItem({ msg, roleLabel, roleColor, fmtTime, onDelete }) {
           <div className="flex items-center gap-1.5">
             {msg.summarized && (
               <span
-                className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
-                style={{ background: "rgba(80,160,120,0.12)", color: "#3a8a5f" }}
+                className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                style={{ background: "rgba(58,138,95,0.15)", color: "#2d7a4a" }}
               >已摘要</span>
             )}
             <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>

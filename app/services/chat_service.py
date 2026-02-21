@@ -1892,21 +1892,43 @@ class ChatService:
             return
         db: Session = self.session_factory()
         try:
+            # Find the latest summary's msg_id_end to avoid re-summarizing
+            last_summary = (
+                db.query(SessionSummary)
+                .filter(
+                    SessionSummary.session_id == session_id,
+                    SessionSummary.assistant_id == assistant_id,
+                    SessionSummary.deleted_at.is_(None),
+                    SessionSummary.msg_id_end.isnot(None),
+                )
+                .order_by(SessionSummary.msg_id_end.desc())
+                .first()
+            )
+            last_end = last_summary.msg_id_end if last_summary else 0
+
             trimmed_messages = (
                 db.query(Message)
                 .filter(
                     Message.session_id == session_id,
                     Message.id.in_(message_ids),
+                    Message.id > last_end,
+                    Message.summary_group_id.is_(None),
                 )
                 .order_by(Message.created_at.asc(), Message.id.asc())
                 .all()
             )
             if not trimmed_messages:
-                logger.warning(
-                    "Summary trigger skipped: trimmed messages not found in db (session_id=%s).",
-                    session_id,
+                logger.info(
+                    "Summary trigger skipped: all trimmed messages already summarized "
+                    "(session_id=%s, last_end=%s, candidates=%d).",
+                    session_id, last_end, len(message_ids),
                 )
                 return
+            logger.info(
+                "Summary trigger: %d new messages (session_id=%s, last_end=%s, range=%s~%s).",
+                len(trimmed_messages), session_id, last_end,
+                trimmed_messages[0].id, trimmed_messages[-1].id,
+            )
             summary_service = SummaryService(self.session_factory)
             summary_service.generate_summary(session_id, trimmed_messages, assistant_id)
         except Exception:
