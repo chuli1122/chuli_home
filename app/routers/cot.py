@@ -76,35 +76,26 @@ def _ensure_table(db: Session) -> bool:
 
 
 def _cleanup_old_cot_records(db: Session) -> None:
-    """Keep only the most recent COT_MAX_KEEP request_ids."""
+    """Keep only the most recent COT_MAX_KEEP request_ids, using raw SQL."""
     try:
-        subq = (
-            db.query(
-                CotRecord.request_id,
-                func.min(CotRecord.created_at).label("first_ts"),
-            )
-            .group_by(CotRecord.request_id)
-            .subquery()
-        )
-        total = db.query(func.count(subq.c.request_id)).scalar() or 0
-        if total > COT_MAX_KEEP:
-            excess = total - COT_MAX_KEEP
-            old_ids = (
-                db.query(subq.c.request_id)
-                .order_by(subq.c.first_ts.asc())
-                .limit(excess)
-                .all()
-            )
-            ids_to_delete = [row[0] for row in old_ids]
-            if ids_to_delete:
-                deleted = db.query(CotRecord).filter(
-                    CotRecord.request_id.in_(ids_to_delete)
-                ).delete(synchronize_session=False)
-                db.commit()
-                logger.info("COT cleanup: removed %d records (%d request_ids), total was %d",
-                            deleted, len(ids_to_delete), total)
+        result = db.execute(text(
+            "WITH old AS ("
+            "  SELECT request_id FROM ("
+            "    SELECT request_id, MIN(created_at) AS first_ts"
+            "    FROM cot_records GROUP BY request_id"
+            "    ORDER BY first_ts DESC"
+            f"   OFFSET {COT_MAX_KEEP}"
+            "  ) sub"
+            ") "
+            "DELETE FROM cot_records WHERE request_id IN (SELECT request_id FROM old)"
+        ))
+        if result.rowcount:
+            db.commit()
+            logger.info("COT cleanup: deleted %d rows", result.rowcount)
+        else:
+            db.rollback()
     except Exception as exc:
-        logger.warning("COT cleanup failed: %s", exc)
+        logger.warning("COT cleanup failed: %s", exc, exc_info=True)
         try:
             db.rollback()
         except Exception:
