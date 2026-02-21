@@ -229,6 +229,14 @@ def get_session_messages(
         for row in rows
     ]
 
+    # Debug: log summary_group_id distribution
+    sg_ids = {row.id: row.summary_group_id for row in rows}
+    summarized_ids = [mid for mid, sg in sg_ids.items() if sg is not None]
+    logger.info("[messages] session=%s, total=%d, summarized=%d, id_range=%s~%s, sg_sample=%s",
+                session_id, len(rows), len(summarized_ids),
+                rows[0].id if rows else None, rows[-1].id if rows else None,
+                dict(list(sg_ids.items())[:5]))
+
     return SessionMessagesResponse(messages=items, has_more=has_more)
 
 
