@@ -97,10 +97,12 @@ def _cleanup_old_cot_records(db: Session) -> None:
             )
             ids_to_delete = [row[0] for row in old_ids]
             if ids_to_delete:
-                db.query(CotRecord).filter(
+                deleted = db.query(CotRecord).filter(
                     CotRecord.request_id.in_(ids_to_delete)
                 ).delete(synchronize_session=False)
                 db.commit()
+                logger.info("COT cleanup: removed %d records (%d request_ids), total was %d",
+                            deleted, len(ids_to_delete), total)
     except Exception as exc:
         logger.warning("COT cleanup failed: %s", exc)
         try:
