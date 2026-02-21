@@ -253,7 +253,7 @@ function TrashCard({ content, deletedAt, keyword, onRestore, onPermanentDelete }
 
 /* ── Message card (expandable) ── */
 
-function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete, onEdit }) {
+function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const textRef = useRef(null);
@@ -275,18 +275,7 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete, onEdit }) {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
-            {onEdit && (
-              <button
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
-                style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-                onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              >
-                <Pencil size={9} style={{ color: S.accentDark }} />
-              </button>
-            )}
-          </div>
+          <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtTime(msg.created_at)}</span>
         </div>
         <div
           ref={textRef}
@@ -465,9 +454,6 @@ export default function Memories() {
       if (editing.type === "memory") {
         await apiFetch(`/api/memories/${editing.id}`, { method: "PUT", body: { content: text } });
         setMemories((p) => p.map((m) => m.id === editing.id ? { ...m, content: text } : m));
-      } else if (editing.type === "message") {
-        await apiFetch(`/api/sessions/${sessionId}/messages/${editing.id}`, { method: "PUT", body: { content: text } });
-        setMessages((p) => p.map((m) => m.id === editing.id ? { ...m, content: text } : m));
       } else {
         await apiFetch(`/api/sessions/${sessionId}/summaries/${editing.id}`, { method: "PATCH", body: { summary_content: text } });
         setSummaries((p) => p.map((s) => s.id === editing.id ? { ...s, summary_content: text } : s));
@@ -534,7 +520,6 @@ export default function Memories() {
         {messages.map((msg) => (
           <MessageCard key={msg.id} msg={msg} keyword={kw} roleLabel={roleLabel} roleColor={roleColor}
             onDelete={() => deleteMessage(msg.id)}
-            onEdit={() => setEditing({ type: "message", id: msg.id, text: msg.content })}
           />
         ))}
         {hasMoreMsg && (

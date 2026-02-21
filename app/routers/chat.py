@@ -121,7 +121,7 @@ def _load_session_messages(db: Session, session_id: int) -> list[dict[str, Any]]
         db.query(MessageModel)
         .filter(
             MessageModel.session_id == session_id,
-            MessageModel.role.in_(["user", "assistant", "tool"]),
+            MessageModel.role.in_(["user", "assistant", "tool", "system"]),
         )
         .order_by(MessageModel.id.asc())
         .all()
@@ -157,6 +157,13 @@ def _load_session_messages(db: Session, session_id: int) -> list[dict[str, Any]]
             messages.append({
                 "role": "assistant",
                 "content": compressed,
+                "id": m.id,
+                "created_at": m.created_at,
+            })
+        elif m.role == "system":
+            messages.append({
+                "role": "assistant",
+                "content": f"[系统通知] {m.content}",
                 "id": m.id,
                 "created_at": m.created_at,
             })

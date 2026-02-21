@@ -162,6 +162,9 @@ def get_chat_mode(db: Session = Depends(get_db)) -> ChatModeResponse:
     return ChatModeResponse(mode=mode)
 
 
+MODE_LABELS = {"short": "短消息", "long": "长消息", "theater": "小剧场"}
+
+
 @router.put("/settings/chat-mode", response_model=ChatModeResponse)
 def update_chat_mode(
     payload: ChatModeUpdateRequest,
@@ -169,6 +172,24 @@ def update_chat_mode(
 ) -> ChatModeResponse:
     mode = payload.mode if payload.mode in VALID_CHAT_MODES else "long"
     _upsert_setting(db, "chat_mode", mode)
+
+    # Insert system message, similar to mood switch
+    label = MODE_LABELS.get(mode, mode)
+    latest_session = (
+        db.query(ChatSession)
+        .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+        .first()
+    )
+    if latest_session:
+        msg = Message(
+            session_id=latest_session.id,
+            role="system",
+            content=f"已切换到{label}模式",
+            meta_info={"mode_switch": True},
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(msg)
+
     db.commit()
     return ChatModeResponse(mode=mode)
 

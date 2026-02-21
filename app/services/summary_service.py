@@ -31,6 +31,84 @@ logger = logging.getLogger(__name__)
 TZ_EAST8 = timezone(timedelta(hours=8))
 
 
+def _call_model_raw(
+    db: Session, preset: ModelPreset, system_prompt: str, user_text: str
+) -> str:
+    """Call a model preset and return raw text response."""
+    api_provider = db.get(ApiProvider, preset.api_provider_id)
+    if not api_provider:
+        raise ValueError(f"API provider not found for preset_id={preset.id}")
+
+    base_url = api_provider.base_url
+    if base_url.endswith("/chat/completions"):
+        base_url = base_url[: -len("/chat/completions")]
+        if not base_url.endswith("/v1"):
+            base_url = f"{base_url.rstrip('/')}/v1"
+    if api_provider.auth_type == "oauth_token":
+        anth_client = anthropic.Anthropic(
+            auth_token=api_provider.api_key,
+            default_headers={
+                "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
+                "user-agent": "claude-cli/2.1.2 (external, cli)",
+                "x-app": "cli",
+            },
+        )
+        anth_kwargs: dict[str, Any] = {
+            "model": preset.model_name,
+            "max_tokens": preset.max_tokens,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_text}],
+        }
+        if preset.temperature is not None:
+            anth_kwargs["temperature"] = preset.temperature
+        if preset.top_p is not None:
+            anth_kwargs["top_p"] = preset.top_p
+        anth_response = anth_client.messages.create(**anth_kwargs)
+        content = ""
+        for block in anth_response.content:
+            if block.type == "text":
+                content += block.text
+    else:
+        oai_client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
+        params: dict[str, Any] = {
+            "model": preset.model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text},
+            ],
+            "max_tokens": preset.max_tokens,
+        }
+        if preset.temperature is not None:
+            params["temperature"] = preset.temperature
+        if preset.top_p is not None:
+            params["top_p"] = preset.top_p
+        oai_response = oai_client.chat.completions.create(**params)
+        if not oai_response.choices:
+            raise ValueError("Response contained no choices.")
+        content = oai_response.choices[0].message.content or ""
+    return content
+
+
+def translate_text(db: Session, text: str) -> str:
+    """Translate text to Chinese using the summary fallback model."""
+    assistant = db.query(Assistant).first()
+    if not assistant:
+        raise ValueError("No assistant configured")
+
+    preset = None
+    if assistant.summary_fallback_preset_id:
+        preset = db.get(ModelPreset, assistant.summary_fallback_preset_id)
+    if not preset and assistant.summary_model_preset_id:
+        preset = db.get(ModelPreset, assistant.summary_model_preset_id)
+    if not preset:
+        preset = db.get(ModelPreset, assistant.model_preset_id)
+    if not preset:
+        raise ValueError("No model preset available")
+
+    system_prompt = "你是翻译助手。将以下英文内容翻译成中文，保持原意，只输出翻译结果。"
+    return _call_model_raw(db, preset, system_prompt, text)
+
+
 class SummaryService:
     def __init__(self, session_factory: sessionmaker) -> None:
         self.session_factory = session_factory
@@ -394,57 +472,7 @@ LIMIT 1
         system_prompt: str,
         conversation_text: str,
     ) -> dict[str, Any]:
-        api_provider = db.get(ApiProvider, preset.api_provider_id)
-        if not api_provider:
-            raise ValueError(f"API provider not found for preset_id={preset.id}")
-
-        base_url = api_provider.base_url
-        if base_url.endswith("/chat/completions"):
-            base_url = base_url[: -len("/chat/completions")]
-            if not base_url.endswith("/v1"):
-                base_url = f"{base_url.rstrip('/')}/v1"
-        if api_provider.auth_type == "oauth_token":
-            anth_client = anthropic.Anthropic(
-                auth_token=api_provider.api_key,
-                default_headers={
-                    "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
-                    "user-agent": "claude-cli/2.1.2 (external, cli)",
-                    "x-app": "cli",
-                },
-            )
-            anth_kwargs: dict[str, Any] = {
-                "model": preset.model_name,
-                "max_tokens": preset.max_tokens,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": conversation_text}],
-            }
-            if preset.temperature is not None:
-                anth_kwargs["temperature"] = preset.temperature
-            if preset.top_p is not None:
-                anth_kwargs["top_p"] = preset.top_p
-            anth_response = anth_client.messages.create(**anth_kwargs)
-            content = ""
-            for block in anth_response.content:
-                if block.type == "text":
-                    content += block.text
-        else:
-            oai_client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
-            params: dict[str, Any] = {
-                "model": preset.model_name,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": conversation_text},
-                ],
-                "max_tokens": preset.max_tokens,
-            }
-            if preset.temperature is not None:
-                params["temperature"] = preset.temperature
-            if preset.top_p is not None:
-                params["top_p"] = preset.top_p
-            oai_response = oai_client.chat.completions.create(**params)
-            if not oai_response.choices:
-                raise ValueError("Summary response contained no choices.")
-            content = oai_response.choices[0].message.content or ""
+        content = _call_model_raw(db, preset, system_prompt, conversation_text)
         cleaned_content = content.strip()
         if cleaned_content.startswith("```json"):
             cleaned_content = cleaned_content[len("```json") :]

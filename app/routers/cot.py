@@ -208,6 +208,29 @@ def list_cot(
         )
 
 
+class TranslateRequest(BaseModel):
+    text: str
+
+
+class TranslateResponse(BaseModel):
+    translated: str
+
+
+@router.post("/cot/translate", response_model=TranslateResponse)
+def translate_cot_block(
+    payload: TranslateRequest,
+    db: Session = Depends(get_db),
+) -> TranslateResponse:
+    from app.services.summary_service import translate_text
+
+    try:
+        translated = translate_text(db, payload.text)
+        return TranslateResponse(translated=translated)
+    except Exception as exc:
+        logger.error("Translation failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"翻译失败: {exc}")
+
+
 @router.delete("/cot/{request_id}")
 def delete_cot(
     request_id: str,

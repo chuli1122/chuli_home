@@ -16,6 +16,7 @@ const BLOCK_COLORS = {
   thinking: { bg: "rgba(168,130,200,0.12)", color: "#8860c8", label: "思考" },
   tool_use: { bg: "rgba(232,160,60,0.12)", color: "#b8820a", label: "工具调用" },
   tool_result: { bg: "rgba(80,160,200,0.12)", color: "#1a7ab0", label: "工具结果" },
+  injected_memories: { bg: "rgba(80,180,120,0.12)", color: "#3a8a5f", label: "注入记忆" },
 };
 
 const MODES = [
@@ -54,14 +55,52 @@ function BlockChip({ block_type }) {
 
 /* ── Expandable block content ── */
 
-function BlockContent({ content }) {
+function BlockContent({ content, blockType }) {
   const [expanded, setExpanded] = useState(false);
+  const [translated, setTranslated] = useState(null);
+  const [showTranslated, setShowTranslated] = useState(false);
+  const [translating, setTranslating] = useState(false);
   const isLong = content.length > COLLAPSE_THRESHOLD;
+
+  const handleTranslate = async (e) => {
+    e.stopPropagation();
+    if (translated) {
+      setShowTranslated(!showTranslated);
+      return;
+    }
+    setTranslating(true);
+    try {
+      const data = await apiFetch("/api/cot/translate", {
+        method: "POST",
+        body: { text: content },
+      });
+      setTranslated(data.translated);
+      setShowTranslated(true);
+    } catch (err) {
+      console.error("Translation failed:", err);
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const displayContent = showTranslated && translated ? translated : content;
 
   return (
     <>
+      {blockType === "thinking" && (
+        <div className="mb-1 flex justify-end">
+          <button
+            className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={{ color: "#8860c8", background: "rgba(168,130,200,0.18)" }}
+            onClick={handleTranslate}
+            disabled={translating}
+          >
+            {translating ? "翻译中..." : showTranslated ? "原文" : "翻译"}
+          </button>
+        </div>
+      )}
       <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed" style={{ color: S.text }}>
-        {isLong && !expanded ? content.slice(0, COLLAPSE_THRESHOLD) + "..." : content}
+        {isLong && !expanded ? displayContent.slice(0, COLLAPSE_THRESHOLD) + "..." : displayContent}
       </p>
       {isLong && (
         <div className="mt-1.5 flex justify-center">
@@ -164,12 +203,39 @@ function pairToolBlocks(blocks) {
   return [...thinking, ...paired, ...other];
 }
 
+function InjectedMemoriesBlock({ memories }) {
+  const [open, setOpen] = useState(false);
+  if (!memories || memories.length === 0) return null;
+  const meta = BLOCK_COLORS.injected_memories;
+  return (
+    <div className="mb-2 rounded-[12px] p-3" style={{ background: meta.bg }}>
+      <button className="flex w-full items-center gap-2" onClick={() => setOpen(!open)}>
+        <BlockChip block_type="injected_memories" />
+        <span className="text-[10px] font-semibold" style={{ color: meta.color }}>
+          ({memories.length}条)
+        </span>
+        {open ? <ChevronUp size={12} style={{ color: meta.color }} /> : <ChevronDown size={12} style={{ color: meta.color }} />}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1">
+          {memories.map((m) => (
+            <p key={m.id} className="text-[11px] leading-relaxed" style={{ color: S.text }}>
+              <span style={{ color: meta.color, fontWeight: 600 }}>#{m.id}</span> {m.content}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
   // Filter out "text" and "usage" blocks, reorder for paired tool display
   const filteredRounds = item.rounds.map((round) => ({
     ...round,
     blocks: pairToolBlocks(round.blocks.filter((b) => b.block_type !== "text" && b.block_type !== "usage")),
   })).filter((round) => round.blocks.length > 0);
+  const hasContent = filteredRounds.length > 0 || (item.injectedMemories && item.injectedMemories.length > 0) || (live && item.textPreview);
 
   return (
     <div className="rounded-[18px] overflow-hidden" style={{ background: S.bg }}>
@@ -207,8 +273,11 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
         )}
       </button>
 
-      {expanded && filteredRounds.length > 0 && (
+      {expanded && hasContent && (
         <div className="px-4 pb-4">
+          {/* Injected memories */}
+          <InjectedMemoriesBlock memories={item.injectedMemories} />
+
           {filteredRounds.map((round) => (
             <div key={round.round_index} className="mb-3">
               {filteredRounds.length > 1 && (
@@ -232,12 +301,26 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
                         </span>
                       )}
                     </div>
-                    <BlockContent content={block.content} />
+                    <BlockContent content={block.content} blockType={block.block_type} />
                   </div>
                 );
               })}
             </div>
           ))}
+
+          {/* Text preview (live streaming reply) */}
+          {live && item.textPreview && (
+            <div className="rounded-[12px] p-3" style={{ background: "rgba(232,160,191,0.08)" }}>
+              <div className="mb-1">
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>
+                  回复
+                </span>
+              </div>
+              <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed" style={{ color: S.text }}>
+                {item.textPreview}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -330,71 +413,145 @@ export default function CotViewer() {
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
+          const { type, request_id } = msg;
 
-          if (msg.type === "done") {
-            setLiveRequestIds((prev) => {
-              const next = new Set(prev);
-              next.delete(msg.request_id);
-              return next;
-            });
-            // Update token counts and elapsed time from done message
-            if (msg.prompt_tokens || msg.completion_tokens || msg.elapsed_ms) {
-              setItems((prev) =>
-                prev.map((it) =>
-                  it.request_id === msg.request_id
-                    ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, elapsed_ms: msg.elapsed_ms || 0 }
-                    : it
-                )
-              );
-            }
-            return;
-          }
-
-          const { request_id, round_index, block_type, content, tool_name } = msg;
-
-          setItems((prev) => {
+          // Helper: ensure item exists, returns [newArray, itemIndex]
+          const ensureItem = (prev) => {
             const idx = prev.findIndex((it) => it.request_id === request_id);
-            if (idx >= 0) {
-              const item = { ...prev[idx] };
-              const rounds = [...item.rounds];
-              const ri = rounds.findIndex((r) => r.round_index === round_index);
-              if (ri >= 0) {
-                rounds[ri] = {
-                  ...rounds[ri],
-                  blocks: [...rounds[ri].blocks, { block_type, content, tool_name }],
-                };
-              } else {
-                rounds.push({ round_index, blocks: [{ block_type, content, tool_name }] });
-                rounds.sort((a, b) => a.round_index - b.round_index);
-              }
-              item.rounds = rounds;
-              if (block_type === "tool_use") item.has_tool_calls = true;
-              if (block_type === "text" && (!item.preview || item.preview === "思考中...")) item.preview = content.slice(0, 80);
-              const next = [...prev];
-              next[idx] = item;
-              return next;
-            }
-
-            // New request - insert at top (create card immediately on any block, including thinking)
+            if (idx >= 0) return [prev, idx];
             const now = new Date();
-            let preview = "";
-            if (block_type === "text") preview = content.slice(0, 80);
-            else if (block_type === "thinking") preview = "思考中...";
             const newItem = {
               request_id,
               created_at: now.toLocaleDateString("zh-CN", {
                 month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
               }),
-              preview,
-              has_tool_calls: block_type === "tool_use",
-              rounds: [{ round_index, blocks: [{ block_type, content, tool_name }] }],
+              preview: "思考中...",
+              has_tool_calls: false,
+              rounds: [],
+              injectedMemories: [],
+              textPreview: "",
             };
-            return [newItem, ...prev];
-          });
+            const next = [newItem, ...prev];
+            return [next, 0];
+          };
 
-          // Mark as live and auto-expand
-          setLiveRequestIds((prev) => new Set(prev).add(request_id));
-          setExpandedId(request_id);
+          // Helper: ensure round exists in rounds array
+          const ensureRound = (rounds, roundIndex) => {
+            const ri = rounds.findIndex((r) => r.round_index === roundIndex);
+            if (ri >= 0) return [rounds, ri];
+            const next = [...rounds, { round_index: roundIndex, blocks: [] }];
+            next.sort((a, b) => a.round_index - b.round_index);
+            return [next, next.findIndex((r) => r.round_index === roundIndex)];
+          };
+
+          if (type === "done") {
+            setLiveRequestIds((prev) => {
+              const next = new Set(prev);
+              next.delete(request_id);
+              return next;
+            });
+            setItems((prev) =>
+              prev.map((it) =>
+                it.request_id === request_id
+                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, elapsed_ms: msg.elapsed_ms || 0, textPreview: "" }
+                  : it
+              )
+            );
+            return;
+          }
+
+          if (type === "injected_memories") {
+            setItems((prev) => {
+              let [arr, idx] = ensureItem(prev);
+              arr = [...arr];
+              arr[idx] = { ...arr[idx], injectedMemories: msg.memories || [] };
+              return arr;
+            });
+            setLiveRequestIds((prev) => new Set(prev).add(request_id));
+            setExpandedId(request_id);
+            return;
+          }
+
+          if (type === "thinking_delta") {
+            setItems((prev) => {
+              let [arr, idx] = ensureItem(prev);
+              arr = [...arr];
+              const item = { ...arr[idx] };
+              let [rounds, ri] = ensureRound([...item.rounds], msg.round_index);
+              const round = { ...rounds[ri], blocks: [...rounds[ri].blocks] };
+              // Find last thinking block to append to
+              let ti = -1;
+              for (let i = round.blocks.length - 1; i >= 0; i--) {
+                if (round.blocks[i].block_type === "thinking") { ti = i; break; }
+              }
+              if (ti >= 0) {
+                round.blocks[ti] = { ...round.blocks[ti], content: round.blocks[ti].content + msg.content };
+              } else {
+                round.blocks.push({ block_type: "thinking", content: msg.content, tool_name: null });
+              }
+              rounds[ri] = round;
+              item.rounds = rounds;
+              arr[idx] = item;
+              return arr;
+            });
+            setLiveRequestIds((prev) => new Set(prev).add(request_id));
+            setExpandedId(request_id);
+            return;
+          }
+
+          if (type === "text_delta") {
+            setItems((prev) => {
+              let [arr, idx] = ensureItem(prev);
+              arr = [...arr];
+              const item = { ...arr[idx] };
+              item.textPreview = (item.textPreview || "") + msg.content;
+              if (!item.preview || item.preview === "思考中...") {
+                item.preview = item.textPreview.slice(0, 80);
+              }
+              arr[idx] = item;
+              return arr;
+            });
+            setLiveRequestIds((prev) => new Set(prev).add(request_id));
+            setExpandedId(request_id);
+            return;
+          }
+
+          if (type === "tool_use" || type === "tool_result") {
+            setItems((prev) => {
+              let [arr, idx] = ensureItem(prev);
+              arr = [...arr];
+              const item = { ...arr[idx] };
+              let [rounds, ri] = ensureRound([...item.rounds], msg.round_index);
+              rounds[ri] = { ...rounds[ri], blocks: [...rounds[ri].blocks, { block_type: type, content: msg.content, tool_name: msg.tool_name }] };
+              item.rounds = rounds;
+              if (type === "tool_use") item.has_tool_calls = true;
+              arr[idx] = item;
+              return arr;
+            });
+            setLiveRequestIds((prev) => new Set(prev).add(request_id));
+            setExpandedId(request_id);
+            return;
+          }
+
+          // Backward compat: complete block types (thinking, text) from non-streaming path
+          if (msg.block_type) {
+            const { round_index, block_type, content, tool_name } = msg;
+            setItems((prev) => {
+              let [arr, idx] = ensureItem(prev);
+              arr = [...arr];
+              const item = { ...arr[idx] };
+              let [rounds, ri] = ensureRound([...item.rounds], round_index);
+              rounds[ri] = { ...rounds[ri], blocks: [...rounds[ri].blocks, { block_type, content, tool_name }] };
+              item.rounds = rounds;
+              if (block_type === "tool_use") item.has_tool_calls = true;
+              if (block_type === "text" && (!item.preview || item.preview === "思考中...")) item.preview = content.slice(0, 80);
+              arr[idx] = item;
+              return arr;
+            });
+            setLiveRequestIds((prev) => new Set(prev).add(request_id));
+            setExpandedId(request_id);
+          }
+
         } catch { /* ignore malformed */ }
       };
 

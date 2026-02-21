@@ -1290,11 +1290,13 @@ class ChatService:
         core_blocks_text = core_blocks_service.get_blocks_for_prompt(assistant.id)
         if core_blocks_text:
             full_system_prompt += "\n\n" + core_blocks_text
+        self._last_recall_results = []
         if latest_user_message:
             recall_results = self.memory_service.fast_recall(
                 latest_user_message, limit=5, current_mood_tag=latest_mood_tag
             )
             if recall_results:
+                self._last_recall_results = recall_results
                 recall_text = "\n\n[以下是根据当前对话自动召回的相关记忆，通常不需要再调用 search_memory]\n"
                 for mem in recall_results:
                     source = mem.get("source", "unknown")
@@ -1483,6 +1485,13 @@ class ChatService:
                 return
             client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens = params
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
+            # Broadcast injected memories on first round
+            if round_index == 0 and getattr(self, "_last_recall_results", None):
+                cot_broadcaster.publish({
+                    "type": "injected_memories",
+                    "request_id": request_id,
+                    "memories": [{"id": m.get("id"), "content": m.get("content", "")} for m in self._last_recall_results],
+                })
             content_chunks: list[str] = []
             tool_calls_acc: dict[int, dict] = {}
             current_round = round_index
@@ -1517,12 +1526,24 @@ class ChatService:
                                 delta = event.delta
                                 if hasattr(delta, "thinking"):
                                     _thinking_buf.append(delta.thinking)
+                                    cot_broadcaster.publish({
+                                        "type": "thinking_delta",
+                                        "request_id": request_id,
+                                        "round_index": current_round,
+                                        "content": delta.thinking,
+                                    })
                                 elif hasattr(delta, "text"):
                                     content_chunks.append(delta.text)
                                     yield f'data: {json.dumps({"content": delta.text})}\n\n'
+                                    cot_broadcaster.publish({
+                                        "type": "text_delta",
+                                        "request_id": request_id,
+                                        "round_index": current_round,
+                                        "content": delta.text,
+                                    })
                             elif event.type == "content_block_stop":
                                 if _cur_block_type == "thinking" and _thinking_buf:
-                                    self._write_cot_block(request_id, current_round, "thinking", "".join(_thinking_buf))
+                                    self._write_cot_block(request_id, current_round, "thinking", "".join(_thinking_buf), broadcast=False)
                                     _thinking_buf = []
                                 _cur_block_type = None
                         final_msg = anth_stream.get_final_message()
@@ -1570,6 +1591,12 @@ class ChatService:
                         if getattr(delta, "content", None):
                             content_chunks.append(delta.content)
                             yield f'data: {json.dumps({"content": delta.content})}\n\n'
+                            cot_broadcaster.publish({
+                                "type": "text_delta",
+                                "request_id": request_id,
+                                "round_index": current_round,
+                                "content": delta.content,
+                            })
                         if getattr(delta, "tool_calls", None):
                             for tc_delta in delta.tool_calls:
                                 idx = tc_delta.index
@@ -1606,9 +1633,9 @@ class ChatService:
                         logger.error("Failed to parse tool call arguments for %s: %s", tc["name"], e)
                         parsed_tool_calls.append(ToolCall(name=tc["name"], arguments={}, id=tc["id"]))
                 full_content = "".join(content_chunks)
-                # Write text COT block for this round
+                # Write text COT block for this round (already streamed as deltas)
                 if full_content:
-                    self._write_cot_block(request_id, current_round, "text", full_content)
+                    self._write_cot_block(request_id, current_round, "text", full_content, broadcast=False)
                 messages.append({
                     "role": "assistant", "content": full_content,
                     "tool_calls": tool_calls_payload,
@@ -1662,9 +1689,9 @@ class ChatService:
                 logger.info("[stream] Tool calls done, making follow-up API call (session=%s)", session_id)
                 round_index += 1
                 continue
-            # Final text response
+            # Final text response (already streamed as deltas)
             full_content = "".join(content_chunks)
-            self._write_cot_block(request_id, current_round, "text", full_content)
+            self._write_cot_block(request_id, current_round, "text", full_content, broadcast=False)
             used_ids = re.findall(r'\[\[used:(\d+)\]\]', full_content)
             now_utc = datetime.now(timezone.utc)
             for memory_id in used_ids:
@@ -1997,6 +2024,7 @@ class ChatService:
         block_type: str,
         content: str,
         tool_name: str | None = None,
+        broadcast: bool = True,
     ) -> None:
         try:
             record = CotRecord(
@@ -2008,13 +2036,15 @@ class ChatService:
             )
             self.db.add(record)
             self.db.commit()
-            cot_broadcaster.publish({
-                "request_id": request_id,
-                "round_index": round_index,
-                "block_type": block_type,
-                "content": content,
-                "tool_name": tool_name,
-            })
+            if broadcast:
+                cot_broadcaster.publish({
+                    "type": block_type,
+                    "request_id": request_id,
+                    "round_index": round_index,
+                    "block_type": block_type,
+                    "content": content,
+                    "tool_name": tool_name,
+                })
         except Exception as exc:
             logger.warning("Failed to write COT block (request_id=%s): %s", request_id, exc)
             try:
