@@ -140,11 +140,35 @@ function TokenBadges({ prompt, completion, elapsedMs }) {
   );
 }
 
+function pairToolBlocks(blocks) {
+  // Reorder blocks: thinking first, then paired tool_use→tool_result
+  const thinking = [];
+  const toolUses = [];
+  const toolResults = [];
+  const other = [];
+  for (const b of blocks) {
+    if (b.block_type === "thinking") thinking.push(b);
+    else if (b.block_type === "tool_use") toolUses.push(b);
+    else if (b.block_type === "tool_result") toolResults.push(b);
+    else other.push(b);
+  }
+  const paired = [];
+  for (let i = 0; i < toolUses.length; i++) {
+    paired.push(toolUses[i]);
+    if (i < toolResults.length) paired.push(toolResults[i]);
+  }
+  // Remaining tool_results without matching tool_use
+  for (let i = toolUses.length; i < toolResults.length; i++) {
+    paired.push(toolResults[i]);
+  }
+  return [...thinking, ...paired, ...other];
+}
+
 function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
-  // Filter out "text" and "usage" blocks — only show thinking, tool_use, tool_result
+  // Filter out "text" and "usage" blocks, reorder for paired tool display
   const filteredRounds = item.rounds.map((round) => ({
     ...round,
-    blocks: round.blocks.filter((b) => b.block_type !== "text" && b.block_type !== "usage"),
+    blocks: pairToolBlocks(round.blocks.filter((b) => b.block_type !== "text" && b.block_type !== "usage")),
   })).filter((round) => round.blocks.length > 0);
 
   return (
@@ -345,20 +369,23 @@ export default function CotViewer() {
               }
               item.rounds = rounds;
               if (block_type === "tool_use") item.has_tool_calls = true;
-              if (block_type === "text" && !item.preview) item.preview = content.slice(0, 80);
+              if (block_type === "text" && (!item.preview || item.preview === "思考中...")) item.preview = content.slice(0, 80);
               const next = [...prev];
               next[idx] = item;
               return next;
             }
 
-            // New request - insert at top
+            // New request - insert at top (create card immediately on any block, including thinking)
             const now = new Date();
+            let preview = "";
+            if (block_type === "text") preview = content.slice(0, 80);
+            else if (block_type === "thinking") preview = "思考中...";
             const newItem = {
               request_id,
               created_at: now.toLocaleDateString("zh-CN", {
                 month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
               }),
-              preview: block_type === "text" ? content.slice(0, 80) : "",
+              preview,
               has_tool_calls: block_type === "tool_use",
               rounds: [{ round_index, blocks: [{ block_type, content, tool_name }] }],
             };

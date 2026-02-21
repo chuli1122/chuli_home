@@ -1073,6 +1073,12 @@ class ChatService:
                             "arguments": sanitized_args,
                         }
                     )
+                # Write tool_use COT block before execution (paired with tool_result)
+                self._write_cot_block(
+                    request_id, round_index, "tool_use",
+                    json.dumps(tool_call.arguments),
+                    tool_name=tool_name,
+                )
                 try:
                     self._persist_tool_call(session_id, tool_call)
                 except Exception as e:
@@ -1471,9 +1477,26 @@ class ChatService:
                     if preset_top_p is not None:
                         anth_kwargs["top_p"] = preset_top_p
                     with client.messages.stream(**anth_kwargs) as anth_stream:
-                        for text in anth_stream.text_stream:
-                            content_chunks.append(text)
-                            yield f'data: {json.dumps({"content": text})}\n\n'
+                        # Raw event iteration: send thinking blocks to COT in real-time
+                        _cur_block_type = None
+                        _thinking_buf: list[str] = []
+                        for event in anth_stream:
+                            if event.type == "content_block_start":
+                                _cur_block_type = getattr(event.content_block, "type", None)
+                                if _cur_block_type == "thinking":
+                                    _thinking_buf = []
+                            elif event.type == "content_block_delta":
+                                delta = event.delta
+                                if hasattr(delta, "thinking"):
+                                    _thinking_buf.append(delta.thinking)
+                                elif hasattr(delta, "text"):
+                                    content_chunks.append(delta.text)
+                                    yield f'data: {json.dumps({"content": delta.text})}\n\n'
+                            elif event.type == "content_block_stop":
+                                if _cur_block_type == "thinking" and _thinking_buf:
+                                    self._write_cot_block(request_id, current_round, "thinking", "".join(_thinking_buf))
+                                    _thinking_buf = []
+                                _cur_block_type = None
                         final_msg = anth_stream.get_final_message()
                     if hasattr(final_msg, "usage") and final_msg.usage:
                         total_prompt_tokens += getattr(final_msg.usage, "input_tokens", 0)
@@ -1484,13 +1507,6 @@ class ChatService:
                             "name": block.name,
                             "arguments": json.dumps(block.input),
                         }
-                    # Extract thinking blocks from Anthropic response
-                    thinking_parts = []
-                    for block in final_msg.content:
-                        if block.type == "thinking":
-                            thinking_parts.append(getattr(block, "thinking", ""))
-                    if thinking_parts:
-                        self._write_cot_block(request_id, current_round, "thinking", "".join(thinking_parts))
                 except Exception as e:
                     logger.error(f"Anthropic streaming error: {e}")
                     yield f'data: {json.dumps({"error": str(e)})}\n\n'
@@ -1562,15 +1578,9 @@ class ChatService:
                         logger.error("Failed to parse tool call arguments for %s: %s", tc["name"], e)
                         parsed_tool_calls.append(ToolCall(name=tc["name"], arguments={}, id=tc["id"]))
                 full_content = "".join(content_chunks)
-                # Write COT blocks for this round
+                # Write text COT block for this round
                 if full_content:
                     self._write_cot_block(request_id, current_round, "text", full_content)
-                for tc in parsed_tool_calls:
-                    self._write_cot_block(
-                        request_id, current_round, "tool_use",
-                        tc.arguments if isinstance(tc.arguments, str) else json.dumps(tc.arguments),
-                        tool_name=tc.name,
-                    )
                 messages.append({
                     "role": "assistant", "content": full_content,
                     "tool_calls": tool_calls_payload,
@@ -1583,7 +1593,13 @@ class ChatService:
                         self.db.rollback()
                     except Exception:
                         pass
+                # Execute tools: write tool_use then tool_result COT blocks in pairs
                 for tc in parsed_tool_calls:
+                    self._write_cot_block(
+                        request_id, current_round, "tool_use",
+                        tc.arguments if isinstance(tc.arguments, str) else json.dumps(tc.arguments),
+                        tool_name=tc.name,
+                    )
                     try:
                         self._persist_tool_call(session_id, tc)
                     except Exception as e:
@@ -1789,17 +1805,12 @@ class ChatService:
                         "function": {"name": block.name, "arguments": json.dumps(block.input)},
                     })
                     tool_calls.append(ToolCall(name=block.name, arguments=block.input, id=block.id))
-            # Write COT blocks
+            # Write COT blocks (thinking + text only; tool_use written later in execution loop)
             if request_id:
                 if thinking_content:
                     self._write_cot_block(request_id, round_index, "thinking", thinking_content)
                 if text_content:
                     self._write_cot_block(request_id, round_index, "text", text_content)
-                for tc in tool_calls:
-                    self._write_cot_block(
-                        request_id, round_index, "tool_use",
-                        json.dumps(tc.arguments), tool_name=tc.name,
-                    )
             if tool_calls:
                 messages.append({"role": "assistant", "content": text_content, "tool_calls": tool_calls_payload})
                 self._persist_message(session_id, "assistant", text_content, {"tool_calls": tool_calls_payload}, request_id=request_id)
@@ -1850,15 +1861,10 @@ class ChatService:
                     arguments=json.loads(tool_call.function.arguments or "{}"),
                     id=tool_call.id,
                 ))
-            # Write COT blocks
+            # Write COT blocks (text only; tool_use written later in execution loop)
             if request_id:
                 if choice.content:
                     self._write_cot_block(request_id, round_index, "text", choice.content)
-                for tc in tool_calls:
-                    self._write_cot_block(
-                        request_id, round_index, "tool_use",
-                        json.dumps(tc.arguments), tool_name=tc.name,
-                    )
             messages.append({"role": "assistant", "content": choice.content or "", "tool_calls": tool_calls_payload})
             self._persist_message(session_id, "assistant", choice.content or "", {"tool_calls": tool_calls_payload}, request_id=request_id)
             return tool_calls
