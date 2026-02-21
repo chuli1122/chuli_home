@@ -81,9 +81,10 @@ function BlockContent({ content }) {
 
 /* ── Thinking block with translate ── */
 
-function ThinkingBlock({ block }) {
-  const [translated, setTranslated] = useState(null);
-  const [showTranslated, setShowTranslated] = useState(false);
+function ThinkingBlock({ block, cacheKey, translateCache }) {
+  const cached = translateCache.current.get(cacheKey);
+  const [translated, setTranslated] = useState(cached || null);
+  const [showTranslated, setShowTranslated] = useState(!!cached);
   const [translating, setTranslating] = useState(false);
   const meta = BLOCK_COLORS.thinking;
 
@@ -95,6 +96,7 @@ function ThinkingBlock({ block }) {
       const data = await apiFetch("/api/cot/translate", { method: "POST", body: { text: block.content } });
       setTranslated(data.translated);
       setShowTranslated(true);
+      translateCache.current.set(cacheKey, data.translated);
     } catch (err) { console.error("Translation failed:", err); }
     finally { setTranslating(false); }
   };
@@ -230,7 +232,7 @@ function InjectedMemoriesBlock({ memories }) {
   );
 }
 
-function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
+function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) {
   // Filter out "text" and "usage" blocks, reorder for paired tool display
   const filteredRounds = item.rounds.map((round) => ({
     ...round,
@@ -292,7 +294,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl }) {
               )}
               {round.blocks.map((block, i) => {
                 if (block.block_type === "thinking") {
-                  return <ThinkingBlock key={i} block={block} />;
+                  return <ThinkingBlock key={i} block={block} cacheKey={`${item.request_id}:${round.round_index}:${i}`} translateCache={translateCache} />;
                 }
                 const meta = BLOCK_COLORS[block.block_type] || { bg: "rgba(136,136,160,0.08)", color: S.textMuted, label: block.block_type };
                 return (
@@ -346,6 +348,7 @@ export default function CotViewer() {
   const [error, setError] = useState(null);
   const [avatarUrl, setAvatarUrl] = useState(null);
   const wsRef = useRef(null);
+  const translateCacheRef = useRef(new Map());
   const [mood, setMood] = useState(null);
   const [moodOpen, setMoodOpen] = useState(false);
   const moodRef = useRef(null);
@@ -750,6 +753,7 @@ export default function CotViewer() {
                 }
                 live={liveRequestIds.has(item.request_id)}
                 avatarUrl={avatarUrl}
+                translateCache={translateCacheRef}
               />
             </div>
           ))
