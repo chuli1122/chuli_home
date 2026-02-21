@@ -254,10 +254,11 @@ tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方�
                     db.add(Settings(key="mood_manual", value="false"))
 
             if msg_ids:
-                db.query(Message).filter(Message.id.in_(msg_ids)).update(
+                updated = db.query(Message).filter(Message.id.in_(msg_ids)).update(
                     {Message.summary_group_id: summary.id},
                     synchronize_session=False,
                 )
+                logger.info("Marked %d/%d messages with summary_group_id=%s", updated, len(msg_ids), summary.id)
 
             memory_candidates = parsed_payload.get("memories", [])
             if not isinstance(memory_candidates, list):

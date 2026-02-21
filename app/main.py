@@ -64,6 +64,19 @@ def _run_migrations(eng) -> None:
             with eng.begin() as conn:
                 conn.execute(text("ALTER TABLE messages ADD COLUMN summary_group_id INTEGER"))
             logger.info("Added summary_group_id column to messages")
+        # Backfill summary_group_id from existing session_summaries
+        if "session_summaries" in insp.get_table_names():
+            with eng.begin() as conn:
+                result = conn.execute(text(
+                    "UPDATE messages m SET summary_group_id = s.id "
+                    "FROM session_summaries s "
+                    "WHERE m.session_id = s.session_id "
+                    "AND m.id BETWEEN s.msg_id_start AND s.msg_id_end "
+                    "AND m.summary_group_id IS NULL "
+                    "AND s.deleted_at IS NULL"
+                ))
+                if result.rowcount:
+                    logger.info("Backfilled summary_group_id for %d messages", result.rowcount)
         if "telegram_message_id" not in cols:
             with eng.begin() as conn:
                 conn.execute(text("ALTER TABLE messages ADD COLUMN telegram_message_id JSONB"))

@@ -69,8 +69,6 @@ class SessionMessageItem(BaseModel):
 class SessionMessagesResponse(BaseModel):
     messages: list[SessionMessageItem]
     has_more: bool
-    total_count: int = 0
-    summarized_count: int = 0
 
 
 class SessionSummaryItem(BaseModel):
@@ -231,28 +229,7 @@ def get_session_messages(
         for row in rows
     ]
 
-    # Counts for the entire session (ignoring pagination / search filters)
-    base_q = db.query(Message).filter(
-        Message.session_id == session_id,
-        Message.role.in_(["user", "assistant", "system"]),
-        func.length(func.trim(Message.content)) > 0,
-        or_(
-            Message.role != "assistant",
-            and_(
-                ~Message.meta_info.has_key("tool_calls"),
-                ~Message.meta_info.has_key("tool_call"),
-            ),
-        ),
-    )
-    total_count = base_q.count()
-    summarized_count = base_q.filter(Message.summary_group_id.isnot(None)).count()
-
-    return SessionMessagesResponse(
-        messages=items,
-        has_more=has_more,
-        total_count=total_count,
-        summarized_count=summarized_count,
-    )
+    return SessionMessagesResponse(messages=items, has_more=has_more)
 
 
 @router.get("/sessions/{session_id}/summaries", response_model=SessionSummariesResponse)

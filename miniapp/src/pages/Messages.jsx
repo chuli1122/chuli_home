@@ -145,8 +145,6 @@ export default function Messages() {
   const [sessionId, setSessionId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
-  const [totalCount, setTotalCount] = useState(0);
-  const [summarizedCount, setSummarizedCount] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -160,8 +158,6 @@ export default function Messages() {
       const msgData = await apiFetch(`/api/sessions/${sess.id}/messages?limit=50`);
       setMessages((msgData.messages || []).reverse());
       setHasMore(msgData.has_more || false);
-      setTotalCount(msgData.total_count || 0);
-      setSummarizedCount(msgData.summarized_count || 0);
     } catch (e) {
       console.error(e);
     }
@@ -243,15 +239,8 @@ export default function Messages() {
       </div>
 
       {/* Hint */}
-      <div className="shrink-0 px-5 pb-2 flex items-center justify-between">
+      <div className="shrink-0 px-5 pb-2">
         <p className="text-[11px]" style={{ color: S.textMuted }}>左滑消息可删除</p>
-        {totalCount > 0 && (
-          <p className="text-[11px]" style={{ color: summarizedCount > 0 ? "#3a8a5f" : S.textMuted }}>
-            {summarizedCount > 0
-              ? `${summarizedCount}/${totalCount} 条已摘要`
-              : `共 ${totalCount} 条`}
-          </p>
-        )}
       </div>
 
       {/* Message list */}
