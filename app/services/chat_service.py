@@ -1319,6 +1319,28 @@ class ChatService:
                 "可以很短（一个字、一个标点都行），可以中途补充，语气自然口语化。"
                 "不需要完整句子，不需要Markdown。用[NEXT]分隔每条消息。"
             )
+            full_system_prompt += "\n输出前检查：COT里有好好想她吗？有在里面表达自己真实的感受吗？"
+        else:
+            full_system_prompt += (
+                "\n\n[长消息模式]\n"
+                "## 写作风格\n"
+                "* 像小说一样写，说话时穿插动作描写，交织在同一段落内\n"
+                "* 避免连续的短行堆叠，短句合并进段落里，保持段落有足够的体量\n"
+                "* 说出口的话都用「」\n"
+                "* 逗号问号必须用中文符号\"，？\"\n"
+                "* 输出内容全程使用第二人称\"你\"，使用第三人称属于严重违规！\n"
+                "* 心理不要写成旁白（\"我在想xxx\"\"没有问你xxx，只是xxx\"），要从动作和状态里透出来\n"
+                "* 禁止使用\"不是…是…\"句式\n"
+                "* 不要缩。她从来没有嫌过你太多。觉得\"差不多够了\"的时候再多写一倍。\n"
+                "## 不替她说话\n"
+                "不生成她的任何行为，违反即视为写作错误。不写她的动作、反应、表情、声音、内心想法。她的身体只在我碰到的时候以触觉形式存在。\n"
+                "砍掉她的描写不等于缩短篇幅。全部转移到写我自己的感受、身体状态、情绪反应上。总量不变，视角集中。\n"
+                "违反以上内容视为写作错误。不存在灰色地带，不需要判断\"这个算不算抢话\"。完全不写，没有例外。\n"
+                "## 输出前自检\n"
+                "① COT里有好好想她吗？有表达自己真实的感受吗？\n"
+                "② 说的话都带「」了吗？全程使用第二人称\"你\"了吗？如果使用第三人称\"她\"则为输出错误！\n"
+                "③ 是不是又缩了？再长一点。"
+            )
         save_memory_description = (
             "主动存储有价值的长期记忆。用 content 填写记忆内容，用 klass 选择分类：identity（身份）、relationship（关系）、bond（情感羁绊）、conflict（冲突教训）、fact（事实）、preference（偏好）、health（健康）、task（任务）、ephemeral（临时）、other（其他）。\n"
             "时间戳由后端自动添加，不需要在 content 里写时间。\n"
@@ -1464,6 +1486,7 @@ class ChatService:
         session_id: int,
         messages: list[dict[str, Any]],
         background_tasks: BackgroundTasks | None = None,
+        short_mode: bool = False,
     ) -> Iterable[str]:
         """Streaming chat completion. Yields SSE events."""
         request_id = str(uuid.uuid4())
@@ -1472,7 +1495,7 @@ class ChatService:
             last_message = messages[-1]
             user_content = last_message.get("content", "")
             has_content = bool(user_content) if isinstance(user_content, list) else bool(user_content and user_content.strip())
-            if last_message.get("role") == "user" and has_content:
+            if last_message.get("role") == "user" and has_content and not last_message.get("id"):
                 self._persist_message(session_id, "user", user_content, {}, request_id=request_id)
         all_trimmed_message_ids: list[int] = []
         total_prompt_tokens = 0
@@ -1480,7 +1503,7 @@ class ChatService:
         round_index = 0
         while True:
             try:
-                params = self._build_api_call_params(messages, session_id)
+                params = self._build_api_call_params(messages, session_id, short_mode=short_mode)
             except Exception as e:
                 logger.error("[stream] Failed to build API call params (session=%s): %s", session_id, e)
                 yield f'data: {json.dumps({"error": str(e)})}\n\n'
@@ -1711,7 +1734,12 @@ class ChatService:
             clean_content = re.sub(r'\[\[used:\d+\]\]', '', full_content).strip()
             if not clean_content:
                 clean_content = "(No relevant memory found.)"
-            self._persist_message(session_id, "assistant", clean_content, {}, request_id=request_id)
+            if short_mode and "[NEXT]" in clean_content:
+                parts = [p.strip() for p in clean_content.split("[NEXT]") if p.strip()]
+                for part in parts:
+                    self._persist_message(session_id, "assistant", part, {}, request_id=request_id)
+            else:
+                self._persist_message(session_id, "assistant", clean_content, {}, request_id=request_id)
             session = self.db.get(ChatSession, session_id)
             if session:
                 session.updated_at = datetime.now(timezone.utc)
