@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -216,7 +217,8 @@ async def chat_completions(
             )
         return StreamingResponse(generate(), media_type="text/event-stream")
 
-    # Non-streaming path — still uses streaming internally for COT broadcasts
+    # Non-streaming path — run in threadpool so event loop stays free for
+    # WebSocket COT broadcasts (call_soon_threadsafe needs a non-blocked loop)
     max_msg = (
         db.query(MessageModel.id)
         .filter(MessageModel.session_id == payload.session_id)
@@ -225,12 +227,15 @@ async def chat_completions(
     )
     max_id_before = max_msg[0] if max_msg else 0
 
-    for _ in chat_service.stream_chat_completion(
-        payload.session_id, messages,
-        background_tasks=background_tasks,
-        short_mode=payload.short_mode,
-    ):
-        pass
+    def _consume():
+        for _ in chat_service.stream_chat_completion(
+            payload.session_id, messages,
+            background_tasks=background_tasks,
+            short_mode=payload.short_mode,
+        ):
+            pass
+
+    await asyncio.to_thread(_consume)
 
     new_msgs = (
         db.query(MessageModel)

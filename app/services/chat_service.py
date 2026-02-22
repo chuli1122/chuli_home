@@ -1515,13 +1515,19 @@ class ChatService:
                 return
             client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens = params
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
-            # Broadcast injected memories on first round
+            # Broadcast + persist injected memories on first round
             if round_index == 0 and getattr(self, "_last_recall_results", None):
+                memories_list = [{"id": m.get("id"), "content": m.get("content", "")} for m in self._last_recall_results]
                 cot_broadcaster.publish({
                     "type": "injected_memories",
                     "request_id": request_id,
-                    "memories": [{"id": m.get("id"), "content": m.get("content", "")} for m in self._last_recall_results],
+                    "memories": memories_list,
                 })
+                self._write_cot_block(
+                    request_id, 0, "injected_memories",
+                    json.dumps(memories_list, ensure_ascii=False),
+                    broadcast=False,
+                )
             content_chunks: list[str] = []
             tool_calls_acc: dict[int, dict] = {}
             current_round = round_index

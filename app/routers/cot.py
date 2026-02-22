@@ -32,6 +32,11 @@ class CotRound(BaseModel):
     blocks: list[CotBlock]
 
 
+class CotMemory(BaseModel):
+    id: int | str
+    content: str
+
+
 class CotItem(BaseModel):
     request_id: str
     created_at: str | None
@@ -41,6 +46,7 @@ class CotItem(BaseModel):
     completion_tokens: int = 0
     elapsed_ms: int = 0
     rounds: list[CotRound]
+    injectedMemories: list[CotMemory] = []
 
 
 def _ensure_table(db: Session) -> bool:
@@ -157,6 +163,7 @@ def list_cot(
             prompt_tokens = 0
             completion_tokens = 0
             elapsed_ms = 0
+            injected_memories: list[CotMemory] = []
 
             for round_idx in sorted(rounds_map.keys()):
                 blocks: list[CotBlock] = []
@@ -168,6 +175,14 @@ def list_cot(
                             prompt_tokens = usage.get("prompt_tokens", 0)
                             completion_tokens = usage.get("completion_tokens", 0)
                             elapsed_ms = usage.get("elapsed_ms", 0)
+                        except Exception:
+                            pass
+                        continue
+                    if rec.block_type == "injected_memories":
+                        try:
+                            import json as _json
+                            mems = _json.loads(rec.content or "[]")
+                            injected_memories = [CotMemory(id=m.get("id", 0), content=m.get("content", "")) for m in mems]
                         except Exception:
                             pass
                         continue
@@ -195,6 +210,7 @@ def list_cot(
                     completion_tokens=completion_tokens,
                     elapsed_ms=elapsed_ms,
                     rounds=rounds,
+                    injectedMemories=injected_memories,
                 )
             )
 
