@@ -600,7 +600,13 @@ export default function CotViewer() {
     };
   }, [wsToken]);
 
+  const modeInitRef = useRef(true);
   useEffect(() => {
+    // Skip the initial mount — only sync when user actually clicks a mode button
+    if (modeInitRef.current) {
+      modeInitRef.current = false;
+      return;
+    }
     localStorage.setItem("chat_mode", mode);
     const saved = JSON.parse(localStorage.getItem("app-settings") || "{}");
     localStorage.setItem("app-settings", JSON.stringify({

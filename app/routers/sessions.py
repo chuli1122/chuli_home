@@ -592,6 +592,10 @@ def delete_summary(
     if not row:
         raise HTTPException(status_code=404, detail="Summary not found")
     row.deleted_at = datetime.now(timezone.utc)
+    # Clear summary_group_id so messages can be re-summarized
+    db.query(Message).filter(Message.summary_group_id == summary_id).update(
+        {Message.summary_group_id: None}, synchronize_session=False,
+    )
     db.commit()
     return SummaryDeleteResponse(status="deleted", id=summary_id)
 
@@ -612,6 +616,14 @@ def restore_summary(
     if row.deleted_at is None:
         raise HTTPException(status_code=400, detail="Summary is not deleted")
     row.deleted_at = None
+    # Re-mark messages with this summary_group_id
+    if row.msg_id_start and row.msg_id_end:
+        db.query(Message).filter(
+            Message.session_id == session_id,
+            Message.id >= row.msg_id_start,
+            Message.id <= row.msg_id_end,
+            Message.summary_group_id.is_(None),
+        ).update({Message.summary_group_id: summary_id}, synchronize_session=False)
     db.commit()
     return SummaryDeleteResponse(status="restored", id=summary_id)
 
