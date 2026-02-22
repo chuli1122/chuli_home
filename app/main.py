@@ -9,7 +9,7 @@ import os
 logging.basicConfig(level=logging.INFO)
 
 import jwt
-from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect, Query as WSQuery
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.routers import (
@@ -195,18 +195,30 @@ app.include_router(telegram_router, tags=["telegram"])
 
 # ── WebSocket: real-time COT push ──
 @app.websocket("/ws/cot")
-async def ws_cot(ws: WebSocket, token: str = WSQuery(...)):
+async def ws_cot(ws: WebSocket):
+    # Accept first so the 101 upgrade always happens (avoids proxy issues)
+    await ws.accept()
+    logger.info("[WS COT] Connection accepted from %s", ws.client)
+
+    # Validate token (parsed manually to avoid DI issues with WebSocket)
+    token = ws.query_params.get("token", "")
     secret = os.getenv("WHISPER_SECRET") or os.getenv("WHISPER_PASSWORD")
     if not secret:
+        logger.warning("[WS COT] No auth secret configured, closing")
         await ws.close(code=4001, reason="Auth not configured")
+        return
+    if not token:
+        logger.warning("[WS COT] No token provided, closing")
+        await ws.close(code=4002, reason="Missing token")
         return
     try:
         jwt.decode(token, secret, algorithms=["HS256"])
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        logger.warning("[WS COT] Invalid token: %s", e)
         await ws.close(code=4003, reason="Invalid token")
         return
 
-    await ws.accept()
+    logger.info("[WS COT] Authenticated, registering client")
     cot_broadcaster.connect(ws)
     try:
         while True:
