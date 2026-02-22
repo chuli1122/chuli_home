@@ -343,18 +343,17 @@ class MemoryService:
             )
             pgroonga_rows = self.db.execute(pgroonga_sql, pgroonga_params).all()
 
-        # Merge by memory id, deduplicate, truncate content for model context
+        # Merge by memory id, deduplicate
         results = []
         seen_ids = set()
         for row in vector_rows:
             if row.id in seen_ids:
                 continue
             seen_ids.add(row.id)
-            c = row.content or ""
             results.append(
                 {
                     "id": row.id,
-                    "content": c[:100] + "..." if len(c) > 100 else c,
+                    "content": row.content or "",
                     "tags": row.tags,
                     "klass": row.klass,
                     "created_at": self._format_time_east8(row.created_at),
@@ -365,11 +364,10 @@ class MemoryService:
             if row.id in seen_ids:
                 continue
             seen_ids.add(row.id)
-            c = row.content or ""
             results.append(
                 {
                     "id": row.id,
-                    "content": c[:100] + "..." if len(c) > 100 else c,
+                    "content": row.content or "",
                     "tags": row.tags,
                     "klass": row.klass,
                     "created_at": self._format_time_east8(row.created_at),
