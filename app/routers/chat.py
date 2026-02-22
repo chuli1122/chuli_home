@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.models import Assistant, ChatSession, Message as MessageModel
-from app.services.chat_service import ChatService, ToolCall
+from app.services.chat_service import ChatService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -216,10 +216,34 @@ async def chat_completions(
             )
         return StreamingResponse(generate(), media_type="text/event-stream")
 
-    # Non-streaming path
-    tool_calls = [ToolCall(name=call.name, arguments=call.arguments) for call in payload.tool_calls]
-    result_messages = chat_service.chat_completion(
-        payload.session_id, messages, tool_calls, background_tasks=background_tasks,
-        short_mode=payload.short_mode,
+    # Non-streaming path — still uses streaming internally for COT broadcasts
+    max_msg = (
+        db.query(MessageModel.id)
+        .filter(MessageModel.session_id == payload.session_id)
+        .order_by(MessageModel.id.desc())
+        .first()
     )
-    return ChatCompletionResponse(messages=result_messages)
+    max_id_before = max_msg[0] if max_msg else 0
+
+    for _ in chat_service.stream_chat_completion(
+        payload.session_id, messages,
+        background_tasks=background_tasks,
+        short_mode=payload.short_mode,
+    ):
+        pass
+
+    new_msgs = (
+        db.query(MessageModel)
+        .filter(
+            MessageModel.session_id == payload.session_id,
+            MessageModel.id > max_id_before,
+            MessageModel.role == "assistant",
+            MessageModel.content.isnot(None),
+            MessageModel.content != "",
+        )
+        .order_by(MessageModel.id.asc())
+        .all()
+    )
+    return ChatCompletionResponse(
+        messages=[{"role": "assistant", "content": m.content} for m in new_msgs]
+    )

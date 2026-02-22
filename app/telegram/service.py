@@ -124,14 +124,12 @@ def _chat_completion_sync(
         chat_service = ChatService(db, assistant_name)
         messages = _load_session_messages(db, session_id)
 
-        # 3. Call chat_completion — it skips persisting user msgs that have 'id'
-        result = chat_service.chat_completion(
-            session_id,
-            messages,
-            tool_calls=[],
-            background_tasks=None,
-            short_mode=short_mode,
-        )
+        # 3. Call stream_chat_completion — consume all SSE events to drive it
+        #    This gives us COT broadcasts, tool execution, and message persistence
+        for _ in chat_service.stream_chat_completion(
+            session_id, messages, short_mode=short_mode,
+        ):
+            pass
 
         # 4. Find NEW assistant messages created during this call
         new_assistant_msgs = (
@@ -147,13 +145,10 @@ def _chat_completion_sync(
         )
 
         # 5. Build result with db_ids
-        new_results = [m for m in result if m.get("role") == "assistant" and "id" not in m]
-        # Match results to DB messages (best effort, by order)
-        for i, msg in enumerate(new_results):
-            if i < len(new_assistant_msgs):
-                msg["db_id"] = new_assistant_msgs[i].id
-
-        return new_results
+        return [
+            {"role": "assistant", "content": m.content, "db_id": m.id}
+            for m in new_assistant_msgs
+        ]
     finally:
         db.close()
 
