@@ -353,6 +353,8 @@ export default function CotViewer() {
   const [moodOpen, setMoodOpen] = useState(false);
   const moodRef = useRef(null);
 
+  const [wsToken, setWsToken] = useState(() => localStorage.getItem("whisper_token"));
+
   const load = () => {
     setLoading(true);
     setError(null);
@@ -364,7 +366,12 @@ export default function CotViewer() {
         console.error("COT load error:", err);
         setError(err.message || "加载失败");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        // Ensure WebSocket token is available after first API call (ensureToken sets it)
+        const t = localStorage.getItem("whisper_token");
+        if (t && t !== wsToken) setWsToken(t);
+      });
   };
 
   useEffect(() => { load(); }, []);
@@ -400,11 +407,14 @@ export default function CotViewer() {
 
   // WebSocket connection for real-time COT push
   useEffect(() => {
-    const token = localStorage.getItem("whisper_token");
-    if (!token) return;
+    if (!wsToken) {
+      console.log("[COT WS] No token yet, waiting...");
+      return;
+    }
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${proto}//${location.host}/ws/cot?token=${encodeURIComponent(token)}`;
+    const wsUrl = `${proto}//${location.host}/ws/cot?token=${encodeURIComponent(wsToken)}`;
+    console.log("[COT WS] Connecting to", wsUrl);
 
     let ws;
     let reconnectTimer;
@@ -415,7 +425,10 @@ export default function CotViewer() {
       ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
-      ws.onopen = () => setWsConnected(true);
+      ws.onopen = () => {
+        console.log("[COT WS] Connected");
+        setWsConnected(true);
+      };
 
       ws.onmessage = (evt) => {
         try {
@@ -562,13 +575,17 @@ export default function CotViewer() {
         } catch { /* ignore malformed */ }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (e) => {
+        console.log("[COT WS] Disconnected, code:", e.code, "reason:", e.reason);
         setWsConnected(false);
         wsRef.current = null;
         if (!closed) reconnectTimer = setTimeout(connect, 3000);
       };
 
-      ws.onerror = () => ws.close();
+      ws.onerror = (e) => {
+        console.error("[COT WS] Error:", e);
+        ws.close();
+      };
     };
 
     connect();
@@ -581,7 +598,7 @@ export default function CotViewer() {
         wsRef.current.close();
       }
     };
-  }, []);
+  }, [wsToken]);
 
   useEffect(() => {
     localStorage.setItem("chat_mode", mode);
