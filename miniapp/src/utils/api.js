@@ -1,22 +1,28 @@
 const API_BASE = "";
 
 async function ensureToken() {
-  let token = localStorage.getItem("whisper_token");
-  if (!token) {
-    const res = await fetch(`${API_BASE}/api/auth/verify`, {
+  const token = localStorage.getItem("whisper_token");
+  if (token) return token;
+
+  // Try Telegram initData auto-auth
+  const initData = window.Telegram?.WebApp?.initData;
+  if (initData) {
+    const res = await fetch(`${API_BASE}/api/auth/telegram`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: "chuli2026" }),
+      body: JSON.stringify({ init_data: initData }),
     });
     const data = await res.json();
     if (data.success && data.token) {
-      token = data.token;
-      localStorage.setItem("whisper_token", token);
-    } else {
-      throw new Error("认证失败");
+      localStorage.setItem("whisper_token", data.token);
+      return data.token;
     }
   }
-  return token;
+
+  // No token and no Telegram context — caller must handle login
+  const err = new Error("need_login");
+  err.code = "NEED_LOGIN";
+  throw err;
 }
 
 export async function apiFetch(path, options = {}) {
@@ -49,4 +55,18 @@ export async function apiFetch(path, options = {}) {
     throw new Error(error.detail || `请求失败 (${res.status})`);
   }
   return res.json();
+}
+
+export async function loginWithPassword(password) {
+  const res = await fetch(`${API_BASE}/api/auth/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const data = await res.json();
+  if (data.success && data.token) {
+    localStorage.setItem("whisper_token", data.token);
+    return true;
+  }
+  throw new Error(data.detail || "密码错误");
 }
