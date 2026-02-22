@@ -1,6 +1,6 @@
 python-dotenv
 fastapi
-uvicorn
+uvicorn[standard]
 sqlalchemy
 psycopg2-binary
 pgvector
@@ -10,3 +10,4 @@ httpx
 requests
 PyJWT
 aiogram
+python-multipart
