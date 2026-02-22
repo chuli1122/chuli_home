@@ -1249,6 +1249,13 @@ class ChatService:
             selected_summaries_desc.append(summary)
             used_summary_tokens += summary_tokens
         prompt_parts: list[str] = []
+        # Current date in Beijing time
+        _weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+        _now_bj = datetime.now(TZ_EAST8)
+        prompt_parts.append(
+            f"当前日期：{_now_bj.year}年{_now_bj.month}月{_now_bj.day}日 "
+            f"{_weekdays[_now_bj.weekday()]}"
+        )
         if selected_summaries_desc:
             summary_text = "[历史对话摘要]\n"
             for s in reversed(selected_summaries_desc):
