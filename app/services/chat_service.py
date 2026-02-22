@@ -163,17 +163,31 @@ class MemoryService:
         return {"status": "deleted", "id": memory_id}
 
     def write_diary(self, payload: dict[str, Any]) -> dict[str, Any]:
+        unlock_at = None
+        raw_unlock = payload.get("unlock_at")
+        if raw_unlock:
+            try:
+                unlock_at = datetime.fromisoformat(raw_unlock)
+                if unlock_at.tzinfo is None:
+                    unlock_at = unlock_at.replace(tzinfo=timezone(timedelta(hours=8)))
+                unlock_at = unlock_at.astimezone(timezone.utc)
+            except (ValueError, TypeError):
+                unlock_at = None
         diary = Diary(
             assistant_id=payload.get("assistant_id"),
             author="assistant",
             title=payload.get("title", ""),
             content=payload.get("content", ""),
             is_read=False,
+            unlock_at=unlock_at,
         )
         self.db.add(diary)
         self.db.commit()
         self.db.refresh(diary)
-        return {"id": diary.id, "title": diary.title}
+        result: dict[str, Any] = {"id": diary.id, "title": diary.title}
+        if unlock_at:
+            result["unlock_at"] = self._format_time_east8(unlock_at)
+        return result
 
     def read_diary(self, payload: dict[str, Any]) -> dict[str, Any]:
         diary_id = payload.get("diary_id")
@@ -1382,7 +1396,7 @@ class ChatService:
             },
             {"type": "function", "function": {"name": "update_memory", "description": "更新一条已有记忆的内容。传入记忆 ID 和新内容。只能更新自己创建的或 auto_extract 来源的记忆。时间戳由后端自动添加，不需要在content里写时间。", "parameters": {"type": "object", "properties": {"id": {"type": "integer", "description": "要更新的记忆ID"}, "content": {"type": "string", "description": "新的记忆内容，不传则只更新tags"}, "tags": {"type": "object", "description": "搜索用主题标签，格式: {\"topic\": [\"关键词1\", \"关键词2\"]}"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "delete_memory", "description": "软删除一条记忆。传入记忆 ID。只能删除自己创建的或 auto_extract 来源的记忆。30天后自动永久清理。", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
-            {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本，也可以写给她看的信。", "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "日记标题"}, "content": {"type": "string", "description": "日记正文"}}, "required": ["title", "content"]}}},
+            {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本，也可以写给她看的信。可以设置定时解锁，让她在指定时间后才能看到。", "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "日记标题"}, "content": {"type": "string", "description": "日记正文"}, "unlock_at": {"type": "string", "description": "定时解锁时间，ISO格式如 2025-03-01T09:00:00+08:00。不传则立即可见。设置后她在解锁前只能看到标题，无法阅读内容。"}}, "required": ["title", "content"]}}},
             {"type": "function", "function": {"name": "list_memories", "description": "按时间范围或分类列出已存的记忆，不做搜索。用于回顾已存记忆、避免重复存储。", "parameters": {"type": "object", "properties": {"start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20 或 2025-02-20T14:00:00+08:00"}, "end_time": {"type": "string", "description": "结束时间，同上格式。不传则不限结束时间"}, "klass": {"type": "string", "description": "分类筛选: identity/relationship/bond/conflict/fact/preference/health/task/ephemeral/other"}, "limit": {"type": "integer", "description": "返回条数，默认10，最大20。一般只在需要回顾已存记忆、避免重复存储时使用，不要一次拉太多，够用就不要加大limit"}}}}},
             {"type": "function", "function": {"name": "search_memory", "description": "搜索记忆卡片。从长期记忆中按关键词或语义查找信息。返回匹配的记忆条目。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "source": {"type": "string"}}}}},
             {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20"}, "end_time": {"type": "string", "description": "结束时间，同上格式"}}, "required": ["query"]}}},
