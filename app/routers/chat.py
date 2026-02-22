@@ -213,7 +213,8 @@ async def chat_completions(
     if payload.stream:
         def generate():
             yield from chat_service.stream_chat_completion(
-                payload.session_id, messages, background_tasks=background_tasks
+                payload.session_id, messages, background_tasks=background_tasks,
+                short_mode=payload.short_mode,
             )
         return StreamingResponse(generate(), media_type="text/event-stream")
 
