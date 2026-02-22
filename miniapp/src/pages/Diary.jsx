@@ -324,7 +324,14 @@ export default function DiaryPage() {
   const [tab, setTab] = useState("theirs");
   const [assistants, setAssistants] = useState([]);
   const [avatarMap, setAvatarMap] = useState({});
-  const [assistantId, setAssistantId] = useState(null);
+  const [assistantId, _setAssistantId] = useState(() => {
+    const saved = localStorage.getItem("diary_assistant_id");
+    return saved ? Number(saved) : null;
+  });
+  const setAssistantId = (id) => {
+    _setAssistantId(id);
+    if (id != null) localStorage.setItem("diary_assistant_id", String(id));
+  };
   const [pickerOpen, setPickerOpen] = useState(false);
   const [diaries, setDiaries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -337,7 +344,10 @@ export default function DiaryPage() {
     apiFetch("/api/assistants").then(async (d) => {
       const list = d.assistants || [];
       setAssistants(list);
-      if (list.length > 0 && !assistantId) setAssistantId(list[0].id);
+      if (list.length > 0) {
+        const valid = assistantId && list.some((a) => a.id === assistantId);
+        if (!valid) setAssistantId(list[0].id);
+      }
       const map = {};
       await Promise.all(list.map(async (a) => {
         const b64 = await getAvatar(`assistant-avatar-${a.id}`).catch(() => null);
