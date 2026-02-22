@@ -164,6 +164,8 @@ class MemoryService:
 
     def write_diary(self, payload: dict[str, Any]) -> dict[str, Any]:
         diary = Diary(
+            assistant_id=payload.get("assistant_id"),
+            author="assistant",
             title=payload.get("title", ""),
             content=payload.get("content", ""),
             is_read=False,
@@ -1213,6 +1215,7 @@ class ChatService:
             assistant = self.db.query(Assistant).first()
         if not assistant:
             return None
+        self._current_assistant_id = assistant.id
         model_preset = self.db.get(ModelPreset, assistant.model_preset_id)
         if not model_preset:
             return None
@@ -1797,6 +1800,7 @@ class ChatService:
             tool_call.arguments["source"] = self.assistant_name
             return self.memory_service.delete_memory(tool_call.arguments)
         if tool_name == "write_diary":
+            tool_call.arguments["assistant_id"] = getattr(self, "_current_assistant_id", None)
             return self.memory_service.write_diary(tool_call.arguments)
         if tool_name == "list_memories":
             return self.memory_service.list_memories(tool_call.arguments)
