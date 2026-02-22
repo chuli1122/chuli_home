@@ -1084,6 +1084,13 @@ class ChatService:
             ))
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
+            # Broadcast injected memories (non-streaming path)
+            if getattr(self, "_last_recall_results", None):
+                cot_broadcaster.publish({
+                    "type": "injected_memories",
+                    "request_id": request_id,
+                    "memories": [{"id": m.get("id"), "content": m.get("content", "")} for m in self._last_recall_results],
+                })
         while pending_tool_calls:
             # Execute ALL tool calls in this batch before calling the API again
             for tool_call in pending_tool_calls:
