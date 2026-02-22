@@ -117,12 +117,15 @@ def _compress_tool_result(tool_name: str, content: str) -> str:
 
 
 def _load_session_messages(db: Session, session_id: int) -> list[dict[str, Any]]:
-    """Load message history from DB for a session, including tool messages."""
+    """Load message history from DB for a session, including tool messages.
+    Skips messages that have already been summarized (summary_group_id set),
+    since their content is represented by summaries in the system prompt."""
     db_msgs = (
         db.query(MessageModel)
         .filter(
             MessageModel.session_id == session_id,
             MessageModel.role.in_(["user", "assistant", "tool", "system"]),
+            MessageModel.summary_group_id.is_(None),
         )
         .order_by(MessageModel.id.asc())
         .all()
