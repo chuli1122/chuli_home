@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ChevronLeft, Plus, X, Check, Save, Camera,
@@ -184,53 +184,113 @@ function FullscreenEditor({ value, onChange, onClose, title, placeholder }) {
 }
 
 // ── Swipe Row (left-slide to delete) ──
-const ACTION_WIDTH = 80;
+const SWIPE_WIDTH = 80;
 const SNAP_THRESHOLD = 40;
 
 function SwipeRow({ children, onDelete }) {
   const rowRef = useRef(null);
   const actRef = useRef(null);
-  const s = useRef({ sx: 0, sy: 0, base: 0, cur: 0, drag: false, locked: false, horiz: false });
+  const state = useRef({
+    startX: 0, startY: 0, base: 0, current: 0,
+    dragging: false, locked: false, isH: false,
+  });
 
-  const snap = useCallback((x, anim) => {
+  const translate = (x, animate) => {
     const el = rowRef.current;
     const act = actRef.current;
     if (!el) return;
-    const t = anim ? "all .25s ease" : "none";
-    el.style.transition = t;
+    const ease = animate ? "all 0.25s cubic-bezier(.4,0,.2,1)" : "none";
+    el.style.transition = ease;
     el.style.transform = x ? `translateX(${x}px)` : "";
-    if (act) { act.style.transition = t; act.style.opacity = `${Math.min(1, Math.abs(x) / ACTION_WIDTH)}`; }
+    if (act) {
+      const p = Math.min(1, Math.abs(x) / SWIPE_WIDTH);
+      act.style.transition = ease;
+      act.style.opacity = `${p}`;
+    }
     if (!x) el.style.willChange = "auto";
-    s.current.cur = x;
-  }, []);
-  const close = useCallback(() => snap(0, true), [snap]);
+    state.current.current = x;
+  };
+
+  const close = () => translate(0, true);
+
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    const s = state.current;
+    s.startX = t.clientX; s.startY = t.clientY;
+    s.base = s.current; s.dragging = true;
+    s.locked = false; s.isH = false;
+    if (rowRef.current) rowRef.current.style.transition = "none";
+    if (actRef.current) actRef.current.style.transition = "none";
+  };
+
+  const onTouchMove = (e) => {
+    const s = state.current;
+    if (!s.dragging) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.startX;
+    const dy = t.clientY - s.startY;
+    if (!s.locked) {
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      s.locked = true;
+      s.isH = Math.abs(dx) > Math.abs(dy);
+      if (s.isH && rowRef.current) rowRef.current.style.willChange = "transform";
+    }
+    if (!s.isH) { s.dragging = false; return; }
+    e.preventDefault();
+    const next = Math.max(-SWIPE_WIDTH, Math.min(0, s.base + dx));
+    if (rowRef.current) rowRef.current.style.transform = `translateX(${next}px)`;
+    if (actRef.current) actRef.current.style.opacity = `${Math.min(1, Math.abs(next) / SWIPE_WIDTH)}`;
+    s.current = next;
+  };
+
+  const onTouchEnd = () => {
+    state.current.dragging = false;
+    if (state.current.current < -SNAP_THRESHOLD) translate(-SWIPE_WIDTH, true);
+    else translate(0, true);
+  };
 
   return (
-    <div className="relative overflow-hidden rounded-[14px]">
-      <div ref={actRef} className="absolute right-0 top-0 bottom-0 flex items-center pr-2" style={{ opacity: 0 }}>
-        <button onClick={() => { close(); onDelete(); }} className="flex h-[calc(100%-8px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[12px]" style={{ background: "#ff4d6d" }}>
+    <div
+      className="relative overflow-hidden rounded-[18px]"
+      style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+    >
+      <div
+        ref={actRef}
+        className="absolute right-0 top-0 bottom-0 flex items-center pr-2"
+        style={{ opacity: 0 }}
+      >
+        <button
+          className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]"
+          style={{ background: "#ff4d6d" }}
+          onClick={() => { close(); onDelete(); }}
+        >
           <Trash2 size={16} color="white" />
           <span className="text-[11px] font-medium text-white">删除</span>
         </button>
       </div>
-      <div ref={rowRef} className="relative z-10"
-        onTouchStart={(e) => { const t = e.touches[0]; const st = s.current; st.sx = t.clientX; st.sy = t.clientY; st.base = st.cur; st.drag = true; st.locked = false; st.horiz = false; if (rowRef.current) rowRef.current.style.transition = "none"; if (actRef.current) actRef.current.style.transition = "none"; }}
-        onTouchMove={(e) => { const st = s.current; if (!st.drag) return; const t = e.touches[0]; const dx = t.clientX - st.sx, dy = t.clientY - st.sy; if (!st.locked) { if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return; st.locked = true; st.horiz = Math.abs(dx) > Math.abs(dy); if (st.horiz && rowRef.current) rowRef.current.style.willChange = "transform"; } if (!st.horiz) { st.drag = false; return; } e.preventDefault(); const nx = Math.max(-ACTION_WIDTH, Math.min(0, st.base + dx)); if (rowRef.current) rowRef.current.style.transform = `translateX(${nx}px)`; if (actRef.current) actRef.current.style.opacity = `${Math.min(1, Math.abs(nx) / ACTION_WIDTH)}`; st.cur = nx; }}
-        onTouchEnd={() => { s.current.drag = false; snap(s.current.cur < -SNAP_THRESHOLD ? -ACTION_WIDTH : 0, true); }}
-      >{children}</div>
+      <div
+        ref={rowRef}
+        className="relative z-10"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        {children}
+      </div>
     </div>
   );
 }
 
 // ── Confirm Dialog ──
-function ConfirmDialog({ message, onConfirm, onCancel }) {
+function ConfirmDialog({ title, message, onConfirm, onCancel }) {
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.4)" }} onClick={onCancel}>
-      <div className="mx-8 w-full max-w-[280px] rounded-[20px] p-6" style={{ background: S.bg, boxShadow: "var(--card-shadow)" }} onClick={(e) => e.stopPropagation()}>
-        <p className="mb-5 text-center text-[14px] leading-relaxed" style={{ color: S.text }}>{message}</p>
+    <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onCancel}>
+      <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
+        <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>{title || "确认删除"}</p>
+        <p className="mb-5 text-center text-[13px]" style={{ color: S.textMuted }}>{message}</p>
         <div className="flex gap-3">
-          <button className="flex-1 rounded-[12px] py-2.5 text-[14px] font-medium" style={{ color: S.textMuted, boxShadow: "var(--card-shadow-sm)", background: S.bg }} onClick={onCancel}>取消</button>
-          <button className="flex-1 rounded-[12px] py-2.5 text-[14px] font-bold text-white" style={{ background: "#ff4d6d" }} onClick={onConfirm}>删除</button>
+          <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text }} onClick={onCancel}>取消</button>
+          <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold text-white" style={{ background: "#ff4d6d", boxShadow: "4px 4px 10px rgba(255,77,109,0.4)" }} onClick={onConfirm}>删除</button>
         </div>
       </div>
     </div>

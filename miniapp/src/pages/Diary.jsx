@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Trash2, Plus, X, Lock, Maximize2, Minimize2 } from "lucide-react";
 import { apiFetch } from "../utils/api";
@@ -17,7 +17,7 @@ const TABS = [
   { key: "mine", label: "我的日记" },
 ];
 
-const ACTION_WIDTH = 80;
+const SWIPE_WIDTH = 80;
 const SNAP_THRESHOLD = 40;
 
 function fmtTime(ts) {
@@ -51,30 +51,93 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
 function SwipeRow({ children, onDelete }) {
   const rowRef = useRef(null);
   const actRef = useRef(null);
-  const s = useRef({ sx: 0, sy: 0, base: 0, cur: 0, drag: false, locked: false, horiz: false });
-  const snap = useCallback((x, anim) => {
-    const el = rowRef.current, act = actRef.current;
+  const state = useRef({
+    startX: 0, startY: 0, base: 0, current: 0,
+    dragging: false, locked: false, isH: false,
+  });
+
+  const translate = (x, animate) => {
+    const el = rowRef.current;
+    const act = actRef.current;
     if (!el) return;
-    const t = anim ? "all 0.25s cubic-bezier(.4,0,.2,1)" : "none";
-    el.style.transition = t; el.style.transform = x ? `translateX(${x}px)` : "";
-    if (act) { act.style.transition = t; act.style.opacity = `${Math.min(1, Math.abs(x) / ACTION_WIDTH)}`; }
+    const ease = animate ? "all 0.25s cubic-bezier(.4,0,.2,1)" : "none";
+    el.style.transition = ease;
+    el.style.transform = x ? `translateX(${x}px)` : "";
+    if (act) {
+      const p = Math.min(1, Math.abs(x) / SWIPE_WIDTH);
+      act.style.transition = ease;
+      act.style.opacity = `${p}`;
+    }
     if (!x) el.style.willChange = "auto";
-    s.current.cur = x;
-  }, []);
-  const close = useCallback(() => snap(0, true), [snap]);
+    state.current.current = x;
+  };
+
+  const close = () => translate(0, true);
+
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    const s = state.current;
+    s.startX = t.clientX; s.startY = t.clientY;
+    s.base = s.current; s.dragging = true;
+    s.locked = false; s.isH = false;
+    if (rowRef.current) rowRef.current.style.transition = "none";
+    if (actRef.current) actRef.current.style.transition = "none";
+  };
+
+  const onTouchMove = (e) => {
+    const s = state.current;
+    if (!s.dragging) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.startX;
+    const dy = t.clientY - s.startY;
+    if (!s.locked) {
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      s.locked = true;
+      s.isH = Math.abs(dx) > Math.abs(dy);
+      if (s.isH && rowRef.current) rowRef.current.style.willChange = "transform";
+    }
+    if (!s.isH) { s.dragging = false; return; }
+    e.preventDefault();
+    const next = Math.max(-SWIPE_WIDTH, Math.min(0, s.base + dx));
+    if (rowRef.current) rowRef.current.style.transform = `translateX(${next}px)`;
+    if (actRef.current) actRef.current.style.opacity = `${Math.min(1, Math.abs(next) / SWIPE_WIDTH)}`;
+    s.current = next;
+  };
+
+  const onTouchEnd = () => {
+    state.current.dragging = false;
+    if (state.current.current < -SNAP_THRESHOLD) translate(-SWIPE_WIDTH, true);
+    else translate(0, true);
+  };
+
   return (
-    <div className="relative mb-3 overflow-hidden rounded-[18px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
-      <div ref={actRef} className="absolute right-0 top-0 bottom-0 flex items-center pr-2" style={{ opacity: 0 }}>
-        <button onClick={() => { close(); onDelete(); }} className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]" style={{ background: "#ff4d6d" }}>
+    <div
+      className="relative mb-3 overflow-hidden rounded-[18px]"
+      style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+    >
+      <div
+        ref={actRef}
+        className="absolute right-0 top-0 bottom-0 flex items-center pr-2"
+        style={{ opacity: 0 }}
+      >
+        <button
+          className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]"
+          style={{ background: "#ff4d6d" }}
+          onClick={() => { close(); onDelete(); }}
+        >
           <Trash2 size={16} color="white" />
           <span className="text-[11px] font-medium text-white">删除</span>
         </button>
       </div>
-      <div ref={rowRef} className="relative z-10"
-        onTouchStart={(e) => { const t = e.touches[0]; const st = s.current; st.sx = t.clientX; st.sy = t.clientY; st.base = st.cur; st.drag = true; st.locked = false; st.horiz = false; if (rowRef.current) rowRef.current.style.transition = "none"; if (actRef.current) actRef.current.style.transition = "none"; }}
-        onTouchMove={(e) => { const st = s.current; if (!st.drag) return; const t = e.touches[0]; const dx = t.clientX - st.sx, dy = t.clientY - st.sy; if (!st.locked) { if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return; st.locked = true; st.horiz = Math.abs(dx) > Math.abs(dy); if (st.horiz && rowRef.current) rowRef.current.style.willChange = "transform"; } if (!st.horiz) { st.drag = false; return; } e.preventDefault(); const nx = Math.max(-ACTION_WIDTH, Math.min(0, st.base + dx)); if (rowRef.current) rowRef.current.style.transform = `translateX(${nx}px)`; if (actRef.current) actRef.current.style.opacity = `${Math.min(1, Math.abs(nx) / ACTION_WIDTH)}`; st.cur = nx; }}
-        onTouchEnd={() => { s.current.drag = false; snap(s.current.cur < -SNAP_THRESHOLD ? -ACTION_WIDTH : 0, true); }}
-      >{children}</div>
+      <div
+        ref={rowRef}
+        className="relative z-10"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        {children}
+      </div>
     </div>
   );
 }
