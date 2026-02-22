@@ -330,7 +330,7 @@ def update_session_summary_mood(
 
     # Read user nickname
     user_profile = db.query(UserProfile).first()
-    nickname = (user_profile.nickname if user_profile and user_profile.nickname else "用户")
+    nickname = (user_profile.nickname if user_profile and user_profile.nickname else "她")
 
     # Insert system message
     sys_msg = Message(

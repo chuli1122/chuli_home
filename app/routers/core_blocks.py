@@ -194,16 +194,18 @@ def update_core_block(
     if not row:
         raise HTTPException(status_code=404, detail="Core block not found")
 
-    history = CoreBlockHistory(
-        core_block_id=row.id,
-        block_type=row.block_type,
-        assistant_id=row.assistant_id,
-        content=row.content,
-        version=row.version,
-    )
-    db.add(history)
-    row.content = payload.content
-    row.version += 1
+    # Only create history + bump version when content actually changed
+    if payload.content != row.content:
+        history = CoreBlockHistory(
+            core_block_id=row.id,
+            block_type=row.block_type,
+            assistant_id=row.assistant_id,
+            content=row.content,
+            version=row.version,
+        )
+        db.add(history)
+        row.content = payload.content
+        row.version += 1
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
@@ -246,3 +248,16 @@ def get_core_block_history(
         for row in rows
     ]
     return CoreBlockHistoryResponse(history=history)
+
+
+@router.delete("/core-blocks/history/{history_id}")
+def delete_core_block_history(
+    history_id: int,
+    db: Session = Depends(get_db),
+):
+    row = db.query(CoreBlockHistory).filter(CoreBlockHistory.id == history_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="History entry not found")
+    db.delete(row)
+    db.commit()
+    return {"success": True}

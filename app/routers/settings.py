@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.models import ChatSession, Message, SessionSummary, Settings
+from app.models.models import ChatSession, Message, SessionSummary, Settings, UserProfile
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -308,10 +308,12 @@ def set_mood(
     db.flush()
 
     # Write a system message (status change, not a user message)
+    user_profile = db.query(UserProfile).first()
+    nickname = user_profile.nickname if user_profile and user_profile.nickname else "她"
     msg = Message(
         session_id=latest_session.id,
         role="system",
-        content=f"用户手动切换心情为：{mood}",
+        content=f"{nickname}手动切换心情为：{mood}",
         meta_info={"mood_switch": True},
         created_at=datetime.now(timezone.utc),
     )

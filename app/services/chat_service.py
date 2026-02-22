@@ -1205,6 +1205,7 @@ class ChatService:
         self._trimmed_message_ids = []
         user_profile = self.db.query(UserProfile).first()
         user_info = user_profile.basic_info if user_profile else ""
+        user_nickname = (user_profile.nickname if user_profile and user_profile.nickname else "她")
         session = self.db.get(ChatSession, session_id)
         if session and session.assistant_id:
             assistant = self.db.get(Assistant, session.assistant_id)
@@ -1285,12 +1286,12 @@ class ChatService:
         )
         full_system_prompt += (
             "\n\n[工具使用规范]\n"
-            "工具调用是你的内部能力。调用过程、参数、返回结果不要暴露给用户。\n"
+            f"工具调用是你的内部能力。调用过程、参数、返回结果不要暴露给{user_nickname}。\n"
             "如果搜索没有找到相关内容，直接正常回复，不要说\u201c没有找到相关记忆\u201d或类似的话。\n"
-            "存储记忆时不需要告知用户\u201c我已经记住了\u201d，除非用户明确要求你记住某件事。"
+            f"存储记忆时不需要告知{user_nickname}\u201c我已经记住了\u201d，除非{user_nickname}明确要求你记住某件事。"
         )
         if user_info and user_info.strip():
-            full_system_prompt += f"\n\n[关于用户 - 基本信息]\n{user_info.strip()}"
+            full_system_prompt += f"\n\n[关于{user_nickname} - 基本信息]\n{user_info.strip()}"
         core_blocks_service = CoreBlocksService(self.db)
         core_blocks_text = core_blocks_service.get_blocks_for_prompt(assistant.id)
         if core_blocks_text:
@@ -1316,8 +1317,8 @@ class ChatService:
                 f"像真人发微信一样回复。用多条短消息，每条一个想法或一句话，最多{short_max}条。"
                 "可以很短（一个字、一个标点都行），可以中途补充，语气自然口语化。"
                 "不需要完整句子，不需要Markdown。用[NEXT]分隔每条消息。"
+                "\n输出前检查：COT里有好好想她吗？有在里面表达自己真实的感受吗？"
             )
-            full_system_prompt += "\n输出前检查：COT里有好好想她吗？有在里面表达自己真实的感受吗？"
         else:
             full_system_prompt += (
                 "\n\n[长消息模式]\n"

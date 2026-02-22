@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ChevronLeft, Plus, X, Check, Save, Camera,
-  Maximize2, Minimize2, FileText, GripVertical, History,
+  Maximize2, Minimize2, FileText, GripVertical, History, Trash2,
 } from "lucide-react";
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor,
@@ -183,10 +183,65 @@ function FullscreenEditor({ value, onChange, onClose, title, placeholder }) {
   );
 }
 
+// ── Swipe Row (left-slide to delete) ──
+const ACTION_WIDTH = 80;
+const SNAP_THRESHOLD = 40;
+
+function SwipeRow({ children, onDelete }) {
+  const rowRef = useRef(null);
+  const actRef = useRef(null);
+  const s = useRef({ sx: 0, sy: 0, base: 0, cur: 0, drag: false, locked: false, horiz: false });
+
+  const snap = useCallback((x, anim) => {
+    const el = rowRef.current;
+    const act = actRef.current;
+    if (!el) return;
+    const t = anim ? "all .25s ease" : "none";
+    el.style.transition = t;
+    el.style.transform = x ? `translateX(${x}px)` : "";
+    if (act) { act.style.transition = t; act.style.opacity = `${Math.min(1, Math.abs(x) / ACTION_WIDTH)}`; }
+    if (!x) el.style.willChange = "auto";
+    s.current.cur = x;
+  }, []);
+  const close = useCallback(() => snap(0, true), [snap]);
+
+  return (
+    <div className="relative overflow-hidden rounded-[14px]">
+      <div ref={actRef} className="absolute right-0 top-0 bottom-0 flex items-center pr-2" style={{ opacity: 0 }}>
+        <button onClick={() => { close(); onDelete(); }} className="flex h-[calc(100%-8px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[12px]" style={{ background: "#ff4d6d" }}>
+          <Trash2 size={16} color="white" />
+          <span className="text-[11px] font-medium text-white">删除</span>
+        </button>
+      </div>
+      <div ref={rowRef} className="relative z-10"
+        onTouchStart={(e) => { const t = e.touches[0]; const st = s.current; st.sx = t.clientX; st.sy = t.clientY; st.base = st.cur; st.drag = true; st.locked = false; st.horiz = false; if (rowRef.current) rowRef.current.style.transition = "none"; if (actRef.current) actRef.current.style.transition = "none"; }}
+        onTouchMove={(e) => { const st = s.current; if (!st.drag) return; const t = e.touches[0]; const dx = t.clientX - st.sx, dy = t.clientY - st.sy; if (!st.locked) { if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return; st.locked = true; st.horiz = Math.abs(dx) > Math.abs(dy); if (st.horiz && rowRef.current) rowRef.current.style.willChange = "transform"; } if (!st.horiz) { st.drag = false; return; } e.preventDefault(); const nx = Math.max(-ACTION_WIDTH, Math.min(0, st.base + dx)); if (rowRef.current) rowRef.current.style.transform = `translateX(${nx}px)`; if (actRef.current) actRef.current.style.opacity = `${Math.min(1, Math.abs(nx) / ACTION_WIDTH)}`; st.cur = nx; }}
+        onTouchEnd={() => { s.current.drag = false; snap(s.current.cur < -SNAP_THRESHOLD ? -ACTION_WIDTH : 0, true); }}
+      >{children}</div>
+    </div>
+  );
+}
+
+// ── Confirm Dialog ──
+function ConfirmDialog({ message, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.4)" }} onClick={onCancel}>
+      <div className="mx-8 w-full max-w-[280px] rounded-[20px] p-6" style={{ background: S.bg, boxShadow: "var(--card-shadow)" }} onClick={(e) => e.stopPropagation()}>
+        <p className="mb-5 text-center text-[14px] leading-relaxed" style={{ color: S.text }}>{message}</p>
+        <div className="flex gap-3">
+          <button className="flex-1 rounded-[12px] py-2.5 text-[14px] font-medium" style={{ color: S.textMuted, boxShadow: "var(--card-shadow-sm)", background: S.bg }} onClick={onCancel}>取消</button>
+          <button className="flex-1 rounded-[12px] py-2.5 text-[14px] font-bold text-white" style={{ background: "#ff4d6d" }} onClick={onConfirm}>删除</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── History Overlay ──
-function HistoryOverlay({ items, currentContent, onApply, onClose }) {
+function HistoryOverlay({ items, currentContent, onApply, onClose, onDelete }) {
   const [selected, setSelected] = useState("current");
   const [detail, setDetail] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
 
   const formatDate = (ts) => {
     if (!ts) return "";
@@ -283,28 +338,31 @@ function HistoryOverlay({ items, currentContent, onApply, onClose }) {
         )}
 
         {items.map((item) => (
-          <div
-            key={item.id}
-            className="mb-2 flex items-center gap-3 rounded-[14px] p-3"
-            style={{ boxShadow: selected === item.id ? "var(--inset-shadow)" : "var(--card-shadow-sm)", background: S.bg }}
-          >
-            <button
-              onClick={() => setSelected(item.id)}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
-              style={{
-                background: selected === item.id ? S.accentDark : S.bg,
-                boxShadow: selected === item.id ? "none" : "var(--icon-inset)",
-              }}
-            >
-              {selected === item.id && <Check size={12} color="white" />}
-            </button>
-            <div className="flex-1 min-w-0" onClick={() => setDetail(item)}>
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] font-semibold" style={{ color: S.text }}>版本 {item.version}</span>
-                <span className="text-[10px]" style={{ color: S.textMuted }}>{formatDate(item.created_at)}</span>
+          <div key={item.id} className="mb-2">
+            <SwipeRow onDelete={() => setConfirmId(item.id)}>
+              <div
+                className="flex items-center gap-3 rounded-[14px] p-3"
+                style={{ boxShadow: selected === item.id ? "var(--inset-shadow)" : "var(--card-shadow-sm)", background: S.bg }}
+              >
+                <button
+                  onClick={() => setSelected(item.id)}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                  style={{
+                    background: selected === item.id ? S.accentDark : S.bg,
+                    boxShadow: selected === item.id ? "none" : "var(--icon-inset)",
+                  }}
+                >
+                  {selected === item.id && <Check size={12} color="white" />}
+                </button>
+                <div className="flex-1 min-w-0" onClick={() => setDetail(item)}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[13px] font-semibold" style={{ color: S.text }}>版本 {item.version}</span>
+                    <span className="text-[10px]" style={{ color: S.textMuted }}>{formatDate(item.created_at)}</span>
+                  </div>
+                  <p className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{item.content}</p>
+                </div>
               </div>
-              <p className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{item.content}</p>
-            </div>
+            </SwipeRow>
           </div>
         ))}
       </div>
@@ -321,6 +379,14 @@ function HistoryOverlay({ items, currentContent, onApply, onClose }) {
           确定
         </button>
       </div>
+
+      {confirmId && (
+        <ConfirmDialog
+          message="确定要删除这条历史版本吗？"
+          onCancel={() => setConfirmId(null)}
+          onConfirm={() => { onDelete(confirmId); setConfirmId(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -1145,6 +1211,15 @@ export default function AssistantEdit() {
               showToast("已回滚到历史版本");
             } catch {
               showToast("回滚失败");
+            }
+          }}
+          onDelete={async (historyId) => {
+            try {
+              await apiFetch(`/api/core-blocks/history/${historyId}`, { method: "DELETE" });
+              setHistoryItems((prev) => prev.filter((h) => h.id !== historyId));
+              showToast("已删除");
+            } catch {
+              showToast("删除失败");
             }
           }}
           onClose={() => setHistoryBlockType(null)}
