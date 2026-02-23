@@ -871,11 +871,28 @@ def _oai_tools_to_anthropic(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
     return result
 
 
-def _oai_messages_to_anthropic(api_messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+_CACHE_BREAK = "\n\n<!-- CACHE_BREAK -->\n\n"
+
+
+def _apply_cache_control_oai(api_messages: list[dict[str, Any]]) -> None:
+    """Transform the first system message for OpenAI-format cache_control (in-place)."""
+    for msg in api_messages:
+        if msg.get("role") == "system" and isinstance(msg.get("content"), str) and _CACHE_BREAK in msg["content"]:
+            stable, dynamic = msg["content"].split(_CACHE_BREAK, 1)
+            blocks: list[dict[str, Any]] = [
+                {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}},
+            ]
+            if dynamic.strip():
+                blocks.append({"type": "text", "text": dynamic})
+            msg["content"] = blocks
+            break
+
+
+def _oai_messages_to_anthropic(api_messages: list[dict[str, Any]]) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]]]:
     """Extract system prompt and convert messages to Anthropic format.
 
     OpenAI roles handled:
-    - system (first)  → system= parameter
+    - system (first)  → system= parameter (with cache_control if CACHE_BREAK present)
     - system (others) → converted to user messages
     - user            → user (with multimodal support)
     - assistant       → assistant (with tool_use blocks if tool_calls present)
@@ -975,6 +992,16 @@ def _oai_messages_to_anthropic(api_messages: list[dict[str, Any]]) -> tuple[str,
     # Anthropic requires last message to be from user (e.g. receive-mode has no trailing user msg)
     if messages and messages[-1]["role"] != "user":
         messages.append({"role": "user", "content": "."})
+
+    # Split system prompt for prompt caching
+    if _CACHE_BREAK in system_prompt:
+        stable, dynamic = system_prompt.split(_CACHE_BREAK, 1)
+        system_blocks: list[dict[str, Any]] = [
+            {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}},
+        ]
+        if dynamic.strip():
+            system_blocks.append({"type": "text", "text": dynamic})
+        return system_blocks, messages
 
     return system_prompt, messages
 
@@ -1273,19 +1300,6 @@ class ChatService:
             f"当前日期：{_now_bj.year}年{_now_bj.month}月{_now_bj.day}日 "
             f"{_weekdays[_now_bj.weekday()]} | 当前模型：{model_preset.model_name}"
         )
-        if selected_summaries_desc:
-            summary_text = "[历史对话摘要]\n"
-            for s in reversed(selected_summaries_desc):
-                summary_text += f"- {s.summary_content}\n"
-            prompt_parts.append(summary_text.rstrip())
-        if latest_mood_tag:
-            try:
-                manual_row = self.db.query(Settings).filter(Settings.key == "mood_manual").first()
-                manual = manual_row and manual_row.value == "true"
-                flag = " (manual)" if manual else ""
-            except Exception:
-                flag = ""
-            prompt_parts.append(f"[User recent mood: {latest_mood_tag}{flag}]")
         world_books_service = WorldBooksService(self.db)
         active_books = world_books_service.get_active_books(
             assistant.id, latest_user_message, latest_mood_tag
@@ -1320,19 +1334,6 @@ class ChatService:
         core_blocks_text = core_blocks_service.get_blocks_for_prompt(assistant.id)
         if core_blocks_text:
             full_system_prompt += "\n\n" + core_blocks_text
-        self._last_recall_results = []
-        if latest_user_message:
-            recall_results = self.memory_service.fast_recall(
-                latest_user_message, limit=5, current_mood_tag=latest_mood_tag
-            )
-            if recall_results:
-                self._last_recall_results = recall_results
-                recall_text = "\n\n[以下是根据当前对话自动召回的相关记忆，通常不需要再调用 search_memory]\n"
-                for mem in recall_results:
-                    source = mem.get("source", "unknown")
-                    recall_text += f"- {mem['content']} (来源: {source})\n"
-                recall_text += "[如果以上记忆不够，可以使用 search_memory 或 search_chat_history 补充]\n"
-                full_system_prompt += recall_text
         if short_mode:
             short_max_row = self.db.query(Settings).filter(Settings.key == "short_msg_max").first()
             short_max = int(short_max_row.value) if short_max_row else 8
@@ -1363,6 +1364,34 @@ class ChatService:
                 "② 说的话都带「」了吗？全程使用第二人称\"你\"了吗？如果使用第三人称\"她\"则为输出错误！\n"
                 "③ 是不是又缩了？再长一点。"
             )
+        # ── Cache break: stable content above, dynamic content below ──
+        full_system_prompt += _CACHE_BREAK
+        if selected_summaries_desc:
+            summary_text = "[历史对话摘要]\n"
+            for s in reversed(selected_summaries_desc):
+                summary_text += f"- {s.summary_content}\n"
+            full_system_prompt += summary_text.rstrip()
+        if latest_mood_tag:
+            try:
+                manual_row = self.db.query(Settings).filter(Settings.key == "mood_manual").first()
+                manual = manual_row and manual_row.value == "true"
+                flag = " (manual)" if manual else ""
+            except Exception:
+                flag = ""
+            full_system_prompt += f"\n\n[User recent mood: {latest_mood_tag}{flag}]"
+        self._last_recall_results = []
+        if latest_user_message:
+            recall_results = self.memory_service.fast_recall(
+                latest_user_message, limit=5, current_mood_tag=latest_mood_tag
+            )
+            if recall_results:
+                self._last_recall_results = recall_results
+                recall_text = "\n\n[以下是根据当前对话自动召回的相关记忆，通常不需要再调用 search_memory]\n"
+                for mem in recall_results:
+                    source = mem.get("source", "unknown")
+                    recall_text += f"- {mem['content']} (来源: {source})\n"
+                recall_text += "[如果以上记忆不够，可以使用 search_memory 或 search_chat_history 补充]\n"
+                full_system_prompt += recall_text
         save_memory_description = (
             "主动存储有价值的长期记忆。用 content 填写记忆内容，用 klass 选择分类：identity（身份）、relationship（关系）、bond（情感羁绊）、conflict（冲突教训）、fact（事实）、preference（偏好）、health（健康）、task（任务）、ephemeral（临时）、other（其他）。\n"
             "时间戳由后端自动添加，不需要在 content 里写时间。\n"
@@ -1556,6 +1585,8 @@ class ChatService:
             if use_anthropic:
                 anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
                 anth_tools = _oai_tools_to_anthropic(tools)
+                if anth_tools:
+                    anth_tools[-1]["cache_control"] = {"type": "ephemeral"}
                 try:
                     anth_kwargs: dict[str, Any] = {
                         "model": model_name,
@@ -1622,6 +1653,7 @@ class ChatService:
                     yield 'data: [DONE]\n\n'
                     return
             else:
+                _apply_cache_control_oai(api_messages)
                 try:
                     stream_params: dict[str, Any] = {
                         "model": model_name,
@@ -1889,6 +1921,8 @@ class ChatService:
         if use_anthropic:
             anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
             anth_tools = _oai_tools_to_anthropic(tools)
+            if anth_tools:
+                anth_tools[-1]["cache_control"] = {"type": "ephemeral"}
             try:
                 anth_kwargs: dict[str, Any] = {
                     "model": model_name,
@@ -1949,6 +1983,7 @@ class ChatService:
             return []
 
         # OpenAI path
+        _apply_cache_control_oai(api_messages)
         try:
             call_params: dict[str, Any] = {
                 "model": model_name,
