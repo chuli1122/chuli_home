@@ -361,7 +361,9 @@ export default function ApiSettings() {
 
     // Check if it's Cursor API - use preset models instead of fetching
     const trimmedUrl = baseUrl.trim().toLowerCase();
+    console.log("[DEBUG] Checking URL:", trimmedUrl, "includes cursor:", trimmedUrl.includes("cursor.scihub.edu.kg"));
     if (trimmedUrl.includes("cursor.scihub.edu.kg")) {
+      console.log("[DEBUG] Loading Cursor preset models:", CURSOR_MODELS);
       setModelOptions(CURSOR_MODELS);
       showToast(`已加载 ${CURSOR_MODELS.length} 个 Cursor 预设模型`);
       return;
