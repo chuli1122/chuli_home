@@ -50,8 +50,7 @@ def _call_model_raw(
                 "x-app": "cli",
             },
         )
-        _stb_row = db.query(Settings).filter(Settings.key == "summary_thinking_budget").first()
-        _summary_tb = int(_stb_row.value) if _stb_row and _stb_row.value else 0
+        _summary_tb = preset.thinking_budget or 0
         anth_kwargs: dict[str, Any] = {
             "model": preset.model_name,
             "system": system_prompt,

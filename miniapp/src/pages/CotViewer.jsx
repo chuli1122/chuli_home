@@ -22,7 +22,6 @@ const BLOCK_COLORS = {
 const MODES = [
   { key: "short", label: "短消息" },
   { key: "long", label: "长消息" },
-  { key: "theater", label: "小剧场" },
 ];
 
 const MOODS = [
@@ -97,7 +96,10 @@ function ThinkingBlock({ block, cacheKey, translateCache }) {
       setTranslated(data.translated);
       setShowTranslated(true);
       translateCache.current.set(cacheKey, data.translated);
-    } catch (err) { console.error("Translation failed:", err); }
+    } catch (err) {
+      console.error("Translation failed:", err);
+      alert("翻译失败，请稍后重试");
+    }
     finally { setTranslating(false); }
   };
 
@@ -339,7 +341,7 @@ export default function CotViewer() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedIds, setExpandedIds] = useState(new Set());
   const [mode, setMode] = useState(() =>
     localStorage.getItem("chat_mode") || "long"
   );
@@ -352,23 +354,36 @@ export default function CotViewer() {
   const [mood, setMood] = useState(null);
   const [moodOpen, setMoodOpen] = useState(false);
   const moodRef = useRef(null);
+  const manuallyCollapsedRef = useRef(new Set());
+  const apiLoadedRef = useRef(false);
+  const pendingWsMsgsRef = useRef([]);
 
   const [wsToken, setWsToken] = useState(() => localStorage.getItem("whisper_token"));
+
+  const processWsMsg = useRef(null);
 
   const load = () => {
     setLoading(true);
     setError(null);
+    apiLoadedRef.current = false;
     apiFetch("/api/cot?limit=100")
       .then((data) => {
         setItems(Array.isArray(data) ? data : []);
+        // Mark API loaded and flush any buffered WS messages
+        apiLoadedRef.current = true;
+        const pending = pendingWsMsgsRef.current;
+        pendingWsMsgsRef.current = [];
+        if (pending.length > 0 && processWsMsg.current) {
+          for (const msg of pending) processWsMsg.current(msg);
+        }
       })
       .catch((err) => {
         console.error("COT load error:", err);
         setError(err.message || "加载失败");
+        apiLoadedRef.current = true;
       })
       .finally(() => {
         setLoading(false);
-        // Ensure WebSocket token is available after first API call (ensureToken sets it)
         const t = localStorage.getItem("whisper_token");
         if (t && t !== wsToken) setWsToken(t);
       });
@@ -430,9 +445,7 @@ export default function CotViewer() {
         setWsConnected(true);
       };
 
-      ws.onmessage = (evt) => {
-        try {
-          const msg = JSON.parse(evt.data);
+      const handleWsMsg = (msg) => {
           const { type, request_id } = msg;
 
           // Helper: ensure item exists, returns [newArray, itemIndex]
@@ -464,12 +477,25 @@ export default function CotViewer() {
             return [next, next.findIndex((r) => r.round_index === roundIndex)];
           };
 
+          // Auto-expand helper: only expand if not manually collapsed
+          const autoExpand = (rid) => {
+            if (!manuallyCollapsedRef.current.has(rid)) {
+              setExpandedIds((prev) => {
+                if (prev.has(rid)) return prev;
+                const next = new Set(prev);
+                next.add(rid);
+                return next;
+              });
+            }
+          };
+
           if (type === "done") {
             setLiveRequestIds((prev) => {
               const next = new Set(prev);
               next.delete(request_id);
               return next;
             });
+            manuallyCollapsedRef.current.delete(request_id);
             setItems((prev) =>
               prev.map((it) =>
                 it.request_id === request_id
@@ -488,7 +514,7 @@ export default function CotViewer() {
               return arr;
             });
             setLiveRequestIds((prev) => new Set(prev).add(request_id));
-            setExpandedId(request_id);
+            autoExpand(request_id);
             return;
           }
 
@@ -515,7 +541,7 @@ export default function CotViewer() {
               return arr;
             });
             setLiveRequestIds((prev) => new Set(prev).add(request_id));
-            setExpandedId(request_id);
+            autoExpand(request_id);
             return;
           }
 
@@ -532,7 +558,7 @@ export default function CotViewer() {
               return arr;
             });
             setLiveRequestIds((prev) => new Set(prev).add(request_id));
-            setExpandedId(request_id);
+            autoExpand(request_id);
             return;
           }
 
@@ -549,7 +575,7 @@ export default function CotViewer() {
               return arr;
             });
             setLiveRequestIds((prev) => new Set(prev).add(request_id));
-            setExpandedId(request_id);
+            autoExpand(request_id);
             return;
           }
 
@@ -569,9 +595,20 @@ export default function CotViewer() {
               return arr;
             });
             setLiveRequestIds((prev) => new Set(prev).add(request_id));
-            setExpandedId(request_id);
+            autoExpand(request_id);
           }
+      };
 
+      processWsMsg.current = handleWsMsg;
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (!apiLoadedRef.current) {
+            pendingWsMsgsRef.current.push(msg);
+            return;
+          }
+          handleWsMsg(msg);
         } catch { /* ignore malformed */ }
       };
 
@@ -612,7 +649,6 @@ export default function CotViewer() {
     localStorage.setItem("app-settings", JSON.stringify({
       ...saved,
       shortMode: mode === "short",
-      theaterMode: mode === "theater",
     }));
     apiFetch("/api/settings/chat-mode", {
       method: "PUT",
@@ -729,7 +765,7 @@ export default function CotViewer() {
           {/* 3-segment mode selector */}
           <div
             className="flex rounded-[14px] p-1"
-            style={{ boxShadow: "var(--inset-shadow)", background: S.bg, width: 240 }}
+            style={{ boxShadow: "var(--inset-shadow)", background: S.bg, width: 160 }}
           >
             {MODES.map((m) => (
               <button
@@ -770,10 +806,20 @@ export default function CotViewer() {
             <div key={item.request_id} className="mb-3 rounded-[18px]" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
               <CotCard
                 item={item}
-                expanded={expandedId === item.request_id}
-                onToggle={() =>
-                  setExpandedId(expandedId === item.request_id ? null : item.request_id)
-                }
+                expanded={expandedIds.has(item.request_id)}
+                onToggle={() => {
+                  setExpandedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(item.request_id)) {
+                      next.delete(item.request_id);
+                      manuallyCollapsedRef.current.add(item.request_id);
+                    } else {
+                      next.add(item.request_id);
+                      manuallyCollapsedRef.current.delete(item.request_id);
+                    }
+                    return next;
+                  });
+                }}
                 live={liveRequestIds.has(item.request_id)}
                 avatarUrl={avatarUrl}
                 translateCache={translateCacheRef}

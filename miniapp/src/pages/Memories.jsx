@@ -133,30 +133,117 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
 
 /* ── Edit modal ── */
 
-function EditModal({ initialText, onSave, onCancel }) {
+function EditModal({ initialText, onSave, onCancel, memoryData }) {
   const [text, setText] = useState(initialText);
+  const [klass, setKlass] = useState(memoryData?.klass || "other");
+  const [tagsText, setTagsText] = useState((memoryData?.tags?.topic || []).join(", "));
+  const isMemory = !!memoryData;
+  const KLASS_EDIT = KLASS_OPTIONS.filter((o) => o.value);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onCancel}>
       <div className="mx-5 w-full max-w-[340px] rounded-[18px] p-4" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
         <textarea
           className="w-full rounded-[12px] p-3 text-[12px] leading-relaxed resize-none outline-none"
-          style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text, minHeight: 140, maxHeight: 280 }}
+          style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text, minHeight: isMemory ? 100 : 140, maxHeight: 280 }}
           value={text}
           onChange={(e) => setText(e.target.value)}
           autoFocus
         />
+        {isMemory && (
+          <div className="mt-2 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-[11px] font-medium" style={{ color: S.textMuted }}>分类</span>
+              <div className="relative flex-1">
+                <select
+                  className="w-full appearance-none rounded-[10px] px-3 py-1.5 text-[11px] font-medium outline-none"
+                  style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text, WebkitAppearance: "none" }}
+                  value={klass}
+                  onChange={(e) => setKlass(e.target.value)}
+                >
+                  {KLASS_EDIT.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <ChevronDown size={10} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" style={{ color: S.textMuted }} />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-[11px] font-medium" style={{ color: S.textMuted }}>标签</span>
+              <input
+                className="flex-1 rounded-[10px] px-3 py-1.5 text-[11px] outline-none"
+                style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text }}
+                placeholder="逗号分隔，如：旅行, 美食"
+                value={tagsText}
+                onChange={(e) => setTagsText(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
         <div className="mt-3 flex gap-3">
           <button className="flex-1 rounded-[12px] py-2 text-[12px] font-medium" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.textMuted }} onClick={onCancel}>取消</button>
           <button
             className="flex-1 rounded-[12px] py-2 text-[12px] font-medium"
             style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }}
-            onClick={() => onSave(text)}
+            onClick={() => {
+              if (isMemory) {
+                const topics = tagsText.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+                onSave(text, klass, { topic: topics });
+              } else {
+                onSave(text);
+              }
+            }}
             disabled={!text.trim()}
           >
             保存
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Custom dropdown (ModelDropdown style) ── */
+
+function FilterDropdown({ value, rawValue, onChange, options, width, active }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => { document.removeEventListener("mousedown", handler); document.removeEventListener("touchstart", handler); };
+  }, [open]);
+
+  const displayLabel = options.find((o) => o.value === String(rawValue))?.label || value || "";
+
+  return (
+    <div className="relative" style={{ width }} ref={ref}>
+      <button
+        className="flex w-full items-center justify-between rounded-[12px] px-2.5 py-2 text-[11px] font-medium text-left"
+        style={{ boxShadow: "var(--card-shadow-sm)", background: S.bg, color: active ? S.accentDark : S.text }}
+        onClick={() => setOpen(!open)}
+      >
+        <span className="truncate flex-1">{displayLabel}</span>
+        <ChevronDown size={10} style={{ color: S.textMuted, flexShrink: 0, marginLeft: 2, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 right-0 top-full z-40 mt-1 max-h-[200px] overflow-y-auto rounded-[12px]"
+          style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
+        >
+          {options.map((o) => (
+            <button
+              key={o.value}
+              className="flex w-full items-center justify-between px-3 py-2 text-[11px]"
+              style={{ color: S.text }}
+              onClick={() => { onChange(o.value); setOpen(false); }}
+            >
+              <span className="truncate">{o.label}</span>
+              {String(rawValue) === o.value && <Check size={10} style={{ color: S.accentDark, flexShrink: 0 }} />}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -271,7 +358,7 @@ function TrashCard({ content, deletedAt, keyword, onRestore, onPermanentDelete }
         </div>
       )}
       <div className="mt-2 flex items-center justify-between">
-        <span className="text-[10px]" style={{ color: S.textMuted }}>{deletedAt ? `删除于 ${fmtTime(deletedAt)}` : ""}</span>
+        <span className="text-[10px]" style={{ color: S.textMuted }}>{deletedAt ? (() => { const dl = Math.max(0, 30 - Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86400000)); return `删除于 ${fmtTime(deletedAt)} · ${dl}天后自动清理`; })() : ""}</span>
         <div className="flex gap-2">
           <button className="rounded-lg px-2 py-1 text-[10px] font-medium" style={{ background: "rgba(59,130,246,0.1)", color: "#3b82f6" }} onClick={onRestore}>恢复</button>
           <button className="rounded-lg px-2 py-1 text-[10px] font-medium" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }} onClick={onPermanentDelete}>彻底删除</button>
@@ -549,7 +636,10 @@ export default function Memories() {
   const batchDelete = () => {
     if (selectedIds.size === 0) return;
     const count = selectedIds.size;
-    confirmAction(`确定要删除选中的 ${count} 条${tab === "memories" ? "记忆" : tab === "summaries" ? "摘要" : "消息"}吗？`, async () => {
+    const msg = tab === "messages"
+      ? `确定要永久删除选中的 ${count} 条消息吗？此操作不可恢复。`
+      : `确定要删除选中的 ${count} 条${tab === "memories" ? "记忆" : "摘要"}吗？删除后将移入回收站。`;
+    confirmAction(msg, async () => {
       const ids = [...selectedIds];
       if (tab === "memories") {
         await apiFetch("/api/memories/batch", { method: "DELETE", body: { ids } });
@@ -565,12 +655,15 @@ export default function Memories() {
     });
   };
 
-  const saveEdit = async (text) => {
+  const saveEdit = async (text, klass, tags) => {
     if (!editing) return;
     try {
       if (editing.type === "memory") {
-        await apiFetch(`/api/memories/${editing.id}`, { method: "PUT", body: { content: text } });
-        setMemories((p) => p.map((m) => m.id === editing.id ? { ...m, content: text } : m));
+        const body = { content: text };
+        if (klass !== undefined) body.klass = klass;
+        if (tags !== undefined) body.tags = tags;
+        await apiFetch(`/api/memories/${editing.id}`, { method: "PUT", body });
+        setMemories((p) => p.map((m) => m.id === editing.id ? { ...m, content: text, ...(klass !== undefined ? { klass } : {}), ...(tags !== undefined ? { tags } : {}) } : m));
       } else {
         await apiFetch(`/api/sessions/${sessionId}/summaries/${editing.id}`, { method: "PATCH", body: { summary_content: text } });
         setSummaries((p) => p.map((s) => s.id === editing.id ? { ...s, summary_content: text } : s));
@@ -603,12 +696,12 @@ export default function Memories() {
           <ExpandableCard key={mem.id}
             time={mem.updated_at ? `${fmtTime(mem.created_at)} · 更新于 ${fmtTime(mem.updated_at)}` : fmtTime(mem.created_at)}
             keyword={kw}
-            onEdit={() => setEditing({ type: "memory", id: mem.id, text: mem.content })}
+            onEdit={() => setEditing({ type: "memory", id: mem.id, text: mem.content, klass: mem.klass, tags: mem.tags })}
             selectMode={selectMode}
             selected={selectedIds.has(mem.id)}
             onToggle={() => toggleSelect(mem.id)}
             onLongPress={() => enterSelectMode(mem.id)}
-            badge={(() => { const c = KLASS_COLORS[mem.klass] || KLASS_COLORS.other; return (<><span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: c.bg, color: c.color }}>{mem.klass}</span><span className="mb-1 ml-1 inline-block text-[10px]" style={{ color: S.textMuted }}>#{mem.id}</span></>); })()}
+            badge={(() => { const c = KLASS_COLORS[mem.klass] || KLASS_COLORS.other; const topics = mem.tags?.topic || []; return (<div className="flex flex-wrap items-center gap-1 mb-1"><span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: c.bg, color: c.color }}>{mem.klass}</span><span className="inline-block text-[10px]" style={{ color: S.textMuted }}>#{mem.id}</span>{topics.map((t, i) => (<span key={i} className="inline-block rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: "rgba(136,136,160,0.1)", color: S.textMuted }}>{t}</span>))}</div>); })()}
           >{mem.content}</ExpandableCard>
         ))}
         {hasMoreMem && (
@@ -700,9 +793,17 @@ export default function Memories() {
         <div className="shrink-0 px-5 pb-2">
           <div className="flex items-center justify-between rounded-[14px] px-4 py-2.5" style={{ background: S.bg, boxShadow: "var(--inset-shadow)" }}>
             <span className="text-[12px] font-semibold" style={{ color: S.accentDark }}>已选 {selectedIds.size} 项</span>
-            <div className="flex items-center gap-3">
-              <button className="text-[12px] font-medium" style={{ color: S.text }} onClick={selectAll}>全选</button>
-              <button className="text-[12px] font-medium" style={{ color: S.textMuted }} onClick={cancelSelect}>取消</button>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded-[10px] px-3 py-1.5 text-[12px] font-semibold"
+                style={{ background: "rgba(59,130,246,0.15)", color: "#3b82f6" }}
+                onClick={selectAll}
+              >全选</button>
+              <button
+                className="rounded-[10px] px-3 py-1.5 text-[12px] font-semibold"
+                style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.textMuted }}
+                onClick={cancelSelect}
+              >取消</button>
               <button
                 className="rounded-[10px] px-3 py-1.5 text-[12px] font-semibold text-white"
                 style={{ background: selectedIds.size > 0 ? "#ff4d6d" : "rgba(255,77,109,0.3)" }}
@@ -735,38 +836,25 @@ export default function Memories() {
       {/* Session dropdown + Filter + Search */}
       {!selectMode && (
         <div className="shrink-0 px-5 pb-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {/* Session dropdown */}
-            <div className="relative" style={{ width: "28%" }}>
-              <select
-                className="w-full appearance-none rounded-[12px] py-2 pl-3 pr-7 text-[11px] font-medium outline-none truncate"
-                style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text, WebkitAppearance: "none" }}
-                value={sessionId ?? ""}
-                onChange={(e) => setSessionId(Number(e.target.value))}
-              >
-                {sessions.map((sess) => (
-                  <option key={sess.id} value={sess.id}>
-                    #{sess.id} {sess.title || ""}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" style={{ color: S.textMuted }} />
-            </div>
+            <FilterDropdown
+              value={sessionId ? `#${sessionId}` : ""}
+              rawValue={sessionId ?? ""}
+              onChange={(v) => setSessionId(Number(v))}
+              options={sessions.map((s) => ({ value: String(s.id), label: `#${s.id} ${s.title || ""}` }))}
+              width="22%"
+            />
 
             {/* Filter dropdown */}
-            <div className="relative" style={{ width: "28%" }}>
-              <select
-                className="w-full appearance-none rounded-[12px] py-2 pl-3 pr-7 text-[11px] font-medium outline-none truncate"
-                style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: filterValue ? S.accentDark : S.text, WebkitAppearance: "none" }}
-                value={filterValue}
-                onChange={(e) => setFilterValue(e.target.value)}
-              >
-                {filterOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" style={{ color: S.textMuted }} />
-            </div>
+            <FilterDropdown
+              value={filterOptions.find((o) => o.value === filterValue)?.label || filterOptions[0].label}
+              rawValue={filterValue}
+              onChange={setFilterValue}
+              options={filterOptions.map((o) => ({ value: o.value, label: o.label }))}
+              width="22%"
+              active={!!filterValue}
+            />
 
             {/* Search */}
             <div className="relative flex-1">
@@ -798,7 +886,7 @@ export default function Memories() {
           onCancel={() => setConfirm(null)}
         />
       )}
-      {editing && <EditModal initialText={editing.text} onSave={saveEdit} onCancel={() => setEditing(null)} />}
+      {editing && <EditModal initialText={editing.text} onSave={saveEdit} onCancel={() => setEditing(null)} memoryData={editing.type === "memory" ? { klass: editing.klass, tags: editing.tags } : null} />}
     </div>
   );
 }

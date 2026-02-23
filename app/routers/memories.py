@@ -40,6 +40,8 @@ class MemoriesResponse(BaseModel):
 class MemoryUpdateRequest(BaseModel):
     content: str | None = None
     manual_boost: float | None = None
+    klass: str | None = None
+    tags: dict | None = None
 
 
 class MemoryDeleteResponse(BaseModel):
@@ -150,6 +152,11 @@ def update_memory(
         memory.content = update_data["content"] or ""
     if "manual_boost" in update_data:
         memory.manual_boost = update_data["manual_boost"] or 0.0
+    if "klass" in update_data:
+        memory.klass = update_data["klass"] or "other"
+    if "tags" in update_data:
+        memory.tags = update_data["tags"] or {}
+    memory.updated_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(memory)

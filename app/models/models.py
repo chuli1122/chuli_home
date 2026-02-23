@@ -160,6 +160,7 @@ class ModelPreset(Base):
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     top_p: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=2048)
+    thinking_budget: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     api_provider_id: Mapped[int] = mapped_column(Integer, ForeignKey("api_providers.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 

@@ -120,6 +120,14 @@ def _run_migrations(eng) -> None:
                 conn.execute(text("ALTER TABLE world_books ADD COLUMN message_mode VARCHAR(16)"))
             logger.info("Added message_mode column to world_books")
 
+    # model_presets.thinking_budget
+    if "model_presets" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("model_presets")]
+        if "thinking_budget" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE model_presets ADD COLUMN thinking_budget INTEGER NOT NULL DEFAULT 0"))
+            logger.info("Added thinking_budget column to model_presets")
+
     # memories.updated_at
     if "memories" in insp.get_table_names():
         cols = [c["name"] for c in insp.get_columns("memories")]

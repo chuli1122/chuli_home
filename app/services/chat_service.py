@@ -1501,7 +1501,7 @@ class ChatService:
                 api_message["tool_call_id"] = message["tool_call_id"]
             api_messages.append(api_message)
         return (client, model_preset.model_name, api_messages, tools, model_preset.temperature, model_preset.top_p,
-                api_provider.auth_type == "oauth_token", model_preset.max_tokens)
+                api_provider.auth_type == "oauth_token", model_preset.max_tokens, model_preset.thinking_budget or 0)
 
     def stream_chat_completion(
         self,
@@ -1535,7 +1535,7 @@ class ChatService:
                 logger.error("[stream] _build_api_call_params returned None (session=%s)", session_id)
                 yield 'data: [DONE]\n\n'
                 return
-            client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens = params
+            client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens, preset_thinking_budget = params
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
             # Broadcast + persist injected memories on first round
             if round_index == 0 and getattr(self, "_last_recall_results", None):
@@ -1557,15 +1557,13 @@ class ChatService:
                 anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
                 anth_tools = _oai_tools_to_anthropic(tools)
                 try:
-                    _tb_row = self.db.query(Settings).filter(Settings.key == "main_thinking_budget").first()
-                    _thinking_budget = int(_tb_row.value) if _tb_row and _tb_row.value else 0
                     anth_kwargs: dict[str, Any] = {
                         "model": model_name,
                         "messages": anth_msgs,
                     }
-                    if _thinking_budget > 0:
-                        anth_kwargs["max_tokens"] = preset_max_tokens + _thinking_budget
-                        anth_kwargs["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
+                    if preset_thinking_budget > 0:
+                        anth_kwargs["max_tokens"] = preset_max_tokens + preset_thinking_budget
+                        anth_kwargs["thinking"] = {"type": "enabled", "budget_tokens": preset_thinking_budget}
                     else:
                         anth_kwargs["max_tokens"] = preset_max_tokens
                     if anth_system:
@@ -1853,7 +1851,7 @@ class ChatService:
         params = self._build_api_call_params(messages, session_id, short_mode=short_mode)
         if params is None:
             return []
-        client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens = params
+        client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens, preset_thinking_budget = params
         logger.info("[_fetch_next_tool_calls] Calling model: %s (session=%s, msg_count=%d, anthropic=%s)",
                     model_name, session_id, len(api_messages), use_anthropic)
 
@@ -1892,15 +1890,13 @@ class ChatService:
             anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
             anth_tools = _oai_tools_to_anthropic(tools)
             try:
-                _tb_row2 = self.db.query(Settings).filter(Settings.key == "main_thinking_budget").first()
-                _thinking_budget2 = int(_tb_row2.value) if _tb_row2 and _tb_row2.value else 0
                 anth_kwargs: dict[str, Any] = {
                     "model": model_name,
                     "messages": anth_msgs,
                 }
-                if _thinking_budget2 > 0:
-                    anth_kwargs["max_tokens"] = preset_max_tokens + _thinking_budget2
-                    anth_kwargs["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget2}
+                if preset_thinking_budget > 0:
+                    anth_kwargs["max_tokens"] = preset_max_tokens + preset_thinking_budget
+                    anth_kwargs["thinking"] = {"type": "enabled", "budget_tokens": preset_thinking_budget}
                 else:
                     anth_kwargs["max_tokens"] = preset_max_tokens
                 if anth_system:

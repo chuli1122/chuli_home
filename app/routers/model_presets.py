@@ -21,6 +21,7 @@ class PresetItem(BaseModel):
     temperature: float | None
     top_p: float | None
     max_tokens: int
+    thinking_budget: int
     api_provider_id: int
     created_at: str | None
 
@@ -35,6 +36,7 @@ class PresetCreateRequest(BaseModel):
     temperature: float | None = None
     top_p: float | None = None
     max_tokens: int = 2048
+    thinking_budget: int = 0
     api_provider_id: int
 
 
@@ -44,6 +46,7 @@ class PresetUpdateRequest(BaseModel):
     temperature: float | None = None
     top_p: float | None = None
     max_tokens: int | None = None
+    thinking_budget: int | None = None
     api_provider_id: int | None = None
 
 
@@ -55,6 +58,7 @@ def _to_item(row: ModelPreset) -> PresetItem:
         temperature=row.temperature,
         top_p=row.top_p,
         max_tokens=row.max_tokens,
+        thinking_budget=row.thinking_budget or 0,
         api_provider_id=row.api_provider_id,
         created_at=format_datetime(row.created_at),
     )
@@ -83,6 +87,7 @@ def create_preset(
         temperature=payload.temperature,
         top_p=payload.top_p,
         max_tokens=payload.max_tokens,
+        thinking_budget=payload.thinking_budget,
         api_provider_id=payload.api_provider_id,
     )
     db.add(preset)
