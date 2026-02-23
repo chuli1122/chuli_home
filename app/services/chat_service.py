@@ -874,6 +874,49 @@ def _oai_tools_to_anthropic(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
 _CACHE_BREAK = "\n\n<!-- CACHE_BREAK -->\n\n"
 
 
+def _extract_reasoning_delta(delta: Any) -> str:
+    """Extract reasoning text from an OpenAI-format streaming delta (OpenRouter)."""
+    # Try simple string fields first
+    for attr in ("reasoning", "reasoning_content"):
+        val = getattr(delta, attr, None)
+        if val and isinstance(val, str):
+            return val
+    # Try reasoning_details array (OpenRouter standard)
+    details = getattr(delta, "reasoning_details", None)
+    if details and isinstance(details, list):
+        parts = []
+        for item in details:
+            text = getattr(item, "text", None) or getattr(item, "summary", None)
+            if text:
+                parts.append(text)
+        if parts:
+            return "".join(parts)
+    return ""
+
+
+def _extract_reasoning_from_message(message: Any) -> str:
+    """Extract reasoning text from an OpenAI-format message (OpenRouter non-streaming)."""
+    # Try simple string fields first
+    for attr in ("reasoning", "reasoning_content"):
+        val = getattr(message, attr, None)
+        if val and isinstance(val, str):
+            return val
+    # Try reasoning_details array (OpenRouter standard)
+    details = getattr(message, "reasoning_details", None)
+    if details and isinstance(details, list):
+        parts = []
+        for item in details:
+            if isinstance(item, str):
+                parts.append(item)
+            else:
+                text = getattr(item, "text", None) or getattr(item, "summary", None)
+                if text:
+                    parts.append(text)
+        if parts:
+            return "".join(parts)
+    return ""
+
+
 def _apply_cache_control_oai(api_messages: list[dict[str, Any]]) -> None:
     """Transform the first system message for OpenAI-format cache_control (in-place)."""
     for msg in api_messages:
@@ -1580,6 +1623,7 @@ class ChatService:
                     broadcast=False,
                 )
             content_chunks: list[str] = []
+            thinking_chunks_oai: list[str] = []
             tool_calls_acc: dict[int, dict] = {}
             current_round = round_index
             if use_anthropic:
@@ -1666,6 +1710,8 @@ class ChatService:
                         stream_params["temperature"] = preset_temperature
                     if preset_top_p is not None:
                         stream_params["top_p"] = preset_top_p
+                    if preset_thinking_budget > 0:
+                        stream_params["reasoning"] = {"max_tokens": preset_thinking_budget}
                     stream = client.chat.completions.create(**stream_params)
                 except Exception as e:
                     logger.error(f"Streaming request failed: {e}")
@@ -1680,6 +1726,16 @@ class ChatService:
                         if not chunk.choices:
                             continue
                         delta = chunk.choices[0].delta
+                        # Handle reasoning/thinking delta (OpenRouter)
+                        reasoning_text = _extract_reasoning_delta(delta)
+                        if reasoning_text:
+                            thinking_chunks_oai.append(reasoning_text)
+                            cot_broadcaster.publish({
+                                "type": "thinking_delta",
+                                "request_id": request_id,
+                                "round_index": current_round,
+                                "content": reasoning_text,
+                            })
                         if getattr(delta, "content", None):
                             content_chunks.append(delta.content)
                             yield f'data: {json.dumps({"content": delta.content})}\n\n'
@@ -1725,6 +1781,10 @@ class ChatService:
                         logger.error("Failed to parse tool call arguments for %s: %s", tc["name"], e)
                         parsed_tool_calls.append(ToolCall(name=tc["name"], arguments={}, id=tc["id"]))
                 full_content = "".join(content_chunks)
+                # Write thinking COT block from OpenRouter reasoning (already streamed as deltas)
+                full_thinking = "".join(thinking_chunks_oai)
+                if full_thinking:
+                    self._write_cot_block(request_id, current_round, "thinking", full_thinking, broadcast=False)
                 # Write text COT block for this round (already streamed as deltas)
                 if full_content:
                     self._write_cot_block(request_id, current_round, "text", full_content, broadcast=False)
@@ -1782,6 +1842,9 @@ class ChatService:
                 round_index += 1
                 continue
             # Final text response (already streamed as deltas)
+            full_thinking = "".join(thinking_chunks_oai)
+            if full_thinking:
+                self._write_cot_block(request_id, current_round, "thinking", full_thinking, broadcast=False)
             full_content = "".join(content_chunks)
             self._write_cot_block(request_id, current_round, "text", full_content, broadcast=False)
             used_ids = re.findall(r'\[\[used:(\d+)\]\]', full_content)
@@ -1995,6 +2058,8 @@ class ChatService:
                 call_params["temperature"] = preset_temperature
             if preset_top_p is not None:
                 call_params["top_p"] = preset_top_p
+            if preset_thinking_budget > 0:
+                call_params["reasoning"] = {"max_tokens": preset_thinking_budget}
             response = client.chat.completions.create(**call_params)
         except Exception as e:
             logger.error("[_fetch_next_tool_calls] API request FAILED (session=%s): %s", session_id, e)
@@ -2007,6 +2072,8 @@ class ChatService:
             logger.warning("[_fetch_next_tool_calls] LLM response had no choices (session=%s)", session_id)
             return []
         choice = response.choices[0].message
+        # Extract reasoning content from OpenRouter response
+        reasoning_content = _extract_reasoning_from_message(choice)
         tool_calls = []
         if getattr(choice, "tool_calls", None):
             tool_calls_payload = []
@@ -2021,8 +2088,10 @@ class ChatService:
                     arguments=json.loads(tool_call.function.arguments or "{}"),
                     id=tool_call.id,
                 ))
-            # Write COT blocks (text only; tool_use written later in execution loop)
+            # Write COT blocks (thinking + text; tool_use written later in execution loop)
             if request_id:
+                if reasoning_content:
+                    self._write_cot_block(request_id, round_index, "thinking", reasoning_content)
                 if choice.content:
                     self._write_cot_block(request_id, round_index, "text", choice.content)
             messages.append({"role": "assistant", "content": choice.content or "", "tool_calls": tool_calls_payload})
@@ -2030,6 +2099,8 @@ class ChatService:
             return tool_calls
         if choice.content is not None and choice.content != "":
             if request_id:
+                if reasoning_content:
+                    self._write_cot_block(request_id, round_index, "thinking", reasoning_content)
                 self._write_cot_block(request_id, round_index, "text", choice.content)
             _persist_text(choice.content)
         else:
