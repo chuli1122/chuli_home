@@ -1271,7 +1271,7 @@ class ChatService:
         _now_bj = datetime.now(TZ_EAST8)
         prompt_parts.append(
             f"当前日期：{_now_bj.year}年{_now_bj.month}月{_now_bj.day}日 "
-            f"{_weekdays[_now_bj.weekday()]}"
+            f"{_weekdays[_now_bj.weekday()]} | 当前模型：{model_preset.model_name}"
         )
         if selected_summaries_desc:
             summary_text = "[历史对话摘要]\n"
@@ -1557,13 +1557,17 @@ class ChatService:
                 anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
                 anth_tools = _oai_tools_to_anthropic(tools)
                 try:
-                    thinking_budget = max(1024, preset_max_tokens // 2)
+                    _tb_row = self.db.query(Settings).filter(Settings.key == "main_thinking_budget").first()
+                    _thinking_budget = int(_tb_row.value) if _tb_row and _tb_row.value else 0
                     anth_kwargs: dict[str, Any] = {
                         "model": model_name,
-                        "max_tokens": preset_max_tokens + thinking_budget,
                         "messages": anth_msgs,
-                        "thinking": {"type": "enabled", "budget_tokens": thinking_budget},
                     }
+                    if _thinking_budget > 0:
+                        anth_kwargs["max_tokens"] = preset_max_tokens + _thinking_budget
+                        anth_kwargs["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
+                    else:
+                        anth_kwargs["max_tokens"] = preset_max_tokens
                     if anth_system:
                         anth_kwargs["system"] = anth_system
                     if anth_tools:
@@ -1888,13 +1892,17 @@ class ChatService:
             anth_system, anth_msgs = _oai_messages_to_anthropic(api_messages)
             anth_tools = _oai_tools_to_anthropic(tools)
             try:
-                thinking_budget = max(1024, preset_max_tokens // 2)
+                _tb_row2 = self.db.query(Settings).filter(Settings.key == "main_thinking_budget").first()
+                _thinking_budget2 = int(_tb_row2.value) if _tb_row2 and _tb_row2.value else 0
                 anth_kwargs: dict[str, Any] = {
                     "model": model_name,
-                    "max_tokens": preset_max_tokens + thinking_budget,
                     "messages": anth_msgs,
-                    "thinking": {"type": "enabled", "budget_tokens": thinking_budget},
                 }
+                if _thinking_budget2 > 0:
+                    anth_kwargs["max_tokens"] = preset_max_tokens + _thinking_budget2
+                    anth_kwargs["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget2}
+                else:
+                    anth_kwargs["max_tokens"] = preset_max_tokens
                 if anth_system:
                     anth_kwargs["system"] = anth_system
                 if anth_tools:

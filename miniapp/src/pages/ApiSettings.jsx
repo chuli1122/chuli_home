@@ -274,6 +274,10 @@ export default function ApiSettings() {
   const [maxTokens, setMaxTokens] = useState(4096);
   const [editingPreset, setEditingPreset] = useState(null);
 
+  // Thinking budget
+  const [mainThinking, setMainThinking] = useState(0);
+  const [summaryThinking, setSummaryThinking] = useState(0);
+
   // UI
   const [toast, setToast] = useState(null);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -297,12 +301,15 @@ export default function ApiSettings() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [provRes, presRes] = await Promise.all([
+      const [provRes, presRes, tbRes] = await Promise.all([
         apiFetch("/api/providers"),
         apiFetch("/api/presets"),
+        apiFetch("/api/settings/thinking-budget"),
       ]);
       setProviders(provRes.providers || []);
       setPresets(presRes.presets || []);
+      setMainThinking(tbRes.main || 0);
+      setSummaryThinking(tbRes.summary || 0);
     } catch (e) {
       showToast("加载失败: " + e.message);
     } finally {
@@ -595,6 +602,57 @@ export default function ApiSettings() {
               <div className="flex items-center justify-between">
                 <span className="text-[14px] font-semibold" style={{ color: S.text }}>Max Tokens</span>
                 <NumberField value={maxTokens} onChange={setMaxTokens} min={128} max={200000} step={1} />
+              </div>
+            </Card>
+
+            {/* Thinking Budget */}
+            <Card>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[14px] font-semibold" style={{ color: S.text }}>主模型思考预算</div>
+                  <div className="text-[11px]" style={{ color: S.textMuted }}>Extended Thinking tokens</div>
+                </div>
+                <select
+                  className="rounded-[10px] py-2 px-3 text-[13px] font-bold outline-none appearance-none text-center"
+                  style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text, WebkitAppearance: "none", minWidth: 90 }}
+                  value={mainThinking}
+                  onChange={async (e) => {
+                    const v = Number(e.target.value);
+                    setMainThinking(v);
+                    try { await apiFetch("/api/settings/thinking-budget", { method: "PUT", body: { main: v, summary: summaryThinking } }); } catch (_e) {}
+                  }}
+                >
+                  <option value={0}>关闭</option>
+                  <option value={1024}>1024</option>
+                  <option value={2048}>2048</option>
+                  <option value={4096}>4096</option>
+                  <option value={8192}>8192</option>
+                  <option value={16384}>16384</option>
+                </select>
+              </div>
+              <div className="h-px" style={{ background: "rgba(136,136,160,0.15)" }} />
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[14px] font-semibold" style={{ color: S.text }}>摘要模型思考预算</div>
+                  <div className="text-[11px]" style={{ color: S.textMuted }}>摘要模型 Thinking tokens</div>
+                </div>
+                <select
+                  className="rounded-[10px] py-2 px-3 text-[13px] font-bold outline-none appearance-none text-center"
+                  style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text, WebkitAppearance: "none", minWidth: 90 }}
+                  value={summaryThinking}
+                  onChange={async (e) => {
+                    const v = Number(e.target.value);
+                    setSummaryThinking(v);
+                    try { await apiFetch("/api/settings/thinking-budget", { method: "PUT", body: { main: mainThinking, summary: v } }); } catch (_e) {}
+                  }}
+                >
+                  <option value={0}>关闭</option>
+                  <option value={1024}>1024</option>
+                  <option value={2048}>2048</option>
+                  <option value={4096}>4096</option>
+                  <option value={8192}>8192</option>
+                  <option value={16384}>16384</option>
+                </select>
               </div>
             </Card>
 

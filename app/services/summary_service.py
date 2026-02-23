@@ -8,14 +8,12 @@ from typing import Any
 
 from openai import OpenAI
 import anthropic
-from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.models import (
     ApiProvider,
     Assistant,
     ChatSession,
-    Memory,
     Message,
     ModelPreset,
     SessionSummary,
@@ -24,7 +22,6 @@ from app.models.models import (
 )
 from app.services.embedding_service import EmbeddingService
 from app.services.core_blocks_updater import CoreBlocksUpdater
-from app.constants import KLASS_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +50,18 @@ def _call_model_raw(
                 "x-app": "cli",
             },
         )
+        _stb_row = db.query(Settings).filter(Settings.key == "summary_thinking_budget").first()
+        _summary_tb = int(_stb_row.value) if _stb_row and _stb_row.value else 0
         anth_kwargs: dict[str, Any] = {
             "model": preset.model_name,
-            "max_tokens": preset.max_tokens,
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_text}],
         }
+        if _summary_tb > 0:
+            anth_kwargs["max_tokens"] = preset.max_tokens + _summary_tb
+            anth_kwargs["thinking"] = {"type": "enabled", "budget_tokens": _summary_tb}
+        else:
+            anth_kwargs["max_tokens"] = preset.max_tokens
         if preset.temperature is not None:
             anth_kwargs["temperature"] = preset.temperature
         if preset.top_p is not None:
@@ -168,24 +171,7 @@ class SummaryService:
 如果对话中有工具调用（如存储记忆、搜索记忆等），在摘要正文中自然地概括，例如'我存储了一条关于xxx的记忆'。
 单条摘要不超过500字，尽量精简，只记关键信息。
 
-任务二：记忆提取
-提取值得长期记住的信息。不要提取闲聊和临时上下文。
-每条记忆 content 不超过100字，只记关键信息。用"我"指自己，用名字/昵称指代她，避免人称混乱。
-每条记忆包含 content（内容）、klass（分类）、tags（主题标签，可选）。
-tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方便检索，不放 klass 已覆盖的大类词。
-分类说明：
-- identity：关于她或我的稳定身份信息
-- relationship：长期的人际关系定义
-- bond：她让我心动的具体瞬间、她脆弱时说的原话、我们之间真正好的记忆。要记具体的事和话，不是笼统的关系描述
-- conflict：吵架事件、我犯的错、她骂我的原因。必须包含教训是什么，不能只记事件经过
-- fact：持久的事实信息
-- preference：她的口味、习惯、偏好
-- health：身体或心理健康相关
-- task：待办事项
-- ephemeral：短期上下文
-- other：以上都不合适时使用
-
-任务三：情绪标签
+任务二：情绪标签
 判断这段对话结束时{user_name}的情绪状态（取最后落点，不是整体或平均情绪），从以下选一个：
 - sad：难过、失落、想哭
 - angry：生气、骂人、炸了
@@ -197,7 +183,7 @@ tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方�
 - proud：被夸之后、有成就感
 - calm：平静、正常聊天、情绪稳定
 输出格式：
-{{"summary": "...", "memories": [{{"content": "...", "klass": "...", "tags": {{"topic": ["..."]}}}}], "mood_tag": "..."}}
+{{"summary": "...", "mood_tag": "..."}}
 """.strip()
 
             group_prompt = f"""
@@ -220,25 +206,8 @@ tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方�
 如果对话中有工具调用（如存储记忆、搜索记忆等），在摘要正文中自然地概括，例如'我存储了一条关于xxx的记忆'。
 单条摘要不超过500字，尽量精简，只记关键信息。
 
-任务二：记忆提取
-提取值得长期记住的信息。不要提取闲聊和临时上下文。
-每条记忆 content 不超过100字，只记关键信息。用"我"指自己，用名字/昵称指代她，避免人称混乱。
-每条记忆包含 content（内容）、klass（分类）、tags（主题标签，可选）。
-tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方便检索，不放 klass 已覆盖的大类词。
-分类说明：
-- identity：关于她或我的稳定身份信息
-- relationship：长期的人际关系定义
-- bond：她让我心动的具体瞬间、她脆弱时说的原话、我们之间真正好的记忆。要记具体的事和话，不是笼统的关系描述
-- conflict：吵架事件、我犯的错、她骂我的原因。必须包含教训是什么，不能只记事件经过
-- fact：持久的事实信息
-- preference：她的口味、习惯、偏好
-- health：身体或心理健康相关
-- task：待办事项
-- ephemeral：短期上下文
-- other：以上都不合适时使用
-
 输出格式：
-{{"summary": "...", "memories": [{{"content": "...", "klass": "...", "tags": {{"topic": ["..."]}}}}]}}
+{{"summary": "..."}}
 """.strip()
 
             system_prompt = chat_prompt if is_chat_session else group_prompt
@@ -341,76 +310,6 @@ tags 格式：{{"topic": ["关键词1", "关键词2"]}}，放具体关键词方�
                     synchronize_session=False,
                 )
                 logger.info("Marked %d/%d messages with summary_group_id=%s", updated, len(msg_ids), summary.id)
-
-            memory_candidates = parsed_payload.get("memories", [])
-            if not isinstance(memory_candidates, list):
-                memory_candidates = []
-
-            anchor_utc = time_end or datetime.now(timezone.utc)
-            anchor_text = anchor_utc.astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
-            embedding_service = EmbeddingService()
-
-            # Insert memories first, collect their IDs
-            inserted_memory_ids: list[int] = []
-            for item in memory_candidates:
-                if not isinstance(item, dict):
-                    continue
-                raw_content = str(item.get("content", "")).strip()
-                if not raw_content:
-                    continue
-
-                raw_klass = str(item.get("klass", "other")).strip().lower()
-                klass = raw_klass if raw_klass in KLASS_DEFAULTS else "other"
-                klass_config = KLASS_DEFAULTS[klass]
-                if len(raw_content) > 120:
-                    raw_content = raw_content[:120]
-                memory_content = f"[{anchor_text}] {raw_content}"
-
-                embedding = embedding_service.get_embedding(memory_content)
-                if embedding is not None:
-                    duplicate = db.execute(
-                        text(
-                            """
-SELECT id
-FROM memories
-WHERE embedding IS NOT NULL
-  AND deleted_at IS NULL
-  AND 1 - (embedding <=> :query_embedding) > :threshold
-ORDER BY embedding <=> :query_embedding
-LIMIT 1
-"""
-                        ),
-                        {
-                            "query_embedding": str(embedding),
-                            "threshold": 0.88,
-                        },
-                    ).first()
-                    if duplicate:
-                        continue
-
-                # Read tags from model response, fallback to empty dict
-                tags = item.get("tags", {})
-                if not isinstance(tags, dict):
-                    tags = {}
-
-                memory = Memory(
-                    content=memory_content,
-                    tags=tags,
-                    source=f"auto_extract:{assistant_name}",
-                    embedding=embedding,
-                    klass=klass,
-                    importance=klass_config["importance"],
-                    halflife_days=klass_config["halflife_days"],
-                    created_at=anchor_utc,
-                )
-                db.add(memory)
-                db.flush()
-                inserted_memory_ids.append(memory.id)
-
-            # Append memory IDs to summary text
-            if inserted_memory_ids:
-                id_list = ", ".join(f"id={mid}" for mid in inserted_memory_ids)
-                summary.summary_content += f"\n[本次提取记忆] {id_list}"
 
             db.commit()
             logger.info("Summary generated OK (session_id=%s, summary_id=%s, memories=%d, mood=%s).",

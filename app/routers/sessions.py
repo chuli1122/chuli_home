@@ -177,6 +177,7 @@ def get_session_messages(
     limit: int = Query(50, ge=1, le=200),
     before_id: int | None = Query(None, ge=1),
     search: str | None = Query(None, min_length=1),
+    role: str | None = Query(None),
     tg_msg_id: int | None = Query(None),
     db: Session = Depends(get_db),
 ) -> SessionMessagesResponse:
@@ -196,6 +197,8 @@ def get_session_messages(
             ),
         ),
     )
+    if role:
+        query = query.filter(Message.role == role)
     if before_id is not None:
         query = query.filter(Message.id < before_id)
 
@@ -238,6 +241,7 @@ def get_session_messages(
 def get_session_summaries(
     session_id: int,
     search: str | None = Query(None, min_length=1),
+    mood_tag: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -249,6 +253,8 @@ def get_session_summaries(
     base = db.query(SessionSummary).filter(
         SessionSummary.session_id == session_id, SessionSummary.deleted_at.is_(None)
     )
+    if mood_tag:
+        base = base.filter(SessionSummary.mood_tag == mood_tag)
     if search:
         base = base.filter(SessionSummary.summary_content.ilike(f"%{search}%"))
     total = base.count()
@@ -502,6 +508,30 @@ def update_message(
     )
 
 
+class BatchDeleteRequest(BaseModel):
+    ids: list[int]
+
+
+class BatchDeleteResponse(BaseModel):
+    deleted: int
+
+
+@router.delete("/sessions/{session_id}/messages/batch", response_model=BatchDeleteResponse)
+def batch_delete_messages(
+    session_id: int,
+    payload: BatchDeleteRequest,
+    db: Session = Depends(get_db),
+) -> BatchDeleteResponse:
+    if not payload.ids:
+        return BatchDeleteResponse(deleted=0)
+    deleted = db.query(Message).filter(
+        Message.session_id == session_id,
+        Message.id.in_(payload.ids),
+    ).delete(synchronize_session=False)
+    db.commit()
+    return BatchDeleteResponse(deleted=deleted)
+
+
 @router.delete("/sessions/{session_id}/messages/{message_id}", response_model=MessageDeleteResponse)
 def delete_message(
     session_id: int,
@@ -572,6 +602,28 @@ def list_summary_trash(
         for row in rows
     ]
     return TrashSummariesResponse(summaries=items, total=total)
+
+
+@router.delete("/sessions/{session_id}/summaries/batch", response_model=BatchDeleteResponse)
+def batch_delete_summaries(
+    session_id: int,
+    payload: BatchDeleteRequest,
+    db: Session = Depends(get_db),
+) -> BatchDeleteResponse:
+    if not payload.ids:
+        return BatchDeleteResponse(deleted=0)
+    now = datetime.now(timezone.utc)
+    deleted = db.query(SessionSummary).filter(
+        SessionSummary.session_id == session_id,
+        SessionSummary.id.in_(payload.ids),
+        SessionSummary.deleted_at.is_(None),
+    ).update({SessionSummary.deleted_at: now}, synchronize_session=False)
+    # Clear summary_group_id on messages
+    db.query(Message).filter(Message.summary_group_id.in_(payload.ids)).update(
+        {Message.summary_group_id: None}, synchronize_session=False,
+    )
+    db.commit()
+    return BatchDeleteResponse(deleted=deleted)
 
 
 @router.delete("/sessions/{session_id}/summaries/{summary_id}", response_model=SummaryDeleteResponse)

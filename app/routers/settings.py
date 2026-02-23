@@ -324,3 +324,41 @@ def set_mood(
 
     db.commit()
     return MoodResponse(mood=mood)
+
+
+# ── Thinking Budget ──
+
+
+class ThinkingBudgetResponse(BaseModel):
+    main: int
+    summary: int
+
+
+class ThinkingBudgetUpdateRequest(BaseModel):
+    main: int = Field(..., ge=0)
+    summary: int = Field(..., ge=0)
+
+
+@router.get("/settings/thinking-budget", response_model=ThinkingBudgetResponse)
+def get_thinking_budget(db: Session = Depends(get_db)) -> ThinkingBudgetResponse:
+    rows = (
+        db.query(Settings)
+        .filter(Settings.key.in_(["main_thinking_budget", "summary_thinking_budget"]))
+        .all()
+    )
+    kv = {row.key: row.value for row in rows}
+    return ThinkingBudgetResponse(
+        main=_safe_int(kv.get("main_thinking_budget"), 0),
+        summary=_safe_int(kv.get("summary_thinking_budget"), 0),
+    )
+
+
+@router.put("/settings/thinking-budget", response_model=ThinkingBudgetResponse)
+def update_thinking_budget(
+    payload: ThinkingBudgetUpdateRequest,
+    db: Session = Depends(get_db),
+) -> ThinkingBudgetResponse:
+    _upsert_setting(db, "main_thinking_budget", payload.main)
+    _upsert_setting(db, "summary_thinking_budget", payload.summary)
+    db.commit()
+    return ThinkingBudgetResponse(main=payload.main, summary=payload.summary)

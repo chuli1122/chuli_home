@@ -208,6 +208,30 @@ def restore_memory(memory_id: int, db: Session = Depends(get_db)) -> MemoryDelet
     return MemoryDeleteResponse(status="restored", id=memory_id)
 
 
+class BatchDeleteRequest(BaseModel):
+    ids: list[int]
+
+
+class BatchDeleteResponse(BaseModel):
+    deleted: int
+
+
+@router.delete("/memories/batch", response_model=BatchDeleteResponse)
+def batch_delete_memories(
+    payload: BatchDeleteRequest,
+    db: Session = Depends(get_db),
+) -> BatchDeleteResponse:
+    if not payload.ids:
+        return BatchDeleteResponse(deleted=0)
+    now = datetime.now(timezone.utc)
+    deleted = db.query(Memory).filter(
+        Memory.id.in_(payload.ids),
+        Memory.deleted_at.is_(None),
+    ).update({Memory.deleted_at: now}, synchronize_session=False)
+    db.commit()
+    return BatchDeleteResponse(deleted=deleted)
+
+
 @router.delete("/memories/{memory_id}/permanent", response_model=MemoryDeleteResponse)
 def delete_memory_permanent(
     memory_id: int, db: Session = Depends(get_db)

@@ -17,9 +17,6 @@ const TABS = [
   { key: "messages", label: "消息记录" },
 ];
 
-const SWIPE_WIDTH = 80;
-const SNAP_THRESHOLD = 40;
-
 const KLASS_COLORS = {
   identity:     { color: "#7b5ea7", bg: "#ede4f7" },
   relationship: { color: "#c26a8a", bg: "#f7e0ea" },
@@ -32,6 +29,40 @@ const KLASS_COLORS = {
   ephemeral:    { color: "#9b9b9b", bg: "#ececec" },
   other:        { color: "#8a7a6a", bg: "#efe8df" },
 };
+
+const KLASS_OPTIONS = [
+  { value: "", label: "全部分类" },
+  { value: "identity", label: "identity" },
+  { value: "relationship", label: "relationship" },
+  { value: "bond", label: "bond" },
+  { value: "conflict", label: "conflict" },
+  { value: "fact", label: "fact" },
+  { value: "preference", label: "preference" },
+  { value: "health", label: "health" },
+  { value: "task", label: "task" },
+  { value: "ephemeral", label: "ephemeral" },
+  { value: "other", label: "other" },
+];
+
+const MOOD_OPTIONS = [
+  { value: "", label: "全部心情" },
+  { value: "sad", label: "sad" },
+  { value: "angry", label: "angry" },
+  { value: "anxious", label: "anxious" },
+  { value: "tired", label: "tired" },
+  { value: "emo", label: "emo" },
+  { value: "happy", label: "happy" },
+  { value: "flirty", label: "flirty" },
+  { value: "proud", label: "proud" },
+  { value: "calm", label: "calm" },
+];
+
+const ROLE_OPTIONS = [
+  { value: "", label: "全部类型" },
+  { value: "user", label: "用户消息" },
+  { value: "assistant", label: "助手消息" },
+  { value: "system", label: "系统消息" },
+];
 
 /* ── Helpers ── */
 
@@ -65,6 +96,22 @@ function Highlight({ text, keyword }) {
   }
   if (last < text.length) parts.push(<span key={last}>{text.slice(last)}</span>);
   return <>{parts}</>;
+}
+
+/* ── Selection checkbox ── */
+
+function SelectCircle({ selected }) {
+  return (
+    <div
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
+      style={selected
+        ? { background: S.accentDark, boxShadow: "0 2px 6px rgba(201,98,138,0.3)" }
+        : { background: S.bg, boxShadow: "var(--inset-shadow)" }
+      }
+    >
+      {selected && <Check size={12} color="white" strokeWidth={3} />}
+    </div>
+  );
 }
 
 /* ── Confirm dialog ── */
@@ -114,156 +161,80 @@ function EditModal({ initialText, onSave, onCancel }) {
   );
 }
 
-/* ── Swipe row ── */
-
-function SwipeRow({ children, onDelete }) {
-  const rowRef = useRef(null);
-  const actRef = useRef(null);
-  const state = useRef({
-    startX: 0, startY: 0, base: 0, current: 0,
-    dragging: false, locked: false, isH: false,
-  });
-
-  const translate = (x, animate) => {
-    const el = rowRef.current;
-    const act = actRef.current;
-    if (!el) return;
-    const ease = animate ? "all 0.25s cubic-bezier(.4,0,.2,1)" : "none";
-    el.style.transition = ease;
-    el.style.transform = x ? `translateX(${x}px)` : "";
-    if (act) {
-      const p = Math.min(1, Math.abs(x) / SWIPE_WIDTH);
-      act.style.transition = ease;
-      act.style.opacity = `${p}`;
-    }
-    if (!x) el.style.willChange = "auto";
-    state.current.current = x;
-  };
-
-  const close = () => translate(0, true);
-
-  const onTouchStart = (e) => {
-    const t = e.touches[0];
-    const s = state.current;
-    s.startX = t.clientX; s.startY = t.clientY;
-    s.base = s.current; s.dragging = true;
-    s.locked = false; s.isH = false;
-    if (rowRef.current) rowRef.current.style.transition = "none";
-    if (actRef.current) actRef.current.style.transition = "none";
-  };
-
-  const onTouchMove = (e) => {
-    const s = state.current;
-    if (!s.dragging) return;
-    const t = e.touches[0];
-    const dx = t.clientX - s.startX;
-    const dy = t.clientY - s.startY;
-    if (!s.locked) {
-      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-      s.locked = true;
-      s.isH = Math.abs(dx) > Math.abs(dy);
-      if (s.isH && rowRef.current) rowRef.current.style.willChange = "transform";
-    }
-    if (!s.isH) { s.dragging = false; return; }
-    e.preventDefault();
-    const next = Math.max(-SWIPE_WIDTH, Math.min(0, s.base + dx));
-    if (rowRef.current) rowRef.current.style.transform = `translateX(${next}px)`;
-    if (actRef.current) actRef.current.style.opacity = `${Math.min(1, Math.abs(next) / SWIPE_WIDTH)}`;
-    s.current = next;
-  };
-
-  const onTouchEnd = () => {
-    state.current.dragging = false;
-    if (state.current.current < -SNAP_THRESHOLD) translate(-SWIPE_WIDTH, true);
-    else translate(0, true);
-  };
-
-  return (
-    <div
-      className="relative mb-3 overflow-hidden rounded-[18px]"
-      style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-    >
-      <div
-        ref={actRef}
-        className="absolute right-0 top-0 bottom-0 flex items-center pr-2"
-        style={{ opacity: 0 }}
-      >
-        <button
-          className="flex h-[calc(100%-12px)] w-[68px] flex-col items-center justify-center gap-1 rounded-[14px]"
-          style={{ background: "#ff4d6d" }}
-          onClick={() => { close(); onDelete(); }}
-        >
-          <Trash2 size={16} color="white" />
-          <span className="text-[11px] font-medium text-white">删除</span>
-        </button>
-      </div>
-      <div
-        ref={rowRef}
-        className="relative z-10"
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
-
 /* ── Expandable card (memory / summary) ── */
 
-function ExpandableCard({ children, time, badge, keyword, onSwipeDelete, onEdit }) {
+function ExpandableCard({ children, time, badge, keyword, onEdit, selectMode, selected, onToggle, onLongPress }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const textRef = useRef(null);
   const text = typeof children === "string" ? children : "";
-  const inSwipe = !!onSwipeDelete;
+  const lpRef = useRef(null);
+  const lpTriggered = useRef(false);
 
   useLayoutEffect(() => {
     const el = textRef.current;
     if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
   }, [text, expanded]);
 
-  const inner = (
-    <div className={inSwipe ? "rounded-[18px] p-3" : "mb-3 rounded-[18px] p-3"} style={{ background: S.bg, boxShadow: inSwipe ? "none" : "var(--card-shadow-sm)" }}>
-      <div className="flex items-start justify-between gap-1">
-        <div className="flex-1 min-w-0">
-          {badge}
-          <div
-            ref={textRef}
-            className="text-[12px] leading-relaxed break-words cursor-pointer"
-            style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
-            onClick={() => setExpanded(!expanded)}
-          >
-            <Highlight text={text} keyword={keyword} />
+  const handleTouchStart = () => {
+    if (selectMode) return;
+    lpTriggered.current = false;
+    lpRef.current = setTimeout(() => { lpTriggered.current = true; onLongPress?.(); }, 600);
+  };
+  const handleTouchEnd = () => { clearTimeout(lpRef.current); };
+  const handleClick = () => {
+    if (lpTriggered.current) return;
+    if (selectMode) { onToggle?.(); return; }
+  };
+
+  return (
+    <div
+      className="mb-3 rounded-[18px] p-3 flex items-start gap-2.5"
+      style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+      onClick={handleClick}
+    >
+      {selectMode && <div className="mt-1"><SelectCircle selected={selected} /></div>}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-1">
+          <div className="flex-1 min-w-0">
+            {badge}
+            <div
+              ref={textRef}
+              className="text-[12px] leading-relaxed break-words cursor-pointer"
+              style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+              onClick={(e) => { if (!selectMode) { e.stopPropagation(); setExpanded(!expanded); } }}
+            >
+              <Highlight text={text} keyword={keyword} />
+            </div>
           </div>
+          {!selectMode && onEdit && (
+            <button
+              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+              style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            >
+              <Pencil size={11} style={{ color: S.accentDark }} />
+            </button>
+          )}
         </div>
-        {onEdit && (
-          <button
-            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
-            style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-          >
-            <Pencil size={11} style={{ color: S.accentDark }} />
-          </button>
-        )}
-      </div>
-      <div className="mt-1 flex items-center justify-between">
-        <span className="text-[10px]" style={{ color: S.textMuted }}>{time || ""}</span>
-        {(overflows || expanded) && (
-          <button
-            className="rounded-full px-2 py-0.5 text-[10px]"
-            style={{ color: S.accentDark, background: "rgba(232,160,191,0.1)" }}
-            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-          >
-            {expanded ? "收起" : "查看更多"}
-          </button>
-        )}
+        <div className="mt-1 flex items-center justify-between">
+          <span className="text-[10px]" style={{ color: S.textMuted }}>{time || ""}</span>
+          {!selectMode && (overflows || expanded) && (
+            <button
+              className="rounded-full px-2 py-0.5 text-[10px]"
+              style={{ color: S.accentDark, background: "rgba(232,160,191,0.1)" }}
+              onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+            >
+              {expanded ? "收起" : "查看更多"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
-  if (onSwipeDelete) return <SwipeRow onDelete={onSwipeDelete}>{inner}</SwipeRow>;
-  return inner;
 }
 
 /* ── Trash card ── */
@@ -312,19 +283,40 @@ function TrashCard({ content, deletedAt, keyword, onRestore, onPermanentDelete }
 
 /* ── Message card (expandable) ── */
 
-function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
+function MessageCard({ msg, keyword, roleLabel, roleColor, selectMode, selected, onToggle, onLongPress }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const textRef = useRef(null);
+  const lpRef = useRef(null);
+  const lpTriggered = useRef(false);
 
   useLayoutEffect(() => {
     const el = textRef.current;
     if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
   }, [msg.content, expanded]);
 
+  const handleTouchStart = () => {
+    if (selectMode) return;
+    lpTriggered.current = false;
+    lpRef.current = setTimeout(() => { lpTriggered.current = true; onLongPress?.(); }, 600);
+  };
+  const handleTouchEnd = () => { clearTimeout(lpRef.current); };
+  const handleClick = () => {
+    if (lpTriggered.current) return;
+    if (selectMode) { onToggle?.(); return; }
+  };
+
   return (
-    <SwipeRow onDelete={onDelete}>
-      <div className="rounded-[18px] p-3" style={{ background: S.bg }}>
+    <div
+      className="mb-3 rounded-[18px] p-3 flex items-start gap-2.5"
+      style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+      onClick={handleClick}
+    >
+      {selectMode && <div className="mt-1"><SelectCircle selected={selected} /></div>}
+      <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>{roleLabel(msg.role)}</span>
@@ -340,11 +332,11 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
           ref={textRef}
           className="text-[12px] leading-relaxed break-words cursor-pointer"
           style={expanded ? { color: S.text } : { color: S.text, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}
-          onClick={() => setExpanded(!expanded)}
+          onClick={(e) => { if (!selectMode) { e.stopPropagation(); setExpanded(!expanded); } }}
         >
           <Highlight text={msg.content} keyword={keyword} />
         </div>
-        {(overflows || expanded) && (
+        {!selectMode && (overflows || expanded) && (
           <div className="mt-1 flex justify-center">
             <button
               className="rounded-full px-2 py-0.5 text-[10px]"
@@ -356,7 +348,7 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, onDelete }) {
           </div>
         )}
       </div>
-    </SwipeRow>
+    </div>
   );
 }
 
@@ -373,6 +365,15 @@ export default function Memories() {
   const [confirm, setConfirm] = useState(null);
   const [editing, setEditing] = useState(null); // { type, id, text }
 
+  // Filters
+  const [filterKlass, setFilterKlass] = useState("");
+  const [filterMood, setFilterMood] = useState("");
+  const [filterRole, setFilterRole] = useState("");
+
+  // Multi-select
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
   const [memories, setMemories] = useState([]);
   const [summaries, setSummaries] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -382,6 +383,9 @@ export default function Memories() {
   const [hasMoreMem, setHasMoreMem] = useState(false);
   const [hasMoreSum, setHasMoreSum] = useState(false);
   const [hasMoreMsg, setHasMoreMsg] = useState(false);
+
+  // Exit select mode on tab change
+  useEffect(() => { setSelectMode(false); setSelectedIds(new Set()); }, [tab]);
 
   // Load sessions
   useEffect(() => {
@@ -402,9 +406,12 @@ export default function Memories() {
   const PAGE_SIZE = 50;
   const searchRef = useRef("");
   const debounceRef = useRef(null);
+  const filterRef = useRef({ klass: "", mood: "", role: "" });
+  filterRef.current = { klass: filterKlass, mood: filterMood, role: filterRole };
 
   useEffect(() => { if (sessionId) loadData(); }, [sessionId, trashMode]);
   useEffect(() => { if (sessionId && !trashMode) loadData(); }, [tab]);
+  useEffect(() => { if (sessionId && !trashMode) loadData(); }, [filterKlass, filterMood, filterRole]);
 
   // Debounced server-side search
   useEffect(() => {
@@ -419,12 +426,21 @@ export default function Memories() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [searchText]);
 
-  const _searchParam = (kw) => { const s = (kw ?? (searchRef.current || "")).trim(); return s ? `&search=${encodeURIComponent(s)}` : ""; };
+  const _buildParams = (kwOverride) => {
+    const parts = [];
+    const kw = (kwOverride ?? (searchRef.current || "")).trim();
+    if (kw) parts.push(`search=${encodeURIComponent(kw)}`);
+    const f = filterRef.current;
+    if (tab === "memories" && f.klass) parts.push(`klass=${encodeURIComponent(f.klass)}`);
+    if (tab === "summaries" && f.mood) parts.push(`mood_tag=${encodeURIComponent(f.mood)}`);
+    if (tab === "messages" && f.role) parts.push(`role=${encodeURIComponent(f.role)}`);
+    return parts.length ? `&${parts.join("&")}` : "";
+  };
 
   const loadData = async (kwOverride) => {
     if (!sessionId) return;
     setLoading(true);
-    const sp = _searchParam(kwOverride);
+    const extra = _buildParams(kwOverride);
     try {
       if (trashMode) {
         const [memT, sumT] = await Promise.all([
@@ -434,15 +450,15 @@ export default function Memories() {
         setTrashMemories(memT.memories || []);
         setTrashSummaries(sumT.summaries || []);
       } else if (tab === "memories") {
-        const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=0${sp}`);
+        const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=0${extra}`);
         setMemories(d.memories || []);
         setHasMoreMem((d.total || 0) > (d.memories || []).length);
       } else if (tab === "summaries") {
-        const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=0${sp}`);
+        const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=0${extra}`);
         setSummaries(d.summaries || []);
         setHasMoreSum((d.total || 0) > (d.summaries || []).length);
       } else {
-        const d = await apiFetch(`/api/sessions/${sessionId}/messages?limit=50${sp}`);
+        const d = await apiFetch(`/api/sessions/${sessionId}/messages?limit=50${extra}`);
         setMessages((d.messages || []).reverse());
         setHasMoreMsg(d.has_more || false);
       }
@@ -453,9 +469,9 @@ export default function Memories() {
   const loadMoreMem = async () => {
     if (!hasMoreMem || loading) return;
     setLoading(true);
-    const sp = _searchParam();
+    const extra = _buildParams();
     try {
-      const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=${memories.length}${sp}`);
+      const d = await apiFetch(`/api/memories?limit=${PAGE_SIZE}&offset=${memories.length}${extra}`);
       const more = d.memories || [];
       setMemories((prev) => [...prev, ...more]);
       setHasMoreMem((d.total || 0) > memories.length + more.length);
@@ -466,9 +482,9 @@ export default function Memories() {
   const loadMoreSum = async () => {
     if (!sessionId || !hasMoreSum || loading) return;
     setLoading(true);
-    const sp = _searchParam();
+    const extra = _buildParams();
     try {
-      const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=${summaries.length}${sp}`);
+      const d = await apiFetch(`/api/sessions/${sessionId}/summaries?limit=${PAGE_SIZE}&offset=${summaries.length}${extra}`);
       const more = d.summaries || [];
       setSummaries((prev) => [...prev, ...more]);
       setHasMoreSum((d.total || 0) > summaries.length + more.length);
@@ -481,9 +497,9 @@ export default function Memories() {
     const oldest = messages[messages.length - 1];
     if (!oldest) return;
     setLoading(true);
-    const sp = _searchParam();
+    const extra = _buildParams();
     try {
-      const d = await apiFetch(`/api/sessions/${sessionId}/messages?limit=50&before_id=${oldest.id}${sp}`);
+      const d = await apiFetch(`/api/sessions/${sessionId}/messages?limit=50&before_id=${oldest.id}${extra}`);
       setMessages((prev) => [...prev, ...(d.messages || []).reverse()]);
       setHasMoreMsg(d.has_more || false);
     } catch (e) { console.error(e); }
@@ -498,14 +514,56 @@ export default function Memories() {
   // Actions
   const confirmAction = (message, action) => setConfirm({ message, action });
 
-  const deleteMemory = (id) => confirmAction("确定要删除这条记忆吗？", async () => { await apiFetch(`/api/memories/${id}`, { method: "DELETE" }); setMemories((p) => p.filter((m) => m.id !== id)); });
-  const deleteSummary = (id) => confirmAction("确定要删除这条摘要吗？", async () => { await apiFetch(`/api/sessions/${sessionId}/summaries/${id}`, { method: "DELETE" }); setSummaries((p) => p.filter((s) => s.id !== id)); });
-  const deleteMessage = (id) => confirmAction("确定要删除这条消息吗？", async () => { await apiFetch(`/api/sessions/${sessionId}/messages/${id}`, { method: "DELETE" }); setMessages((p) => p.filter((m) => m.id !== id)); });
-
   const restoreMemory = async (id) => { await apiFetch(`/api/memories/${id}/restore`, { method: "POST" }); setTrashMemories((p) => p.filter((m) => m.id !== id)); };
   const permanentDeleteMemory = (id) => confirmAction("彻底删除后不可恢复，确定吗？", async () => { await apiFetch(`/api/memories/${id}/permanent`, { method: "DELETE" }); setTrashMemories((p) => p.filter((m) => m.id !== id)); });
   const restoreSummary = async (id) => { await apiFetch(`/api/sessions/${sessionId}/summaries/${id}/restore`, { method: "POST" }); setTrashSummaries((p) => p.filter((s) => s.id !== id)); };
   const permanentDeleteSummary = (id) => confirmAction("彻底删除后不可恢复，确定吗？", async () => { await apiFetch(`/api/sessions/${sessionId}/summaries/${id}/permanent`, { method: "DELETE" }); setTrashSummaries((p) => p.filter((s) => s.id !== id)); });
+
+  // Multi-select helpers
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const enterSelectMode = (id) => {
+    setSelectMode(true);
+    setSelectedIds(new Set([id]));
+  };
+
+  const selectAll = () => {
+    let ids = [];
+    if (tab === "memories") ids = memories.map((m) => m.id);
+    else if (tab === "summaries") ids = summaries.map((s) => s.id);
+    else ids = messages.map((m) => m.id);
+    setSelectedIds(new Set(ids));
+  };
+
+  const cancelSelect = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const batchDelete = () => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    confirmAction(`确定要删除选中的 ${count} 条${tab === "memories" ? "记忆" : tab === "summaries" ? "摘要" : "消息"}吗？`, async () => {
+      const ids = [...selectedIds];
+      if (tab === "memories") {
+        await apiFetch("/api/memories/batch", { method: "DELETE", body: { ids } });
+        setMemories((p) => p.filter((m) => !selectedIds.has(m.id)));
+      } else if (tab === "summaries") {
+        await apiFetch(`/api/sessions/${sessionId}/summaries/batch`, { method: "DELETE", body: { ids } });
+        setSummaries((p) => p.filter((s) => !selectedIds.has(s.id)));
+      } else {
+        await apiFetch(`/api/sessions/${sessionId}/messages/batch`, { method: "DELETE", body: { ids } });
+        setMessages((p) => p.filter((m) => !selectedIds.has(m.id)));
+      }
+      cancelSelect();
+    });
+  };
 
   const saveEdit = async (text) => {
     if (!editing) return;
@@ -524,6 +582,15 @@ export default function Memories() {
   const roleLabel = (role) => { if (role === "user") return "我"; if (role === "assistant") return assistantName || "助手"; return "系统"; };
   const roleColor = (role) => { if (role === "user") return S.accentDark; if (role === "assistant") return "#8d68c4"; return S.textMuted; };
 
+  // Filter options for current tab
+  const filterOptions = tab === "memories" ? KLASS_OPTIONS : tab === "summaries" ? MOOD_OPTIONS : ROLE_OPTIONS;
+  const filterValue = tab === "memories" ? filterKlass : tab === "summaries" ? filterMood : filterRole;
+  const setFilterValue = (v) => {
+    if (tab === "memories") setFilterKlass(v);
+    else if (tab === "summaries") setFilterMood(v);
+    else setFilterRole(v);
+  };
+
   /* ── Render ── */
 
   const renderMemories = () => {
@@ -531,12 +598,16 @@ export default function Memories() {
     if (memories.length === 0) return <Empty text={kw ? "无匹配记忆" : "暂无记忆"} />;
     return (
       <>
+        {!selectMode && <p className="mb-2 text-[11px]" style={{ color: S.textMuted }}>长按卡片可多选删除</p>}
         {memories.map((mem) => (
           <ExpandableCard key={mem.id}
             time={mem.updated_at ? `${fmtTime(mem.created_at)} · 更新于 ${fmtTime(mem.updated_at)}` : fmtTime(mem.created_at)}
             keyword={kw}
-            onSwipeDelete={() => deleteMemory(mem.id)}
             onEdit={() => setEditing({ type: "memory", id: mem.id, text: mem.content })}
+            selectMode={selectMode}
+            selected={selectedIds.has(mem.id)}
+            onToggle={() => toggleSelect(mem.id)}
+            onLongPress={() => enterSelectMode(mem.id)}
             badge={(() => { const c = KLASS_COLORS[mem.klass] || KLASS_COLORS.other; return (<><span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: c.bg, color: c.color }}>{mem.klass}</span><span className="mb-1 ml-1 inline-block text-[10px]" style={{ color: S.textMuted }}>#{mem.id}</span></>); })()}
           >{mem.content}</ExpandableCard>
         ))}
@@ -554,10 +625,14 @@ export default function Memories() {
     if (summaries.length === 0) return <Empty text={kw ? "无匹配摘要" : "暂无摘要"} />;
     return (
       <>
+        {!selectMode && <p className="mb-2 text-[11px]" style={{ color: S.textMuted }}>长按卡片可多选删除</p>}
         {summaries.map((s) => (
           <ExpandableCard key={s.id} time={fmtTime(s.created_at)} keyword={kw}
-            onSwipeDelete={() => deleteSummary(s.id)}
             onEdit={() => setEditing({ type: "summary", id: s.id, text: s.summary_content })}
+            selectMode={selectMode}
+            selected={selectedIds.has(s.id)}
+            onToggle={() => toggleSelect(s.id)}
+            onLongPress={() => enterSelectMode(s.id)}
             badge={<>{s.mood_tag && <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{s.mood_tag}</span>}<span className="mb-1 ml-1 inline-block text-[10px]" style={{ color: S.textMuted }}>#{s.id}</span></>}
           >{s.summary_content || "(空)"}</ExpandableCard>
         ))}
@@ -575,10 +650,13 @@ export default function Memories() {
     if (messages.length === 0) return <Empty text={kw ? "无匹配消息" : "暂无消息"} />;
     return (
       <>
-        <p className="mb-2 text-[11px]" style={{ color: S.textMuted }}>左滑消息可删除</p>
+        {!selectMode && <p className="mb-2 text-[11px]" style={{ color: S.textMuted }}>长按卡片可多选删除</p>}
         {messages.map((msg) => (
           <MessageCard key={msg.id} msg={msg} keyword={kw} roleLabel={roleLabel} roleColor={roleColor}
-            onDelete={() => deleteMessage(msg.id)}
+            selectMode={selectMode}
+            selected={selectedIds.has(msg.id)}
+            onToggle={() => toggleSelect(msg.id)}
+            onLongPress={() => enterSelectMode(msg.id)}
           />
         ))}
         {hasMoreMsg && (
@@ -617,60 +695,98 @@ export default function Memories() {
         </button>
       </div>
 
+      {/* Select mode toolbar */}
+      {selectMode && (
+        <div className="shrink-0 px-5 pb-2">
+          <div className="flex items-center justify-between rounded-[14px] px-4 py-2.5" style={{ background: S.bg, boxShadow: "var(--inset-shadow)" }}>
+            <span className="text-[12px] font-semibold" style={{ color: S.accentDark }}>已选 {selectedIds.size} 项</span>
+            <div className="flex items-center gap-3">
+              <button className="text-[12px] font-medium" style={{ color: S.text }} onClick={selectAll}>全选</button>
+              <button className="text-[12px] font-medium" style={{ color: S.textMuted }} onClick={cancelSelect}>取消</button>
+              <button
+                className="rounded-[10px] px-3 py-1.5 text-[12px] font-semibold text-white"
+                style={{ background: selectedIds.size > 0 ? "#ff4d6d" : "rgba(255,77,109,0.3)" }}
+                onClick={batchDelete}
+                disabled={selectedIds.size === 0}
+              >删除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
-      <div className="shrink-0 px-5 pb-2">
-        <div className="flex rounded-[14px] p-1" style={{ background: S.bg, boxShadow: "var(--inset-shadow)" }}>
-          {TABS.map((t) => {
-            const disabled = trashMode && t.key === "messages";
-            const active = tab === t.key;
-            return (
-              <button key={t.key} className="flex-1 rounded-[12px] py-2 text-[12px] font-medium transition-all"
-                style={disabled ? { color: S.textMuted, opacity: 0.35, cursor: "default" } : active ? { background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark } : { color: S.textMuted }}
-                disabled={disabled} onClick={() => !disabled && setTab(t.key)}
-              >{t.label}</button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Session dropdown + Search */}
-      <div className="shrink-0 px-5 pb-3">
-        <div className="flex items-center gap-2">
-          {/* Session dropdown */}
-          <div className="relative" style={{ width: "33%" }}>
-            <select
-              className="w-full appearance-none rounded-[12px] py-2 pl-3 pr-7 text-[11px] font-medium outline-none truncate"
-              style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text, WebkitAppearance: "none" }}
-              value={sessionId ?? ""}
-              onChange={(e) => setSessionId(Number(e.target.value))}
-            >
-              {sessions.map((sess) => (
-                <option key={sess.id} value={sess.id}>
-                  #{sess.id} {sess.title || ""}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" style={{ color: S.textMuted }} />
-          </div>
-
-          {/* Search */}
-          <div className="relative flex-1">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: S.textMuted }} />
-            <input
-              className="w-full rounded-[12px] py-2 pl-8 pr-7 text-[11px] outline-none"
-              style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text }}
-              placeholder="搜索关键词..."
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-            />
-            {searchText && (
-              <button className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setSearchText("")}>
-                <X size={13} style={{ color: S.textMuted }} />
-              </button>
-            )}
+      {!selectMode && (
+        <div className="shrink-0 px-5 pb-2">
+          <div className="flex rounded-[14px] p-1" style={{ background: S.bg, boxShadow: "var(--inset-shadow)" }}>
+            {TABS.map((t) => {
+              const disabled = trashMode && t.key === "messages";
+              const active = tab === t.key;
+              return (
+                <button key={t.key} className="flex-1 rounded-[12px] py-2 text-[12px] font-medium transition-all"
+                  style={disabled ? { color: S.textMuted, opacity: 0.35, cursor: "default" } : active ? { background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark } : { color: S.textMuted }}
+                  disabled={disabled} onClick={() => !disabled && setTab(t.key)}
+                >{t.label}</button>
+              );
+            })}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Session dropdown + Filter + Search */}
+      {!selectMode && (
+        <div className="shrink-0 px-5 pb-3">
+          <div className="flex items-center gap-2">
+            {/* Session dropdown */}
+            <div className="relative" style={{ width: "28%" }}>
+              <select
+                className="w-full appearance-none rounded-[12px] py-2 pl-3 pr-7 text-[11px] font-medium outline-none truncate"
+                style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text, WebkitAppearance: "none" }}
+                value={sessionId ?? ""}
+                onChange={(e) => setSessionId(Number(e.target.value))}
+              >
+                {sessions.map((sess) => (
+                  <option key={sess.id} value={sess.id}>
+                    #{sess.id} {sess.title || ""}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" style={{ color: S.textMuted }} />
+            </div>
+
+            {/* Filter dropdown */}
+            <div className="relative" style={{ width: "28%" }}>
+              <select
+                className="w-full appearance-none rounded-[12px] py-2 pl-3 pr-7 text-[11px] font-medium outline-none truncate"
+                style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: filterValue ? S.accentDark : S.text, WebkitAppearance: "none" }}
+                value={filterValue}
+                onChange={(e) => setFilterValue(e.target.value)}
+              >
+                {filterOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" style={{ color: S.textMuted }} />
+            </div>
+
+            {/* Search */}
+            <div className="relative flex-1">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: S.textMuted }} />
+              <input
+                className="w-full rounded-[12px] py-2 pl-8 pr-7 text-[11px] outline-none"
+                style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text }}
+                placeholder="搜索..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+              {searchText && (
+                <button className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => setSearchText("")}>
+                  <X size={13} style={{ color: S.textMuted }} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 pb-8">{content}</div>

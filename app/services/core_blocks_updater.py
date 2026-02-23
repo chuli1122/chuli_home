@@ -203,9 +203,9 @@ class CoreBlocksUpdater:
             "从摘要文本中提取稳定的 core-block 更新信号。"
             "只返回 JSON，格式：{\"candidates\":[{\"block_type\":\"human|persona\",\"content\":\"...\"}]}。"
             "只提取跨会话持久有效的更新，跳过临时闲聊。"
-            "human block：AI 视角下对用户的理解——行为模式、情绪习惯、沟通风格、互动特点。"
+            "human block：AI 视角下对初礼的理解——行为模式、情绪习惯、沟通风格、互动特点。"
             "不要包含固定档案信息（生日、性别、星座、饮食禁忌等），那些属于 basic info。"
-            "persona block：AI 在相处中形成的自我认知——自己的性格特点、行为倾向、情绪模式，以及与用户之间形成的默契和不言而喻的共识。"
+            "persona block：AI 在相处中形成的自我认知——自己的性格特点、行为倾向、情绪模式，以及与初礼之间形成的默契和不言而喻的共识。"
         )
         user_prompt = (
             f"Assistant name: {assistant.name}\n"
@@ -334,7 +334,7 @@ class CoreBlocksUpdater:
         system_prompt = (
             "将 core memory block 重写为简洁一致的文本。"
             "只返回 JSON：{\"content\": \"...\"}，不要 markdown。"
-            "human block 用 AI 的视角写对用户的理解，persona block 用 AI 的视角写对自己的认知。"
+            "human block 用 AI 的视角写对初礼的理解，persona block 用 AI 的视角写对自己的认知。"
             "控制在 500 字以内。"
         )
         user_prompt = (
