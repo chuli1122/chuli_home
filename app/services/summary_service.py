@@ -86,7 +86,7 @@ def _call_model_raw(
             params["top_p"] = preset.top_p
         _summary_tb_oai = preset.thinking_budget or 0
         if _summary_tb_oai > 0:
-            params["reasoning"] = {"max_tokens": _summary_tb_oai}
+            params["extra_body"] = {"reasoning": {"max_tokens": _summary_tb_oai}}
         oai_response = oai_client.chat.completions.create(**params)
         if not oai_response.choices:
             raise ValueError("Response contained no choices.")

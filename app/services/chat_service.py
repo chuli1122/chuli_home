@@ -1711,7 +1711,7 @@ class ChatService:
                     if preset_top_p is not None:
                         stream_params["top_p"] = preset_top_p
                     if preset_thinking_budget > 0:
-                        stream_params["reasoning"] = {"max_tokens": preset_thinking_budget}
+                        stream_params["extra_body"] = {"reasoning": {"max_tokens": preset_thinking_budget}}
                     stream = client.chat.completions.create(**stream_params)
                 except Exception as e:
                     logger.error(f"Streaming request failed: {e}")
@@ -2059,7 +2059,7 @@ class ChatService:
             if preset_top_p is not None:
                 call_params["top_p"] = preset_top_p
             if preset_thinking_budget > 0:
-                call_params["reasoning"] = {"max_tokens": preset_thinking_budget}
+                call_params["extra_body"] = {"reasoning": {"max_tokens": preset_thinking_budget}}
             response = client.chat.completions.create(**call_params)
         except Exception as e:
             logger.error("[_fetch_next_tool_calls] API request FAILED (session=%s): %s", session_id, e)
