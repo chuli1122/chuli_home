@@ -1251,6 +1251,11 @@ class ChatService:
                     except Exception:
                         pass
             # All tool results added, now call API again for next response
+            # Broadcast running token totals so COT page shows tokens during tool rounds
+            cot_broadcaster.publish({
+                "type": "tokens_update", "request_id": request_id,
+                "prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens,
+            })
             logger.info("[chat_completion] Tool calls done, making follow-up API call (session=%s)", session_id)
             round_index += 1
             pending_tool_calls = list(self._fetch_next_tool_calls(
@@ -1859,9 +1864,25 @@ class ChatService:
                             self.db.rollback()
                         except Exception:
                             pass
+                # Broadcast running token totals so COT page shows tokens during tool rounds
+                cot_broadcaster.publish({
+                    "type": "tokens_update", "request_id": request_id,
+                    "prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens,
+                })
                 logger.info("[stream] Tool calls done, making follow-up API call (session=%s)", session_id)
                 round_index += 1
+                if round_index >= 15:
+                    logger.warning("[stream] Max tool rounds reached (session=%s)", session_id)
+                    yield f'data: {json.dumps({"content": "(已达到最大工具调用轮次)"})}\n\n'
+                    break
                 continue
+            # If model returned nothing after tool calls, nudge it to reply
+            if not content_chunks and not thinking_chunks_oai and round_index > 0:
+                logger.warning("[stream] Empty response after tool calls, nudging model (session=%s, round=%s)", session_id, round_index)
+                messages.append({"role": "user", "content": "(Please generate your response based on the tool results above.)"})
+                round_index += 1
+                if round_index < 15:
+                    continue
             # Final text response (already streamed as deltas)
             full_thinking = "".join(thinking_chunks_oai)
             if full_thinking:

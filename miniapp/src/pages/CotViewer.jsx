@@ -494,6 +494,17 @@ export default function CotViewer() {
             }
           };
 
+          if (type === "tokens_update") {
+            setItems((prev) =>
+              prev.map((it) =>
+                it.request_id === request_id
+                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0 }
+                  : it
+              )
+            );
+            return;
+          }
+
           if (type === "done") {
             setLiveRequestIds((prev) => {
               const next = new Set(prev);
