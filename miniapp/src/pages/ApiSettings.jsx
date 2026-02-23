@@ -619,7 +619,7 @@ export default function ApiSettings() {
                 </div>
                 <select
                   className="w-20 rounded-[10px] py-2 text-center text-[13px] font-bold outline-none appearance-none"
-                  style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text, WebkitAppearance: "none" }}
+                  style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text, WebkitAppearance: "none", textAlignLast: "center" }}
                   value={thinkingBudget}
                   onChange={(e) => setThinkingBudget(Number(e.target.value))}
                 >
