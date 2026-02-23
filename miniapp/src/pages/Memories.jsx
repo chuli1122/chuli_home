@@ -257,16 +257,26 @@ function ExpandableCard({ children, time, badge, keyword, onEdit, selectMode, se
   const text = typeof children === "string" ? children : "";
   const lpRef = useRef(null);
   const lpTriggered = useRef(false);
+  const touchStartPos = useRef(null);
 
   useLayoutEffect(() => {
     const el = textRef.current;
     if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
   }, [text, expanded]);
 
-  const handleTouchStart = () => {
+  const handleTouchStart = (e) => {
     if (selectMode) return;
+    const t = e.touches[0];
+    touchStartPos.current = { x: t.clientX, y: t.clientY };
     lpTriggered.current = false;
     lpRef.current = setTimeout(() => { lpTriggered.current = true; onLongPress?.(); }, 600);
+  };
+  const handleTouchMove = (e) => {
+    if (!touchStartPos.current || !lpRef.current) return;
+    const t = e.touches[0];
+    const dx = t.clientX - touchStartPos.current.x;
+    const dy = t.clientY - touchStartPos.current.y;
+    if (dx * dx + dy * dy > 100) { clearTimeout(lpRef.current); lpRef.current = null; }
   };
   const handleTouchEnd = () => { clearTimeout(lpRef.current); };
   const handleClick = () => {
@@ -279,6 +289,7 @@ function ExpandableCard({ children, time, badge, keyword, onEdit, selectMode, se
       className="mb-3 rounded-[18px] p-3 flex items-start gap-2.5"
       style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
       onClick={handleClick}
@@ -376,16 +387,26 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, selectMode, selected,
   const textRef = useRef(null);
   const lpRef = useRef(null);
   const lpTriggered = useRef(false);
+  const touchStartPos = useRef(null);
 
   useLayoutEffect(() => {
     const el = textRef.current;
     if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
   }, [msg.content, expanded]);
 
-  const handleTouchStart = () => {
+  const handleTouchStart = (e) => {
     if (selectMode) return;
+    const t = e.touches[0];
+    touchStartPos.current = { x: t.clientX, y: t.clientY };
     lpTriggered.current = false;
     lpRef.current = setTimeout(() => { lpTriggered.current = true; onLongPress?.(); }, 600);
+  };
+  const handleTouchMove = (e) => {
+    if (!touchStartPos.current || !lpRef.current) return;
+    const t = e.touches[0];
+    const dx = t.clientX - touchStartPos.current.x;
+    const dy = t.clientY - touchStartPos.current.y;
+    if (dx * dx + dy * dy > 100) { clearTimeout(lpRef.current); lpRef.current = null; }
   };
   const handleTouchEnd = () => { clearTimeout(lpRef.current); };
   const handleClick = () => {
@@ -398,6 +419,7 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, selectMode, selected,
       className="mb-3 rounded-[18px] p-3 flex items-start gap-2.5"
       style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
       onClick={handleClick}
