@@ -152,26 +152,26 @@ function fmtElapsed(ms) {
   return sec >= 100 ? `${Math.round(sec)}s` : `${sec.toFixed(1)}s`;
 }
 
-function TokenBadges({ prompt, completion, elapsedMs }) {
-  if (!prompt && !completion && !elapsedMs) return null;
+function TokenBadges({ prompt, completion, elapsedMs, hasToolCalls }) {
+  // Show badges if we have any non-zero values OR if there were tool calls
+  // (tool calls consume tokens even if final response is empty)
+  const hasAnyValue = prompt || completion || elapsedMs;
+  if (!hasAnyValue && !hasToolCalls) return null;
+
   return (
     <>
-      {(prompt || completion) ? (
-        <>
-          <span
-            className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
-            style={{ background: "rgba(80,160,120,0.12)", color: "#3a8a5f" }}
-          >
-            ↑{fmtTokens(prompt)}
-          </span>
-          <span
-            className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
-            style={{ background: "rgba(160,100,220,0.12)", color: "#8a5abf" }}
-          >
-            ↓{fmtTokens(completion)}
-          </span>
-        </>
-      ) : null}
+      <span
+        className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
+        style={{ background: "rgba(80,160,120,0.12)", color: "#3a8a5f" }}
+      >
+        ↑{fmtTokens(prompt)}
+      </span>
+      <span
+        className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
+        style={{ background: "rgba(160,100,220,0.12)", color: "#8a5abf" }}
+      >
+        ↓{fmtTokens(completion)}
+      </span>
       {elapsedMs ? (
         <span
           className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
@@ -262,7 +262,12 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
                 工具
               </span>
             )}
-            <TokenBadges prompt={item.prompt_tokens || 0} completion={item.completion_tokens || 0} elapsedMs={item.elapsed_ms || 0} />
+            <TokenBadges
+              prompt={item.prompt_tokens || 0}
+              completion={item.completion_tokens || 0}
+              elapsedMs={item.elapsed_ms || 0}
+              hasToolCalls={item.has_tool_calls}
+            />
             <span className="text-[10px]" style={{ color: S.textMuted }}>
               {item.created_at || ""}
             </span>

@@ -22,6 +22,14 @@ const ANTHROPIC_MODELS = [
   "claude-haiku-4-5-20251001",
 ];
 
+const CURSOR_MODELS = [
+  "claude-opus-4-6",
+  "claude-opus-4-5-20251101",
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-5-20250929",
+  "claude-haiku-4-5-20251001",
+];
+
 function domainFromUrl(url) {
   try { return new URL(url).hostname; } catch (_e) { return url; }
 }
@@ -350,6 +358,15 @@ export default function ApiSettings() {
 
   const handleFetchModels = async () => {
     if (!baseUrl.trim() || !apiKey.trim()) { showToast("请先填写 API 地址和 Key"); return; }
+
+    // Check if it's Cursor API - use preset models instead of fetching
+    const trimmedUrl = baseUrl.trim().toLowerCase();
+    if (trimmedUrl.includes("cursor.scihub.edu.kg")) {
+      setModelOptions(CURSOR_MODELS);
+      showToast(`已加载 ${CURSOR_MODELS.length} 个 Cursor 预设模型`);
+      return;
+    }
+
     setFetchingModels(true);
     try {
       const res = await fetch(`${baseUrl.trim().replace(/\/+$/, "")}/models`, {

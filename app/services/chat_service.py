@@ -314,6 +314,26 @@ class MemoryService:
         ]
         return {"results": results}
 
+    def get_memory_by_id(self, payload: dict[str, Any]) -> dict[str, Any]:
+        memory_id = payload.get("id")
+        if memory_id is None:
+            return {"error": "id is required"}
+        memory = self.db.get(Memory, memory_id)
+        if not memory:
+            return {"error": "memory not found"}
+        if memory.deleted_at is not None:
+            return {"error": "memory has been deleted"}
+        return {
+            "id": memory.id,
+            "content": memory.content,
+            "tags": memory.tags,
+            "klass": memory.klass,
+            "source": memory.source,
+            "importance": memory.importance,
+            "created_at": self._format_time_east8(memory.created_at),
+            "updated_at": self._format_time_east8(memory.updated_at),
+        }
+
     def search_memory(self, payload: dict[str, Any]) -> dict[str, Any]:
         query = str(payload.get("query", "") or "").strip()
         source = payload.get("source")
@@ -1468,7 +1488,8 @@ class ChatService:
             },
             {"type": "function", "function": {"name": "update_memory", "description": "更新一条已有记忆的内容。传入记忆 ID 和新内容。只能更新自己创建的或 auto_extract 来源的记忆。时间戳由后端自动添加，不需要在content里写时间。", "parameters": {"type": "object", "properties": {"id": {"type": "integer", "description": "要更新的记忆ID"}, "content": {"type": "string", "description": "新的记忆内容，不传则只更新tags"}, "tags": {"type": "object", "description": "搜索用主题标签，格式: {\"topic\": [\"关键词1\", \"关键词2\"]}"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "delete_memory", "description": "软删除一条记忆。传入记忆 ID。只能删除自己创建的或 auto_extract 来源的记忆。30天后自动永久清理。", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
-            {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本，也可以写给她看的信。可以设置定时解锁，让她在指定时间后才能看到。", "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "日记标题"}, "content": {"type": "string", "description": "日记正文"}, "unlock_at": {"type": "string", "description": "定时解锁时间，ISO格式如 2025-03-01T09:00:00+08:00。不传则立即可见。设置后她在解锁前只能看到标题，无法阅读内容。"}}, "required": ["title", "content"]}}},
+            {"type": "function", "function": {"name": "get_memory_by_id", "description": "按id查询单条记忆的详细信息。返回记忆的完整内容、标签、分类、来源、重要性、创建和更新时间。", "parameters": {"type": "object", "properties": {"id": {"type": "integer", "description": "记忆ID"}}, "required": ["id"]}}},
+            {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本,也可以写给她看的信。可以设置定时解锁，让她在指定时间后才能看到。", "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "日记标题"}, "content": {"type": "string", "description": "日记正文"}, "unlock_at": {"type": "string", "description": "定时解锁时间，ISO格式如 2025-03-01T09:00:00+08:00。不传则立即可见。设置后她在解锁前只能看到标题，无法阅读内容。"}}, "required": ["title", "content"]}}},
             {"type": "function", "function": {"name": "list_memories", "description": "按时间范围或分类列出已存的记忆，不做搜索。用于回顾已存记忆、避免重复存储。", "parameters": {"type": "object", "properties": {"start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20 或 2025-02-20T14:00:00+08:00"}, "end_time": {"type": "string", "description": "结束时间，同上格式。不传则不限结束时间"}, "klass": {"type": "string", "description": "分类筛选: identity/relationship/bond/conflict/fact/preference/health/task/ephemeral/other"}, "limit": {"type": "integer", "description": "返回条数，默认10，最大20。一般只在需要回顾已存记忆、避免重复存储时使用，不要一次拉太多，够用就不要加大limit"}}}}},
             {"type": "function", "function": {"name": "search_memory", "description": "搜索记忆卡片。从长期记忆中按关键词或语义查找信息。返回匹配的记忆条目。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "source": {"type": "string"}}}}},
             {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20"}, "end_time": {"type": "string", "description": "结束时间，同上格式"}}, "required": ["query"]}}},
@@ -1910,6 +1931,8 @@ class ChatService:
         if tool_name == "delete_memory":
             tool_call.arguments["source"] = self.assistant_name
             return self.memory_service.delete_memory(tool_call.arguments)
+        if tool_name == "get_memory_by_id":
+            return self.memory_service.get_memory_by_id(tool_call.arguments)
         if tool_name == "write_diary":
             tool_call.arguments["assistant_id"] = getattr(self, "_current_assistant_id", None)
             return self.memory_service.write_diary(tool_call.arguments)
@@ -2039,11 +2062,38 @@ class ChatService:
                 return tool_calls
             if text_content:
                 _persist_text(text_content)
+                return []
             else:
-                fallback = "(No relevant memory found. Reply based on current prompt.)"
-                messages.append({"role": "assistant", "content": fallback})
-                self._persist_message(session_id, "assistant", fallback, {}, request_id=request_id)
-            return []
+                # Model returned empty content after tool calls - add prompt and retry
+                logger.warning("[_fetch_next_tool_calls] Anthropic model returned empty content after tool calls, retrying with prompt (session=%s)", session_id)
+                # Add a user message to prompt the model to respond
+                messages.append({"role": "user", "content": "请基于上述工具调用的结果回复。"})
+                # Retry the API call with the prompt
+                try:
+                    anth_kwargs["messages"] = _oai_messages_to_anthropic(messages)[1]
+                    response = client.messages.create(**anth_kwargs)
+                except Exception as e:
+                    logger.error("[_fetch_next_tool_calls] Anthropic retry API FAILED (session=%s): %s", session_id, e)
+                    _persist_error(e)
+                    return []
+                if hasattr(response, "usage") and response.usage:
+                    self._total_prompt_tokens += getattr(response.usage, "input_tokens", 0)
+                    self._total_completion_tokens += getattr(response.usage, "output_tokens", 0)
+                text_content = ""
+                for block in response.content:
+                    if block.type == "text":
+                        text_content += block.text
+                if text_content:
+                    if request_id:
+                        self._write_cot_block(request_id, round_index, "text", text_content)
+                    _persist_text(text_content)
+                else:
+                    # Still empty after retry, give up
+                    logger.error("[_fetch_next_tool_calls] Anthropic model still returned empty content after retry (session=%s)", session_id)
+                    fallback = "(模型无法生成回复)"
+                    messages.append({"role": "assistant", "content": fallback})
+                    self._persist_message(session_id, "assistant", fallback, {}, request_id=request_id)
+                return []
 
         # OpenAI path
         _apply_cache_control_oai(api_messages)
@@ -2103,11 +2153,41 @@ class ChatService:
                     self._write_cot_block(request_id, round_index, "thinking", reasoning_content)
                 self._write_cot_block(request_id, round_index, "text", choice.content)
             _persist_text(choice.content)
+            return []
         else:
-            fallback_content = "(No relevant memory found. Reply based on current prompt.)"
-            messages.append({"role": "assistant", "content": fallback_content})
-            self._persist_message(session_id, "assistant", fallback_content, {}, request_id=request_id)
-        return []
+            # Model returned empty content after tool calls - add prompt and retry
+            logger.warning("[_fetch_next_tool_calls] OpenAI model returned empty content after tool calls, retrying with prompt (session=%s)", session_id)
+            # Add a user message to prompt the model to respond
+            messages.append({"role": "user", "content": "请基于上述工具调用的结果回复。"})
+            # Update api_messages with the new prompt
+            api_messages.append({"role": "user", "content": "请基于上述工具调用的结果回复。"})
+            # Retry the API call with the prompt
+            try:
+                _apply_cache_control_oai(api_messages)
+                call_params["messages"] = api_messages
+                response = client.chat.completions.create(**call_params)
+            except Exception as e:
+                logger.error("[_fetch_next_tool_calls] OpenAI retry API FAILED (session=%s): %s", session_id, e)
+                _persist_error(e)
+                return []
+            if hasattr(response, "usage") and response.usage:
+                self._total_prompt_tokens += getattr(response.usage, "prompt_tokens", 0)
+                self._total_completion_tokens += getattr(response.usage, "completion_tokens", 0)
+            if not response.choices:
+                logger.error("[_fetch_next_tool_calls] OpenAI retry response had no choices (session=%s)", session_id)
+                return []
+            choice = response.choices[0].message
+            if choice.content:
+                if request_id:
+                    self._write_cot_block(request_id, round_index, "text", choice.content)
+                _persist_text(choice.content)
+            else:
+                # Still empty after retry, give up
+                logger.error("[_fetch_next_tool_calls] OpenAI model still returned empty content after retry (session=%s)", session_id)
+                fallback = "(模型无法生成回复)"
+                messages.append({"role": "assistant", "content": fallback})
+                self._persist_message(session_id, "assistant", fallback, {}, request_id=request_id)
+            return []
 
     def _trigger_summary(
         self,
