@@ -107,8 +107,13 @@ export async function apiSSE(path, body, onChunk, onDone) {
       }
       try {
         const parsed = JSON.parse(payload);
+        if (parsed.error) {
+          throw new Error(parsed.error);
+        }
         onChunk && onChunk(parsed);
-      } catch {}
+      } catch (e) {
+        if (e instanceof Error && e.message) throw e;
+      }
     }
   }
   onDone && onDone();

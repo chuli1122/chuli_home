@@ -937,17 +937,25 @@ def _extract_reasoning_from_message(message: Any) -> str:
     return ""
 
 
-def _apply_cache_control_oai(api_messages: list[dict[str, Any]]) -> None:
-    """Transform the first system message for OpenAI-format cache_control (in-place)."""
+def _apply_cache_control_oai(api_messages: list[dict[str, Any]], *, use_blocks: bool = False) -> None:
+    """Strip CACHE_BREAK sentinel from system message; optionally convert to content blocks with cache_control.
+
+    use_blocks=True  → split into content blocks with cache_control (for OpenRouter Anthropic models).
+    use_blocks=False → just remove the CACHE_BREAK sentinel, keep plain string (safe for all providers).
+    """
     for msg in api_messages:
         if msg.get("role") == "system" and isinstance(msg.get("content"), str) and _CACHE_BREAK in msg["content"]:
             stable, dynamic = msg["content"].split(_CACHE_BREAK, 1)
-            blocks: list[dict[str, Any]] = [
-                {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}},
-            ]
-            if dynamic.strip():
-                blocks.append({"type": "text", "text": dynamic})
-            msg["content"] = blocks
+            if use_blocks:
+                blocks: list[dict[str, Any]] = [
+                    {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}},
+                ]
+                if dynamic.strip():
+                    blocks.append({"type": "text", "text": dynamic})
+                msg["content"] = blocks
+            else:
+                # Safe fallback: rejoin without the sentinel
+                msg["content"] = stable + "\n\n" + dynamic if dynamic.strip() else stable
             break
 
 
