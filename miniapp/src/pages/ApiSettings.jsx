@@ -289,6 +289,7 @@ export default function ApiSettings() {
   const [renameValue, setRenameValue] = useState("");
   const longPressTimer = useRef(null);
   const longPressTriggered = useRef(false);
+  const pressStartPos = useRef(null);
 
   const formRef = useRef({});
   formRef.current = { baseUrl, apiKey, authType, modelName, temperature, tempEnabled, topP, topPEnabled, maxTokens, thinkingBudget, editingPreset, providers };
@@ -487,12 +488,20 @@ export default function ApiSettings() {
 
   const handlePressStart = (e, preset) => {
     longPressTriggered.current = false;
-    const x = e.touches ? e.touches[0].clientX : e.clientX;
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    const t = e.touches ? e.touches[0] : e;
+    pressStartPos.current = { x: t.clientX, y: t.clientY };
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
       setDeleteTarget(preset);
     }, 600);
+  };
+
+  const handlePressMove = (e) => {
+    if (!pressStartPos.current || !longPressTimer.current) return;
+    const t = e.touches ? e.touches[0] : e;
+    const dx = t.clientX - pressStartPos.current.x;
+    const dy = t.clientY - pressStartPos.current.y;
+    if (dx * dx + dy * dy > 100) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
 
   const handlePressEnd = () => clearTimeout(longPressTimer.current);
@@ -609,8 +618,8 @@ export default function ApiSettings() {
                   <div className="text-[11px]" style={{ color: S.textMuted }}>Extended Thinking tokens</div>
                 </div>
                 <select
-                  className="rounded-[10px] py-2 px-3 text-[13px] font-bold outline-none appearance-none text-center"
-                  style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text, WebkitAppearance: "none", minWidth: 90 }}
+                  className="w-20 rounded-[10px] py-2 text-center text-[13px] font-bold outline-none appearance-none"
+                  style={{ boxShadow: "var(--inset-shadow)", background: S.bg, color: S.text, WebkitAppearance: "none" }}
                   value={thinkingBudget}
                   onChange={(e) => setThinkingBudget(Number(e.target.value))}
                 >
@@ -688,8 +697,10 @@ export default function ApiSettings() {
                       }}
                       onClick={() => { if (!longPressTriggered.current) loadPreset(p); }}
                       onTouchStart={(e) => handlePressStart(e, p)}
+                      onTouchMove={handlePressMove}
                       onTouchEnd={handlePressEnd}
                       onMouseDown={(e) => handlePressStart(e, p)}
+                      onMouseMove={handlePressMove}
                       onMouseUp={handlePressEnd}
                     >
                       <div className="flex items-center justify-between">
