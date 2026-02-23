@@ -711,7 +711,7 @@ export default function ApiSettings() {
                       </div>
                       <div className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{p.model_name}</div>
                       <div className="mt-1 text-[10px] font-mono" style={{ color: S.textMuted }}>
-                        T: {p.temperature ?? "默认"} | Top-P: {p.top_p ?? "默认"} | Max: {p.max_tokens}
+                        T: {p.temperature ?? "默认"} | Top-P: {p.top_p ?? "默认"} | Max: {p.max_tokens}{p.thinking_budget ? ` | Think: ${p.thinking_budget}` : ""}
                       </div>
                     </div>
                   ))}
