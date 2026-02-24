@@ -11,3 +11,4 @@ requests
 PyJWT
 aiogram
 python-multipart
+pdfplumber

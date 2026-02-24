@@ -1264,13 +1264,15 @@ class ChatService:
             all_trimmed_messages.extend(self._trimmed_messages)
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
         session = self.db.get(ChatSession, session_id)
+        # Post-reply triggers: image description + file summarization
+        _ns_assistant_id = session.assistant_id if session and session.assistant_id else None
+        if _ns_assistant_id is None:
+            _ns_assistant_row = self.db.query(Assistant).first()
+            if _ns_assistant_row:
+                _ns_assistant_id = _ns_assistant_row.id
+        self._maybe_trigger_post_reply(session_id, _ns_assistant_id, background_tasks)
         if all_trimmed_messages:
-            assistant_id = session.assistant_id if session and session.assistant_id else None
-            if assistant_id is None:
-                assistant_row = self.db.query(Assistant).first()
-                if assistant_row:
-                    assistant_id = assistant_row.id
-            if assistant_id is not None:
+            if _ns_assistant_id is not None:
                 unique_trimmed_ids = list(
                     dict.fromkeys(
                         message_id
@@ -1283,12 +1285,12 @@ class ChatService:
                         self._trigger_summary,
                         session_id,
                         unique_trimmed_ids,
-                        assistant_id,
+                        _ns_assistant_id,
                     )
                 else:
                     threading.Thread(
                         target=self._trigger_summary,
-                        args=(session_id, unique_trimmed_ids, assistant_id),
+                        args=(session_id, unique_trimmed_ids, _ns_assistant_id),
                         daemon=True,
                     ).start()
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
@@ -1580,7 +1582,15 @@ class ChatService:
                     content = f"[{_get_ts(message)}] {content}"
             elif role == "user" and content is not None:
                 timestamp = _get_ts(message)
-                if isinstance(content, list):
+                image_data = message.get("image_data")
+                if image_data and image_data.startswith("data:"):
+                    # Multimodal: image + text
+                    text_part = f"[{timestamp}] {content}" if isinstance(content, str) else str(content)
+                    content = [
+                        {"type": "image_url", "image_url": {"url": image_data}},
+                        {"type": "text", "text": text_part},
+                    ]
+                elif isinstance(content, list):
                     for part in content:
                         if isinstance(part, dict) and part.get("type") == "text":
                             part["text"] = f"[{timestamp}] {part.get('text', '')}"
@@ -1930,6 +1940,9 @@ class ChatService:
             if session:
                 session.updated_at = datetime.now(timezone.utc)
                 self.db.commit()
+            # Post-reply triggers: image description + file summarization
+            _stream_assistant_id = session.assistant_id if session else None
+            self._maybe_trigger_post_reply(session_id, _stream_assistant_id, background_tasks)
             if all_trimmed_message_ids:
                 assistant_id = session.assistant_id if session else None
                 if assistant_id:
@@ -2184,6 +2197,65 @@ class ChatService:
             logger.warning("[_fetch_next_tool_calls] OpenAI model returned empty content (session=%s), ending", session_id)
             return []
 
+    def _maybe_trigger_post_reply(
+        self,
+        session_id: int,
+        assistant_id: int | None,
+        background_tasks: BackgroundTasks | None = None,
+    ) -> None:
+        """Trigger image description (≥5 pending) and file summarization after AI reply."""
+        if not assistant_id or not self.session_factory:
+            return
+        from app.services.image_description_service import describe_images, summarize_file_messages
+
+        # Image description: check count of pending images
+        try:
+            pending_images = (
+                self.db.query(Message)
+                .filter(
+                    Message.session_id == session_id,
+                    Message.image_data.isnot(None),
+                )
+                .count()
+            )
+            if pending_images >= 5:
+                logger.info("[PostReply] Triggering image description (%d images, session=%s)", pending_images, session_id)
+                if background_tasks:
+                    background_tasks.add_task(describe_images, self.session_factory, session_id, assistant_id)
+                else:
+                    threading.Thread(
+                        target=describe_images,
+                        args=(self.session_factory, session_id, assistant_id),
+                        daemon=True,
+                    ).start()
+        except Exception:
+            logger.warning("[PostReply] Image description check failed", exc_info=True)
+
+        # File summarization: check for pending file messages
+        try:
+            pending_files = (
+                self.db.query(Message)
+                .filter(
+                    Message.session_id == session_id,
+                    Message.meta_info.op("->>")(
+                        "needs_file_summary"
+                    ) == "true",
+                )
+                .count()
+            )
+            if pending_files > 0:
+                logger.info("[PostReply] Triggering file summarization (%d files, session=%s)", pending_files, session_id)
+                if background_tasks:
+                    background_tasks.add_task(summarize_file_messages, self.session_factory, session_id, assistant_id)
+                else:
+                    threading.Thread(
+                        target=summarize_file_messages,
+                        args=(self.session_factory, session_id, assistant_id),
+                        daemon=True,
+                    ).start()
+        except Exception:
+            logger.warning("[PostReply] File summarization check failed", exc_info=True)
+
     def _trigger_summary(
         self,
         session_id: int,
@@ -2241,6 +2313,13 @@ class ChatService:
                 len(trimmed_messages), session_id, last_end,
                 trimmed_messages[0].id, trimmed_messages[-1].id,
             )
+            # Pre-summary: describe any pending images first
+            try:
+                from app.services.image_description_service import describe_images
+                describe_images(self.session_factory, session_id, assistant_id)
+            except Exception:
+                logger.warning("Pre-summary image description failed", exc_info=True)
+
             summary_service = SummaryService(self.session_factory)
             summary_service.generate_summary(session_id, trimmed_messages, assistant_id)
         except Exception:

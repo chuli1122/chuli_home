@@ -13,13 +13,18 @@ from .config import ALLOWED_CHAT_ID
 from .keyboards import get_main_keyboard
 from .service import (
     call_chat_completion,
+    call_chat_completion_with_image,
+    call_chat_completion_with_meta,
+    encode_photo_base64,
     get_buffer_seconds,
     get_chat_mode,
     get_session_info,
     lookup_by_telegram_message_id,
+    store_message_only,
     undo_last_round,
     update_telegram_message_id,
 )
+from app.services.image_description_service import extract_file_content, truncate_to_tokens, get_trigger_threshold
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -137,6 +142,94 @@ async def _process_request(
             pass
 
 
+async def _process_photo_request(
+    chat_id: int,
+    content: str,
+    image_data: str,
+    bot: Bot,
+    bot_key: str,
+    assistant_id: int,
+    is_short: bool = False,
+    telegram_message_id: list[int] | None = None,
+) -> None:
+    """Process a photo message: store with image_data and trigger chat completion."""
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(_typing_loop(bot, chat_id, stop_event))
+    try:
+        session_id, assistant_name = await get_session_info(assistant_id)
+        result_messages = await call_chat_completion_with_image(
+            session_id, assistant_name, content,
+            image_data=image_data,
+            short_mode=is_short,
+            telegram_message_id=telegram_message_id,
+        )
+        stop_event.set()
+        typing_task.cancel()
+        sent_count = 0
+        for msg in result_messages:
+            reply_content = (msg.get("content") or "").strip()
+            if not reply_content:
+                continue
+            if sent_count > 0:
+                await asyncio.sleep(1.0)
+            tg_ids = await _send_reply(bot, chat_id, reply_content, is_short=is_short)
+            if tg_ids and msg.get("db_id"):
+                await update_telegram_message_id(msg["db_id"], tg_ids[-1])
+            sent_count += 1
+    except Exception as exc:
+        stop_event.set()
+        typing_task.cancel()
+        logger.error("Error processing photo for chat %s: %s", chat_id, exc, exc_info=True)
+        try:
+            await bot.send_message(chat_id=chat_id, text="❌ 出错了，请稍后再试")
+        except Exception:
+            pass
+
+
+async def _process_file_request(
+    chat_id: int,
+    content: str,
+    meta_info: dict,
+    bot: Bot,
+    bot_key: str,
+    assistant_id: int,
+    is_short: bool = False,
+    telegram_message_id: list[int] | None = None,
+) -> None:
+    """Process a file message: store with meta_info and trigger chat completion."""
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(_typing_loop(bot, chat_id, stop_event))
+    try:
+        session_id, assistant_name = await get_session_info(assistant_id)
+        result_messages = await call_chat_completion_with_meta(
+            session_id, assistant_name, content,
+            meta_info=meta_info,
+            short_mode=is_short,
+            telegram_message_id=telegram_message_id,
+        )
+        stop_event.set()
+        typing_task.cancel()
+        sent_count = 0
+        for msg in result_messages:
+            reply_content = (msg.get("content") or "").strip()
+            if not reply_content:
+                continue
+            if sent_count > 0:
+                await asyncio.sleep(1.0)
+            tg_ids = await _send_reply(bot, chat_id, reply_content, is_short=is_short)
+            if tg_ids and msg.get("db_id"):
+                await update_telegram_message_id(msg["db_id"], tg_ids[-1])
+            sent_count += 1
+    except Exception as exc:
+        stop_event.set()
+        typing_task.cancel()
+        logger.error("Error processing file for chat %s: %s", chat_id, exc, exc_info=True)
+        try:
+            await bot.send_message(chat_id=chat_id, text="❌ 出错了，请稍后再试")
+        except Exception:
+            pass
+
+
 async def _buffer_fire(chat_id: int, bot: Bot, delay: float, bot_key: str, assistant_id: int) -> None:
     await asyncio.sleep(delay)
     state = _get_state(bot_key)
@@ -185,9 +278,7 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
     if message.location is not None:
         return
 
-    text = (message.text or message.caption or "").strip()
-    if not text:
-        return
+    chat_id = message.chat.id
 
     # ── Dedup: skip if this message_id was already processed ──
     state = _get_state(bot_key)
@@ -196,10 +287,139 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
         logger.debug("Skipping duplicate message_id=%d (bot=%s)", msg_id, bot_key)
         return
     state.processed_msg_ids.add(msg_id)
-    # Trim to prevent unbounded growth
     if len(state.processed_msg_ids) > _DEDUP_MAX:
         sorted_ids = sorted(state.processed_msg_ids)
         state.processed_msg_ids = set(sorted_ids[len(sorted_ids) - _DEDUP_MAX // 2 :])
+
+    # ── Photo handling ──
+    if message.photo:
+        caption = (message.caption or "").strip()
+        try:
+            photo = message.photo[-1]  # largest size
+            file_info = await bot.get_file(photo.file_id)
+            file_bytes = await bot.download_file(file_info.file_path)
+            image_data = encode_photo_base64(file_bytes, "image/jpeg")
+        except Exception as exc:
+            logger.error("Failed to download photo: %s", exc)
+            return
+
+        mode = await get_chat_mode()
+        session_id, _ = await get_session_info(assistant_id)
+
+        if caption:
+            content = f"{caption}\n\n[图片]"
+        else:
+            content = "[图片]"
+
+        if mode == "short":
+            # Short mode: store image in DB; if caption, add to buffer
+            await store_message_only(
+                session_id, content, image_data=image_data,
+                telegram_message_id=[message.message_id],
+            )
+            if caption:
+                delay = await get_buffer_seconds()
+                buf = state.buffers.setdefault(chat_id, _ChatBuffer())
+                buf.messages.append(caption)
+                buf.message_ids.append(message.message_id)
+                if buf.timer_task and not buf.timer_task.done():
+                    buf.timer_task.cancel()
+                buf.timer_task = asyncio.create_task(
+                    _buffer_fire(chat_id, bot, delay, bot_key, assistant_id)
+                )
+        elif caption:
+            # Long mode with caption → trigger reply
+            await _process_photo_request(
+                chat_id, content, image_data,
+                bot, bot_key, assistant_id, is_short=False,
+                telegram_message_id=[message.message_id],
+            )
+        else:
+            # Long mode without caption → store only, wait for next text
+            await store_message_only(
+                session_id, content, image_data=image_data,
+                telegram_message_id=[message.message_id],
+            )
+        return
+
+    # ── Document handling ──
+    if message.document:
+        caption = (message.caption or "").strip()
+        doc = message.document
+        file_name = doc.file_name or "unknown"
+
+        try:
+            file_info = await bot.get_file(doc.file_id)
+            file_bytes_io = await bot.download_file(file_info.file_path)
+            if hasattr(file_bytes_io, "read"):
+                file_data = file_bytes_io.read()
+            else:
+                file_data = file_bytes_io
+        except Exception as exc:
+            logger.error("Failed to download document: %s", exc)
+            return
+
+        # Extract text content
+        file_text = extract_file_content(file_name, file_data)
+        if not file_text:
+            file_text = ""
+            content_marker = f"[文件：{file_name}，内容提取失败]"
+        else:
+            # Truncate if too long
+            from app.database import SessionLocal
+            _db = SessionLocal()
+            try:
+                threshold = get_trigger_threshold(_db)
+            finally:
+                _db.close()
+            max_file_tokens = threshold // 2
+            file_text = truncate_to_tokens(file_text, max_file_tokens)
+            content_marker = f"[文件：{file_name}]\n{file_text}"
+
+        if caption:
+            content = f"{caption}\n\n{content_marker}"
+        else:
+            content = content_marker
+
+        meta_info = {"needs_file_summary": True, "file_name": file_name}
+        mode = await get_chat_mode()
+        session_id, _ = await get_session_info(assistant_id)
+
+        if mode == "short":
+            # Short mode: store with meta, add text to buffer
+            await store_message_only(
+                session_id, content, meta_info=meta_info,
+                telegram_message_id=[message.message_id],
+            )
+            buf_text = caption if caption else f"[发送了文件：{file_name}]"
+            delay = await get_buffer_seconds()
+            buf = state.buffers.setdefault(chat_id, _ChatBuffer())
+            buf.messages.append(buf_text)
+            buf.message_ids.append(message.message_id)
+            if buf.timer_task and not buf.timer_task.done():
+                buf.timer_task.cancel()
+            buf.timer_task = asyncio.create_task(
+                _buffer_fire(chat_id, bot, delay, bot_key, assistant_id)
+            )
+        elif caption:
+            # Long mode with caption → trigger reply
+            await _process_file_request(
+                chat_id, content, meta_info,
+                bot, bot_key, assistant_id, is_short=False,
+                telegram_message_id=[message.message_id],
+            )
+        else:
+            # Long mode without caption → store only, wait for next text
+            await store_message_only(
+                session_id, content, meta_info=meta_info,
+                telegram_message_id=[message.message_id],
+            )
+        return
+
+    # ── Text handling (original logic) ──
+    text = (message.text or message.caption or "").strip()
+    if not text:
+        return
 
     # Handle reply/quote — look up the quoted message by telegram_message_id
     if message.reply_to_message:
@@ -209,7 +429,6 @@ async def handle_message(message: Message, bot: Bot, bot_key: str, assistant_id:
             quote_prefix = f"[引用消息 id={quoted['id']}] {quoted['content']}"
             text = f"{quote_prefix}\n{text}"
 
-    chat_id = message.chat.id
     mode = await get_chat_mode()
 
     if mode == "short":

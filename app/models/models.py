@@ -22,6 +22,7 @@ class Message(Base):
     summary_group_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     telegram_message_id: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
+    image_data: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 

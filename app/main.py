@@ -98,6 +98,10 @@ def _run_migrations(eng) -> None:
                         "CREATE INDEX IF NOT EXISTS ix_messages_tgmid_gin ON messages USING GIN(telegram_message_id)"
                     ))
                 logger.info("Migrated telegram_message_id from BIGINT to JSONB")
+        if "image_data" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN image_data TEXT"))
+            logger.info("Added image_data column to messages")
     # diary new columns
     if "diary" in insp.get_table_names():
         cols = [c["name"] for c in insp.get_columns("diary")]

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
+from io import BytesIO
 from typing import Any
 
 from app.database import SessionLocal
@@ -257,3 +259,197 @@ def _undo_last_round_sync(assistant_id: int) -> int:
 
 async def undo_last_round(assistant_id: int) -> int:
     return await asyncio.to_thread(_undo_last_round_sync, assistant_id)
+
+
+# ── Store message without triggering chat ────────────────────────────────────
+
+def _store_message_only_sync(
+    session_id: int,
+    content: str,
+    meta_info: dict | None = None,
+    image_data: str | None = None,
+    telegram_message_id: list[int] | None = None,
+) -> int:
+    """Store a user message in the DB without triggering chat completion.
+    Returns the message DB id."""
+    db = SessionLocal()
+    try:
+        msg = Message(
+            session_id=session_id,
+            role="user",
+            content=content,
+            meta_info=meta_info or {},
+            image_data=image_data,
+            telegram_message_id=telegram_message_id,
+        )
+        db.add(msg)
+        db.commit()
+        db.refresh(msg)
+        return msg.id
+    finally:
+        db.close()
+
+
+async def store_message_only(
+    session_id: int,
+    content: str,
+    meta_info: dict | None = None,
+    image_data: str | None = None,
+    telegram_message_id: list[int] | None = None,
+) -> int:
+    return await asyncio.to_thread(
+        _store_message_only_sync, session_id, content, meta_info, image_data, telegram_message_id,
+    )
+
+
+# ── Photo message with image_data ───────────────────────────────────────────
+
+def _chat_completion_with_image_sync(
+    session_id: int,
+    assistant_name: str,
+    message: str,
+    image_data: str | None = None,
+    short_mode: bool = False,
+    telegram_message_id: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Like _chat_completion_sync but stores image_data alongside the user message."""
+    from app.routers.chat import _load_session_messages
+    from app.services.chat_service import ChatService
+
+    db = SessionLocal()
+    try:
+        user_msg = Message(
+            session_id=session_id,
+            role="user",
+            content=message,
+            meta_info={},
+            image_data=image_data,
+            telegram_message_id=telegram_message_id,
+        )
+        db.add(user_msg)
+        db.commit()
+        db.refresh(user_msg)
+        max_id_before = user_msg.id
+
+        chat_service = ChatService(db, assistant_name)
+        messages = _load_session_messages(db, session_id)
+
+        for _ in chat_service.stream_chat_completion(
+            session_id, messages, short_mode=short_mode,
+        ):
+            pass
+
+        new_assistant_msgs = (
+            db.query(Message)
+            .filter(
+                Message.session_id == session_id,
+                Message.id > max_id_before,
+                Message.role == "assistant",
+                Message.content != "",
+            )
+            .order_by(Message.id)
+            .all()
+        )
+
+        return [
+            {"role": "assistant", "content": m.content, "db_id": m.id}
+            for m in new_assistant_msgs
+        ]
+    finally:
+        db.close()
+
+
+async def call_chat_completion_with_image(
+    session_id: int,
+    assistant_name: str,
+    message: str,
+    image_data: str | None = None,
+    short_mode: bool = False,
+    telegram_message_id: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    return await asyncio.to_thread(
+        _chat_completion_with_image_sync,
+        session_id, assistant_name, message, image_data, short_mode, telegram_message_id,
+    )
+
+
+# ── File message with meta_info ─────────────────────────────────────────────
+
+def _chat_completion_with_meta_sync(
+    session_id: int,
+    assistant_name: str,
+    message: str,
+    meta_info: dict | None = None,
+    short_mode: bool = False,
+    telegram_message_id: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Like _chat_completion_sync but stores custom meta_info."""
+    from app.routers.chat import _load_session_messages
+    from app.services.chat_service import ChatService
+
+    db = SessionLocal()
+    try:
+        user_msg = Message(
+            session_id=session_id,
+            role="user",
+            content=message,
+            meta_info=meta_info or {},
+            telegram_message_id=telegram_message_id,
+        )
+        db.add(user_msg)
+        db.commit()
+        db.refresh(user_msg)
+        max_id_before = user_msg.id
+
+        chat_service = ChatService(db, assistant_name)
+        messages = _load_session_messages(db, session_id)
+
+        for _ in chat_service.stream_chat_completion(
+            session_id, messages, short_mode=short_mode,
+        ):
+            pass
+
+        new_assistant_msgs = (
+            db.query(Message)
+            .filter(
+                Message.session_id == session_id,
+                Message.id > max_id_before,
+                Message.role == "assistant",
+                Message.content != "",
+            )
+            .order_by(Message.id)
+            .all()
+        )
+
+        return [
+            {"role": "assistant", "content": m.content, "db_id": m.id}
+            for m in new_assistant_msgs
+        ]
+    finally:
+        db.close()
+
+
+async def call_chat_completion_with_meta(
+    session_id: int,
+    assistant_name: str,
+    message: str,
+    meta_info: dict | None = None,
+    short_mode: bool = False,
+    telegram_message_id: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    return await asyncio.to_thread(
+        _chat_completion_with_meta_sync,
+        session_id, assistant_name, message, meta_info, short_mode, telegram_message_id,
+    )
+
+
+# ── Photo/Document helpers ──────────────────────────────────────────────────
+
+def encode_photo_base64(file_bytes: BytesIO | bytes, mime: str = "image/jpeg") -> str:
+    """Convert raw photo bytes to a data URL string."""
+    if isinstance(file_bytes, BytesIO):
+        data = file_bytes.read()
+    else:
+        data = file_bytes
+    b64 = base64.b64encode(data).decode("ascii")
+    return f"data:{mime};base64,{b64}"

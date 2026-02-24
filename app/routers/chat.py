@@ -173,12 +173,15 @@ def _load_session_messages(db: Session, session_id: int) -> list[dict[str, Any]]
             })
         else:
             # user messages
-            messages.append({
+            msg_dict: dict[str, Any] = {
                 "role": m.role,
                 "content": m.content,
                 "id": m.id,
                 "created_at": m.created_at,
-            })
+            }
+            if m.image_data:
+                msg_dict["image_data"] = m.image_data
+            messages.append(msg_dict)
     return messages
 
 
