@@ -41,13 +41,11 @@ NEGATIVE_MOOD_TAGS = [
 DEFAULT_DIALOGUE_RETAIN_BUDGET = 8000
 DEFAULT_DIALOGUE_TRIGGER_THRESHOLD = 16000
 
-
 @dataclass
 class ToolCall:
     name: str
     arguments: dict[str, Any]
     id: str | None = None
-
 
 class MemoryService:
     def __init__(self, db: Session) -> None:
@@ -874,7 +872,6 @@ class MemoryService:
             )
         return results
 
-
 # ── Anthropic format converters ──
 
 def _oai_tools_to_anthropic(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -890,9 +887,7 @@ def _oai_tools_to_anthropic(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
             })
     return result
 
-
 _CACHE_BREAK = "\n\n<!-- CACHE_BREAK -->\n\n"
-
 
 def _extract_reasoning_delta(delta: Any) -> str:
     """Extract reasoning text from an OpenAI-format streaming delta (OpenRouter)."""
@@ -912,7 +907,6 @@ def _extract_reasoning_delta(delta: Any) -> str:
         if parts:
             return "".join(parts)
     return ""
-
 
 def _extract_reasoning_from_message(message: Any) -> str:
     """Extract reasoning text from an OpenAI-format message (OpenRouter non-streaming)."""
@@ -936,7 +930,6 @@ def _extract_reasoning_from_message(message: Any) -> str:
             return "".join(parts)
     return ""
 
-
 def _apply_cache_control_oai(api_messages: list[dict[str, Any]], *, use_blocks: bool = False) -> None:
     """Strip CACHE_BREAK sentinel from system message; optionally convert to content blocks with cache_control.
 
@@ -957,7 +950,6 @@ def _apply_cache_control_oai(api_messages: list[dict[str, Any]], *, use_blocks: 
                 # Safe fallback: rejoin without the sentinel
                 msg["content"] = stable + "\n\n" + dynamic if dynamic.strip() else stable
             break
-
 
 def _oai_messages_to_anthropic(api_messages: list[dict[str, Any]]) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]]]:
     """Extract system prompt and convert messages to Anthropic format.
@@ -1075,7 +1067,6 @@ def _oai_messages_to_anthropic(api_messages: list[dict[str, Any]]) -> tuple[str 
         return system_blocks, messages
 
     return system_prompt, messages
-
 
 class ChatService:
     interactive_tools = {
@@ -1893,13 +1884,11 @@ class ChatService:
                     yield f'data: {json.dumps({"content": "(已达到最大工具调用轮次)"})}\n\n'
                     break
                 continue
-            # If model returned nothing after tool calls, nudge it to reply
+            # If model returned nothing after tool calls, just end
             if not content_chunks and not thinking_chunks_oai and round_index > 0:
-                logger.warning("[stream] Empty response after tool calls, nudging model (session=%s, round=%s)", session_id, round_index)
-                messages.append({"role": "user", "content": "(Please generate your response based on the tool results above.)"})
-                round_index += 1
-                if round_index < 15:
-                    continue
+                logger.warning("[stream] Empty response after tool calls, ending stream (session=%s, round=%s)", session_id, round_index)
+                break
+
             # Final text response (already streamed as deltas)
             full_thinking = "".join(thinking_chunks_oai)
             if full_thinking:
@@ -2116,35 +2105,7 @@ class ChatService:
                 _persist_text(text_content)
                 return []
             else:
-                # Model returned empty content after tool calls - add prompt and retry
-                logger.warning("[_fetch_next_tool_calls] Anthropic model returned empty content after tool calls, retrying with prompt (session=%s)", session_id)
-                # Add a user message to prompt the model to respond
-                messages.append({"role": "user", "content": "请基于上述工具调用的结果回复。"})
-                # Retry the API call with the prompt
-                try:
-                    anth_kwargs["messages"] = _oai_messages_to_anthropic(messages)[1]
-                    response = client.messages.create(**anth_kwargs)
-                except Exception as e:
-                    logger.error("[_fetch_next_tool_calls] Anthropic retry API FAILED (session=%s): %s", session_id, e)
-                    _persist_error(e)
-                    return []
-                if hasattr(response, "usage") and response.usage:
-                    self._total_prompt_tokens += getattr(response.usage, "input_tokens", 0)
-                    self._total_completion_tokens += getattr(response.usage, "output_tokens", 0)
-                text_content = ""
-                for block in response.content:
-                    if block.type == "text":
-                        text_content += block.text
-                if text_content:
-                    if request_id:
-                        self._write_cot_block(request_id, round_index, "text", text_content)
-                    _persist_text(text_content)
-                else:
-                    # Still empty after retry, give up
-                    logger.error("[_fetch_next_tool_calls] Anthropic model still returned empty content after retry (session=%s)", session_id)
-                    fallback = "(模型无法生成回复)"
-                    messages.append({"role": "assistant", "content": fallback})
-                    self._persist_message(session_id, "assistant", fallback, {}, request_id=request_id)
+                logger.warning("[_fetch_next_tool_calls] Anthropic model returned empty content (session=%s), ending", session_id)
                 return []
 
         # OpenAI path
@@ -2207,38 +2168,7 @@ class ChatService:
             _persist_text(choice.content)
             return []
         else:
-            # Model returned empty content after tool calls - add prompt and retry
-            logger.warning("[_fetch_next_tool_calls] OpenAI model returned empty content after tool calls, retrying with prompt (session=%s)", session_id)
-            # Add a user message to prompt the model to respond
-            messages.append({"role": "user", "content": "请基于上述工具调用的结果回复。"})
-            # Update api_messages with the new prompt
-            api_messages.append({"role": "user", "content": "请基于上述工具调用的结果回复。"})
-            # Retry the API call with the prompt
-            try:
-                _apply_cache_control_oai(api_messages, use_blocks="openrouter.ai" in (provider_base_url or ""))
-                call_params["messages"] = api_messages
-                response = client.chat.completions.create(**call_params)
-            except Exception as e:
-                logger.error("[_fetch_next_tool_calls] OpenAI retry API FAILED (session=%s): %s", session_id, e)
-                _persist_error(e)
-                return []
-            if hasattr(response, "usage") and response.usage:
-                self._total_prompt_tokens += getattr(response.usage, "prompt_tokens", 0)
-                self._total_completion_tokens += getattr(response.usage, "completion_tokens", 0)
-            if not response.choices:
-                logger.error("[_fetch_next_tool_calls] OpenAI retry response had no choices (session=%s)", session_id)
-                return []
-            choice = response.choices[0].message
-            if choice.content:
-                if request_id:
-                    self._write_cot_block(request_id, round_index, "text", choice.content)
-                _persist_text(choice.content)
-            else:
-                # Still empty after retry, give up
-                logger.error("[_fetch_next_tool_calls] OpenAI model still returned empty content after retry (session=%s)", session_id)
-                fallback = "(模型无法生成回复)"
-                messages.append({"role": "assistant", "content": fallback})
-                self._persist_message(session_id, "assistant", fallback, {}, request_id=request_id)
+            logger.warning("[_fetch_next_tool_calls] OpenAI model returned empty content (session=%s), ending", session_id)
             return []
 
     def _trigger_summary(
