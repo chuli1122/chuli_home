@@ -152,17 +152,20 @@ function fmtElapsed(ms) {
   return sec >= 100 ? `${Math.round(sec)}s` : `${sec.toFixed(1)}s`;
 }
 
-function TokenBadges({ prompt, completion, elapsedMs, hasToolCalls }) {
+function TokenBadges({ prompt, completion, elapsedMs, hasToolCalls, cacheHit }) {
   // Show badges if we have any non-zero values OR if there were tool calls
   // (tool calls consume tokens even if final response is empty)
   const hasAnyValue = prompt || completion || elapsedMs;
   if (!hasAnyValue && !hasToolCalls) return null;
 
+  const promptBg = cacheHit ? "rgba(220,120,160,0.12)" : "rgba(80,160,120,0.12)";
+  const promptColor = cacheHit ? "#d478a0" : "#3a8a5f";
+
   return (
     <>
       <span
         className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
-        style={{ background: "rgba(80,160,120,0.12)", color: "#3a8a5f" }}
+        style={{ background: promptBg, color: promptColor }}
       >
         ↑{fmtTokens(prompt)}
       </span>
@@ -267,6 +270,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
               completion={item.completion_tokens || 0}
               elapsedMs={item.elapsed_ms || 0}
               hasToolCalls={item.has_tool_calls}
+              cacheHit={item.cache_hit}
             />
             <span className="text-[10px]" style={{ color: S.textMuted }}>
               {item.created_at || ""}
@@ -498,10 +502,52 @@ export default function CotViewer() {
             setItems((prev) =>
               prev.map((it) =>
                 it.request_id === request_id
-                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0 }
+                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, cache_hit: msg.cache_hit || false }
                   : it
               )
             );
+            return;
+          }
+
+          if (type === "replay_snapshot") {
+            setItems((prev) => {
+              let [arr, idx] = ensureItem(prev);
+              arr = [...arr];
+              const item = { ...arr[idx] };
+              // Merge thinking from replay into rounds (replace if replay has more content)
+              if (msg.rounds) {
+                for (const r of msg.rounds) {
+                  if (!r.thinking) continue;
+                  let [rounds, ri] = ensureRound([...item.rounds], r.round_index);
+                  const round = { ...rounds[ri], blocks: [...rounds[ri].blocks] };
+                  const ti = round.blocks.findIndex((b) => b.block_type === "thinking");
+                  if (ti >= 0) {
+                    if (r.thinking.length > round.blocks[ti].content.length) {
+                      round.blocks[ti] = { ...round.blocks[ti], content: r.thinking };
+                    }
+                  } else {
+                    round.blocks.push({ block_type: "thinking", content: r.thinking, tool_name: null });
+                  }
+                  rounds[ri] = round;
+                  item.rounds = rounds;
+                }
+              }
+              // Set text preview (only if replay has more)
+              if (msg.text_preview && msg.text_preview.length > (item.textPreview || "").length) {
+                item.textPreview = msg.text_preview;
+                if (!item.preview || item.preview === "思考中...") {
+                  item.preview = msg.text_preview.slice(0, 80);
+                }
+              }
+              if (msg.injected_memories) item.injectedMemories = msg.injected_memories;
+              if (msg.prompt_tokens) item.prompt_tokens = msg.prompt_tokens;
+              if (msg.completion_tokens) item.completion_tokens = msg.completion_tokens;
+              if (msg.cache_hit) item.cache_hit = msg.cache_hit;
+              arr[idx] = item;
+              return arr;
+            });
+            setLiveRequestIds((prev) => new Set(prev).add(request_id));
+            autoExpand(request_id);
             return;
           }
 
@@ -515,7 +561,7 @@ export default function CotViewer() {
             setItems((prev) =>
               prev.map((it) =>
                 it.request_id === request_id
-                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, elapsed_ms: msg.elapsed_ms || 0, textPreview: "" }
+                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, elapsed_ms: msg.elapsed_ms || 0, cache_hit: msg.cache_hit || false, textPreview: "" }
                   : it
               )
             );

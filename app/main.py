@@ -228,6 +228,7 @@ async def ws_cot(ws: WebSocket):
 
     logger.info("[WS COT] Authenticated, registering client")
     cot_broadcaster.connect(ws)
+    await cot_broadcaster.replay_to(ws)
     try:
         while True:
             await ws.receive_text()
