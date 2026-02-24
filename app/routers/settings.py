@@ -144,7 +144,7 @@ def update_group_chat_settings(
 
 # ── Chat mode ────────────────────────────────────────────────────────────────
 
-VALID_CHAT_MODES = ("short", "long", "theater")
+VALID_CHAT_MODES = ("short", "long")
 
 
 class ChatModeResponse(BaseModel):
@@ -162,7 +162,7 @@ def get_chat_mode(db: Session = Depends(get_db)) -> ChatModeResponse:
     return ChatModeResponse(mode=mode)
 
 
-MODE_LABELS = {"short": "短消息", "long": "长消息", "theater": "小剧场"}
+MODE_LABELS = {"short": "短消息", "long": "长消息"}
 
 
 @router.put("/settings/chat-mode", response_model=ChatModeResponse)
@@ -174,7 +174,11 @@ def update_chat_mode(
     _upsert_setting(db, "chat_mode", mode)
 
     # Insert system message, similar to mood switch
-    label = MODE_LABELS.get(mode, mode)
+    MODE_SWITCH_MESSAGES = {
+        "long": "已切换到长消息模式。要求：完整段落输出，不拆条，不使用[NEXT]，每次回复至少3段，说话用「」，描写和对话交织在同一段内，段落要有体量。回复正文中一律使用第二人称"你"称呼对方，不许用"她"。",
+        "short": "已切换到短消息模式。要求：口语化、简短，像发消息一样一句一句说，用[NEXT]拆条，每条不超过两三句话，不写长段落，不写动作描写。",
+    }
+    switch_content = MODE_SWITCH_MESSAGES.get(mode, f"已切换到{mode}模式")
     latest_session = (
         db.query(ChatSession)
         .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
@@ -184,7 +188,7 @@ def update_chat_mode(
         msg = Message(
             session_id=latest_session.id,
             role="system",
-            content=f"已切换到{label}模式",
+            content=switch_content,
             meta_info={"mode_switch": True},
             created_at=datetime.now(timezone.utc),
         )

@@ -223,7 +223,7 @@ async def get_buffer_seconds() -> float:
 
 async def get_chat_mode() -> str:
     raw = await get_setting("chat_mode", "long")
-    return raw if raw in ("short", "long", "theater") else "long"
+    return raw if raw in ("short", "long") else "long"
 
 
 # ── Undo (delete last round) ────────────────────────────────────────────────

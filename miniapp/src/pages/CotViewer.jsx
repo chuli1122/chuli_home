@@ -354,6 +354,7 @@ export default function CotViewer() {
   const [mode, setMode] = useState(() =>
     localStorage.getItem("chat_mode") || "long"
   );
+  const [pendingMode, setPendingMode] = useState(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [liveRequestIds, setLiveRequestIds] = useState(new Set());
   const [error, setError] = useState(null);
@@ -839,7 +840,9 @@ export default function CotViewer() {
                   boxShadow: mode === m.key ? "var(--card-shadow-sm)" : "none",
                   color: mode === m.key ? S.accentDark : S.textMuted,
                 }}
-                onClick={() => setMode(m.key)}
+                onClick={() => {
+                  if (m.key !== mode) setPendingMode(m.key);
+                }}
               >
                 {m.label}
               </button>
@@ -891,6 +894,22 @@ export default function CotViewer() {
           ))
         )}
       </div>
+
+      {/* Mode switch confirm dialog */}
+      {pendingMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={() => setPendingMode(null)}>
+          <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
+            <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>切换模式</p>
+            <p className="mb-5 text-center text-[13px]" style={{ color: S.textMuted }}>
+              确认切换到{MODES.find((m) => m.key === pendingMode)?.label || pendingMode}模式？
+            </p>
+            <div className="flex gap-3">
+              <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text }} onClick={() => setPendingMode(null)}>取消</button>
+              <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold text-white" style={{ background: S.accentDark, boxShadow: `4px 4px 10px rgba(201,98,138,0.4)` }} onClick={() => { setMode(pendingMode); setPendingMode(null); }}>确认</button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
