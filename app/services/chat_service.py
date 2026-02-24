@@ -1607,7 +1607,8 @@ class ChatService:
                 api_message["tool_call_id"] = message["tool_call_id"]
             api_messages.append(api_message)
         return (client, model_preset.model_name, api_messages, tools, model_preset.temperature, model_preset.top_p,
-                api_provider.auth_type == "oauth_token", model_preset.max_tokens, model_preset.thinking_budget or 0)
+                api_provider.auth_type == "oauth_token", model_preset.max_tokens, model_preset.thinking_budget or 0,
+                base_url)
 
     def stream_chat_completion(
         self,
@@ -1641,7 +1642,7 @@ class ChatService:
                 logger.error("[stream] _build_api_call_params returned None (session=%s)", session_id)
                 yield 'data: [DONE]\n\n'
                 return
-            client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens, preset_thinking_budget = params
+            client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens, preset_thinking_budget, provider_base_url = params
             all_trimmed_message_ids.extend(self._trimmed_message_ids)
             # Broadcast + persist injected memories on first round
             if round_index == 0 and getattr(self, "_last_recall_results", None):
@@ -1731,7 +1732,7 @@ class ChatService:
                     yield 'data: [DONE]\n\n'
                     return
             else:
-                _apply_cache_control_oai(api_messages)
+                _apply_cache_control_oai(api_messages, use_blocks="openrouter.ai" in (provider_base_url or ""))
                 try:
                     stream_params: dict[str, Any] = {
                         "model": model_name,
@@ -1998,7 +1999,7 @@ class ChatService:
         params = self._build_api_call_params(messages, session_id, short_mode=short_mode)
         if params is None:
             return []
-        client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens, preset_thinking_budget = params
+        client, model_name, api_messages, tools, preset_temperature, preset_top_p, use_anthropic, preset_max_tokens, preset_thinking_budget, provider_base_url = params
         logger.info("[_fetch_next_tool_calls] Calling model: %s (session=%s, msg_count=%d, anthropic=%s)",
                     model_name, session_id, len(api_messages), use_anthropic)
 
@@ -2125,7 +2126,7 @@ class ChatService:
                 return []
 
         # OpenAI path
-        _apply_cache_control_oai(api_messages)
+        _apply_cache_control_oai(api_messages, use_blocks="openrouter.ai" in (provider_base_url or ""))
         try:
             call_params: dict[str, Any] = {
                 "model": model_name,
@@ -2192,7 +2193,7 @@ class ChatService:
             api_messages.append({"role": "user", "content": "请基于上述工具调用的结果回复。"})
             # Retry the API call with the prompt
             try:
-                _apply_cache_control_oai(api_messages)
+                _apply_cache_control_oai(api_messages, use_blocks="openrouter.ai" in (provider_base_url or ""))
                 call_params["messages"] = api_messages
                 response = client.chat.completions.create(**call_params)
             except Exception as e:
