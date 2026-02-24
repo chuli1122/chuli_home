@@ -71,7 +71,13 @@ class CotBroadcaster:
 
     async def replay_to(self, ws: WebSocket) -> None:
         """Send accumulated state of all active requests to *ws*."""
+        if self._active:
+            logger.info("[COT replay] %d active request(s) to replay", len(self._active))
         for request_id, st in list(self._active.items()):
+            logger.info(
+                "[COT replay] request=%s thinking_rounds=%d text_len=%d",
+                request_id[:8], len(st["thinking"]), len(st["text"]),
+            )
             snapshot: dict[str, Any] = {
                 "type": "replay_snapshot",
                 "request_id": request_id,

@@ -510,6 +510,7 @@ export default function CotViewer() {
           }
 
           if (type === "replay_snapshot") {
+            console.log("[COT] replay_snapshot", request_id, "thinking_rounds:", msg.rounds?.length, "text_len:", (msg.text_preview || "").length);
             setItems((prev) => {
               let [arr, idx] = ensureItem(prev);
               arr = [...arr];
