@@ -1950,7 +1950,7 @@ class ChatService:
             if total_prompt_tokens or total_completion_tokens or elapsed_ms:
                 self._write_cot_block(
                     request_id, 9999, "usage",
-                    json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms}),
+                    json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit}),
                 )
             cot_broadcaster.publish({
                 "type": "done", "request_id": request_id,
@@ -1965,7 +1965,7 @@ class ChatService:
         if total_prompt_tokens or total_completion_tokens or elapsed_ms:
             self._write_cot_block(
                 request_id, 9999, "usage",
-                json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms}),
+                json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit}),
             )
         cot_broadcaster.publish({
             "type": "done", "request_id": request_id,
