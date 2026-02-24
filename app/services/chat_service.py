@@ -1709,8 +1709,18 @@ class ChatService:
                                 _cur_block_type = None
                         final_msg = anth_stream.get_final_message()
                     if hasattr(final_msg, "usage") and final_msg.usage:
-                        total_prompt_tokens += getattr(final_msg.usage, "input_tokens", 0)
-                        total_completion_tokens += getattr(final_msg.usage, "output_tokens", 0)
+                        _u = final_msg.usage
+                        logger.info(
+                            "[Anthropic usage] input=%s cache_create=%s cache_read=%s output=%s",
+                            getattr(_u, "input_tokens", None),
+                            getattr(_u, "cache_creation_input_tokens", None),
+                            getattr(_u, "cache_read_input_tokens", None),
+                            getattr(_u, "output_tokens", None),
+                        )
+                        total_prompt_tokens += getattr(_u, "input_tokens", 0)
+                        total_prompt_tokens += getattr(_u, "cache_creation_input_tokens", 0)
+                        total_prompt_tokens += getattr(_u, "cache_read_input_tokens", 0)
+                        total_completion_tokens += getattr(_u, "output_tokens", 0)
                     for idx, block in enumerate(b for b in final_msg.content if b.type == "tool_use"):
                         tool_calls_acc[idx] = {
                             "id": block.id,
@@ -2074,6 +2084,8 @@ class ChatService:
                 return []
             if hasattr(response, "usage") and response.usage:
                 self._total_prompt_tokens += getattr(response.usage, "input_tokens", 0)
+                self._total_prompt_tokens += getattr(response.usage, "cache_creation_input_tokens", 0)
+                self._total_prompt_tokens += getattr(response.usage, "cache_read_input_tokens", 0)
                 self._total_completion_tokens += getattr(response.usage, "output_tokens", 0)
             text_content = ""
             thinking_content = ""
