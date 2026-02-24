@@ -135,12 +135,30 @@ export default function MessageList() {
             // Load message preview
             const msgData = await apiFetch(`/api/sessions/${s.id}/messages?limit=10`);
             const msgs = msgData.messages || [];
-            // Find last non-system, non-empty message for preview
-            const lastMsg = [...msgs].reverse().find(m =>
-              (m.role === "user" || m.role === "assistant") &&
-              m.content && m.content.trim() && m.content.trim() !== "EMPTY"
-            );
-            if (lastMsg) previewMap[s.id] = lastMsg;
+            // Find last message (including mood change system messages)
+            const lastMsg = [...msgs].reverse().find(m => {
+              if (m.role === "user" || m.role === "assistant") {
+                return m.content && m.content.trim() && m.content.trim() !== "EMPTY";
+              }
+              if (m.role === "system") {
+                // Include mood change system messages
+                return m.content && m.content.match(/手动更改心情标签为:\s*(\w+)/);
+              }
+              return false;
+            });
+            if (lastMsg) {
+              // Format mood change message for display
+              if (lastMsg.role === "system") {
+                const moodMatch = lastMsg.content.match(/手动更改心情标签为:\s*(\w+)/);
+                if (moodMatch) {
+                  previewMap[s.id] = { ...lastMsg, content: `已更改心情为：${moodMatch[1]}` };
+                } else {
+                  previewMap[s.id] = lastMsg;
+                }
+              } else {
+                previewMap[s.id] = lastMsg;
+              }
+            }
 
             // Load assistant avatar for single chat
             if (s.assistant_id && s.type === 'chat') {

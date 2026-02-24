@@ -1740,19 +1740,24 @@ class ChatService:
                         "tools": tools,
                         "tool_choice": "auto",
                         "stream": True,
+                        "stream_options": {"include_usage": True},
                     }
                     if preset_temperature is not None:
                         stream_params["temperature"] = preset_temperature
                     if preset_top_p is not None:
                         stream_params["top_p"] = preset_top_p
+                    extra: dict[str, Any] = {}
                     if preset_thinking_budget > 0:
-                        stream_params["extra_body"] = {"reasoning": {"max_tokens": preset_thinking_budget}}
+                        extra["reasoning"] = {"max_tokens": preset_thinking_budget}
+                    if extra:
+                        stream_params["extra_body"] = extra
                     stream = client.chat.completions.create(**stream_params)
                 except Exception as e:
                     logger.error(f"Streaming request failed: {e}")
                     yield f'data: {json.dumps({"error": str(e)})}\n\n'
                     yield 'data: [DONE]\n\n'
                     return
+                oai_finish_reason = None
                 try:
                     for chunk in stream:
                         if hasattr(chunk, "usage") and chunk.usage:
@@ -1760,7 +1765,10 @@ class ChatService:
                             total_completion_tokens += getattr(chunk.usage, "completion_tokens", 0)
                         if not chunk.choices:
                             continue
-                        delta = chunk.choices[0].delta
+                        choice0 = chunk.choices[0]
+                        if getattr(choice0, "finish_reason", None):
+                            oai_finish_reason = choice0.finish_reason
+                        delta = choice0.delta
                         # Handle reasoning/thinking delta (OpenRouter)
                         reasoning_text = _extract_reasoning_delta(delta)
                         if reasoning_text:
@@ -1824,7 +1832,7 @@ class ChatService:
                 if full_content:
                     self._write_cot_block(request_id, current_round, "text", full_content, broadcast=False)
                 messages.append({
-                    "role": "assistant", "content": full_content,
+                    "role": "assistant", "content": full_content or None,
                     "tool_calls": tool_calls_payload,
                 })
                 try:
@@ -1949,6 +1957,20 @@ class ChatService:
             })
             yield 'data: [DONE]\n\n'
             return
+
+        # ===== break 退出循环后（如最大工具轮次），补发 done 事件 =====
+        elapsed_ms = int((time.monotonic() - start_time) * 1000)
+        if total_prompt_tokens or total_completion_tokens or elapsed_ms:
+            self._write_cot_block(
+                request_id, 9999, "usage",
+                json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms}),
+            )
+        cot_broadcaster.publish({
+            "type": "done", "request_id": request_id,
+            "prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens,
+            "elapsed_ms": elapsed_ms,
+        })
+        yield 'data: [DONE]\n\n'
 
     def _execute_tool(self, tool_call: ToolCall) -> dict[str, Any]:
         tool_name = tool_call.name
@@ -2087,7 +2109,7 @@ class ChatService:
                 if text_content:
                     self._write_cot_block(request_id, round_index, "text", text_content)
             if tool_calls:
-                messages.append({"role": "assistant", "content": text_content, "tool_calls": tool_calls_payload})
+                messages.append({"role": "assistant", "content": text_content or None, "tool_calls": tool_calls_payload})
                 self._persist_message(session_id, "assistant", text_content, {"tool_calls": tool_calls_payload}, request_id=request_id)
                 return tool_calls
             if text_content:
@@ -2174,7 +2196,7 @@ class ChatService:
                     self._write_cot_block(request_id, round_index, "thinking", reasoning_content)
                 if choice.content:
                     self._write_cot_block(request_id, round_index, "text", choice.content)
-            messages.append({"role": "assistant", "content": choice.content or "", "tool_calls": tool_calls_payload})
+            messages.append({"role": "assistant", "content": choice.content or None, "tool_calls": tool_calls_payload})
             self._persist_message(session_id, "assistant", choice.content or "", {"tool_calls": tool_calls_payload}, request_id=request_id)
             return tool_calls
         if choice.content is not None and choice.content != "":
