@@ -110,6 +110,7 @@ class MemoryService:
         return {
             "id": memory.id,
             "content": memory.content,
+            "klass": memory.klass,
             "tags": memory.tags,
             "source": memory.source,
         }
@@ -130,6 +131,13 @@ class MemoryService:
             new_content = payload["content"]
             now_east8 = datetime.now(timezone.utc).astimezone(TZ_EAST8)
             memory.content = f"[{now_east8.strftime('%Y.%m.%d %H:%M')}] {new_content}"
+        if "klass" in payload:
+            from app.constants import KLASS_DEFAULTS
+            new_klass = payload["klass"]
+            if new_klass in KLASS_DEFAULTS:
+                memory.klass = new_klass
+                memory.importance = KLASS_DEFAULTS[new_klass]["importance"]
+                memory.halflife_days = KLASS_DEFAULTS[new_klass]["halflife_days"]
         if "tags" in payload:
             memory.tags = payload["tags"]
         memory.updated_at = datetime.now(timezone.utc)
@@ -138,6 +146,7 @@ class MemoryService:
         return {
             "id": memory.id,
             "content": memory.content,
+            "klass": memory.klass,
             "tags": memory.tags,
             "source": memory.source,
         }
@@ -1212,7 +1221,7 @@ class ChatService:
                 # Write tool_use COT block before execution (paired with tool_result)
                 self._write_cot_block(
                     request_id, round_index, "tool_use",
-                    json.dumps(tool_call.arguments),
+                    json.dumps(tool_call.arguments, ensure_ascii=False),
                     tool_name=tool_name,
                 )
                 try:
@@ -1492,7 +1501,7 @@ class ChatService:
                     },
                 },
             },
-            {"type": "function", "function": {"name": "update_memory", "description": "更新一条已有记忆的内容。传入记忆 ID 和新内容。只能更新自己创建的或 auto_extract 来源的记忆。时间戳由后端自动添加，不需要在content里写时间。", "parameters": {"type": "object", "properties": {"id": {"type": "integer", "description": "要更新的记忆ID"}, "content": {"type": "string", "description": "新的记忆内容，不传则只更新tags"}, "tags": {"type": "object", "description": "搜索用主题标签，格式: {\"topic\": [\"关键词1\", \"关键词2\"]}"}}, "required": ["id"]}}},
+            {"type": "function", "function": {"name": "update_memory", "description": "更新一条已有记忆的内容、分类或标签。传入记忆 ID 和要更新的字段。只能更新自己创建的或 auto_extract 来源的记忆。时间戳由后端自动添加，不需要在content里写时间。", "parameters": {"type": "object", "properties": {"id": {"type": "integer", "description": "要更新的记忆ID"}, "content": {"type": "string", "description": "新的记忆内容"}, "klass": {"type": "string", "description": "新的分类", "enum": ["identity", "relationship", "bond", "conflict", "fact", "preference", "health", "task", "ephemeral", "other"]}, "tags": {"type": "object", "description": "搜索用主题标签，格式: {\"topic\": [\"关键词1\", \"关键词2\"]}"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "delete_memory", "description": "软删除一条记忆。传入记忆 ID。只能删除自己创建的或 auto_extract 来源的记忆。30天后自动永久清理。", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "get_memory_by_id", "description": "按id查询单条记忆的详细信息。返回记忆的完整内容、标签、分类、来源、重要性、创建和更新时间。", "parameters": {"type": "object", "properties": {"id": {"type": "integer", "description": "记忆ID"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本,也可以写给她看的信。可以设置定时解锁，让她在指定时间后才能看到。", "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "日记标题"}, "content": {"type": "string", "description": "日记正文"}, "unlock_at": {"type": "string", "description": "定时解锁时间，ISO格式如 2025-03-01T09:00:00+08:00。不传则立即可见。设置后她在解锁前只能看到标题，无法阅读内容。"}}, "required": ["title", "content"]}}},
@@ -1860,7 +1869,7 @@ class ChatService:
                 for tc in parsed_tool_calls:
                     self._write_cot_block(
                         request_id, current_round, "tool_use",
-                        tc.arguments if isinstance(tc.arguments, str) else json.dumps(tc.arguments),
+                        tc.arguments if isinstance(tc.arguments, str) else json.dumps(tc.arguments, ensure_ascii=False),
                         tool_name=tc.name,
                     )
                     try:
