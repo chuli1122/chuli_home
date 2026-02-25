@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -197,6 +198,13 @@ def _get_setting_sync(key: str, default: str = "") -> str:
         db.close()
 
 
+# ── Helpers: timeout detection ────────────────────────────────────────────────
+
+def _is_timeout_error(exc: Exception) -> bool:
+    """Check if an exception is a timeout error (works across httpx/openai/anthropic)."""
+    return "timeout" in type(exc).__name__.lower()
+
+
 # ── Layer 2: Lightweight model decision ──────────────────────────────────────
 
 def _check_with_fallback_model_sync() -> bool:
@@ -301,9 +309,22 @@ def _check_with_fallback_model_sync() -> bool:
             mood=mood_tag,
         )
 
-        response = _call_model_raw(db, preset, system_prompt, user_text)
-        logger.info("[proactive] Layer 2 response: %s", response.strip()[:50])
-        return "YES" in response.upper()
+        # API call with timeout=30s, retry once on timeout
+        for attempt in range(2):
+            try:
+                response = _call_model_raw(db, preset, system_prompt, user_text, timeout=30)
+                logger.info("[proactive] Layer 2 response: %s", response.strip()[:50])
+                return "YES" in response.upper()
+            except Exception as api_err:
+                if _is_timeout_error(api_err) and attempt == 0:
+                    logger.warning("[proactive] Layer 2 timeout, retrying...")
+                    continue
+                if _is_timeout_error(api_err):
+                    logger.warning("[proactive] Layer 2 retry also failed, skipping this round")
+                    return False
+                raise  # non-timeout error, let outer handler deal with it
+
+        return False  # should not reach here
     except Exception as e:
         logger.exception("[proactive] Layer 2 error: %s", e)
         return False
@@ -317,6 +338,20 @@ async def _check_with_fallback_model() -> bool:
 
 # ── Layer 3: Generate and send ───────────────────────────────────────────────
 
+def _cleanup_partial_messages(db: "Session", session_id: int, after_id: int) -> None:
+    """Delete any messages created after after_id (cleanup for failed generation)."""
+    partials = (
+        db.query(Message)
+        .filter(Message.session_id == session_id, Message.id > after_id)
+        .all()
+    )
+    for m in partials:
+        db.delete(m)
+    if partials:
+        db.commit()
+        logger.info("[proactive] Cleaned up %d partial messages", len(partials))
+
+
 def _generate_sync() -> tuple[str | None, int | None]:
     """Generate a proactive message. Returns (content, db_message_id) or (None, None)."""
     from app.routers.chat import _load_session_messages
@@ -325,9 +360,6 @@ def _generate_sync() -> tuple[str | None, int | None]:
     db = SessionLocal()
     try:
         session_id, assistant_name = _get_session_info_sync(ACHENG_ASSISTANT_ID)
-
-        chat_service = ChatService(db, assistant_name)
-        chat_service.proactive_extra_prompt = PROACTIVE_EXTRA_PROMPT
 
         messages = _load_session_messages(db, session_id)
 
@@ -355,17 +387,7 @@ def _generate_sync() -> tuple[str | None, int | None]:
         )
         mood_tag = mood_summary.mood_tag if mood_summary else "unknown"
 
-        # Record max message id before generation
-        max_msg = (
-            db.query(Message.id)
-            .filter(Message.session_id == session_id)
-            .order_by(Message.id.desc())
-            .first()
-        )
-        max_id_before = max_msg[0] if max_msg else 0
-
-        # Append trigger message with id=-1 to prevent DB persistence
-        messages.append({
+        trigger_msg = {
             "role": "user",
             "content": TRIGGER_PROMPT_TEMPLATE.format(
                 now=now.strftime("%Y-%m-%d %H:%M"),
@@ -373,11 +395,43 @@ def _generate_sync() -> tuple[str | None, int | None]:
                 mood=mood_tag,
             ),
             "id": -1,
-        })
+        }
 
-        # Consume SSE stream (side effects: saves assistant message to DB)
-        for _ in chat_service.stream_chat_completion(session_id, messages):
-            pass
+        # Retry once on timeout (timeout=60s)
+        new_msgs = None
+        for attempt in range(2):
+            # Record max message id before generation
+            max_msg = (
+                db.query(Message.id)
+                .filter(Message.session_id == session_id)
+                .order_by(Message.id.desc())
+                .first()
+            )
+            max_id_before = max_msg[0] if max_msg else 0
+
+            # Build fresh chat_service each attempt
+            chat_service = ChatService(db, assistant_name)
+            chat_service.proactive_extra_prompt = PROACTIVE_EXTRA_PROMPT
+            chat_service.api_timeout = 60
+
+            # Append trigger message with id=-1 to prevent DB persistence
+            msgs_copy = [*messages, trigger_msg]
+
+            try:
+                # Consume SSE stream (side effects: saves assistant message to DB)
+                for _ in chat_service.stream_chat_completion(session_id, msgs_copy):
+                    pass
+                break  # success
+            except Exception as api_err:
+                if _is_timeout_error(api_err) and attempt == 0:
+                    logger.warning("[proactive] Layer 3 timeout, retrying...")
+                    _cleanup_partial_messages(db, session_id, max_id_before)
+                    continue
+                if _is_timeout_error(api_err):
+                    logger.warning("[proactive] Layer 3 retry also failed, skipping this round")
+                    _cleanup_partial_messages(db, session_id, max_id_before)
+                    return None, None
+                raise  # non-timeout error
 
         # Find new assistant messages
         new_msgs = (
@@ -461,16 +515,23 @@ async def proactive_loop() -> None:
                 continue
 
             logger.info("[proactive] Checking rules (layer 1)...")
+            t0 = time.monotonic()
             if not await asyncio.to_thread(_check_rules):
+                logger.info("[proactive] Layer 1 check took %.1fs (skipped)", time.monotonic() - t0)
                 continue
+            logger.info("[proactive] Layer 1 check took %.1fs (passed)", time.monotonic() - t0)
 
             logger.info("[proactive] Checking with fallback model (layer 2)...")
+            t1 = time.monotonic()
             if not await _check_with_fallback_model():
-                logger.info("[proactive] Layer 2 said NO, skipping")
+                logger.info("[proactive] Layer 2 check took %.1fs (NO)", time.monotonic() - t1)
                 continue
+            logger.info("[proactive] Layer 2 check took %.1fs (YES)", time.monotonic() - t1)
 
             logger.info("[proactive] Generating and sending (layer 3)...")
+            t2 = time.monotonic()
             await _generate_and_send()
+            logger.info("[proactive] Layer 3 generate took %.1fs", time.monotonic() - t2)
         except Exception as e:
             logger.exception("[proactive] Loop error: %s", e)
             await asyncio.sleep(60)

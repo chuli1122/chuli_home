@@ -1112,6 +1112,7 @@ class ChatService:
         self.memory_service = MemoryService(db)
         self.session_factory = session_factory or SessionLocal
         self.proactive_extra_prompt: str | None = None
+        self.api_timeout: float | None = None
         self._trimmed_messages: list[dict[str, Any]] = []
         self._trimmed_message_ids: list[int] = []
         self.dialogue_retain_budget, self.dialogue_trigger_threshold = (
@@ -1527,16 +1528,22 @@ class ChatService:
             if not base_url.endswith("/v1"):
                 base_url = f"{base_url.rstrip('/')}/v1"
         if api_provider.auth_type == "oauth_token":
-            client = anthropic.Anthropic(
-                auth_token=api_provider.api_key,
-                default_headers={
+            _anth_kw: dict[str, Any] = {
+                "auth_token": api_provider.api_key,
+                "default_headers": {
                     "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
                     "user-agent": "claude-cli/2.1.2 (external, cli)",
                     "x-app": "cli",
                 },
-            )
+            }
+            if self.api_timeout is not None:
+                _anth_kw["timeout"] = self.api_timeout
+            client = anthropic.Anthropic(**_anth_kw)
         else:
-            client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
+            _oai_kw: dict[str, Any] = {"api_key": api_provider.api_key, "base_url": base_url}
+            if self.api_timeout is not None:
+                _oai_kw["timeout"] = self.api_timeout
+            client = OpenAI(**_oai_kw)
         # Token trimming
         retain_budget = self.dialogue_retain_budget
         trigger_threshold = self.dialogue_trigger_threshold

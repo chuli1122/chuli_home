@@ -29,7 +29,8 @@ TZ_EAST8 = timezone(timedelta(hours=8))
 
 
 def _call_model_raw(
-    db: Session, preset: ModelPreset, system_prompt: str, user_text: str
+    db: Session, preset: ModelPreset, system_prompt: str, user_text: str,
+    *, timeout: float | None = None,
 ) -> str:
     """Call a model preset and return raw text response."""
     api_provider = db.get(ApiProvider, preset.api_provider_id)
@@ -42,14 +43,17 @@ def _call_model_raw(
         if not base_url.endswith("/v1"):
             base_url = f"{base_url.rstrip('/')}/v1"
     if api_provider.auth_type == "oauth_token":
-        anth_client = anthropic.Anthropic(
-            auth_token=api_provider.api_key,
-            default_headers={
+        _anth_kwargs: dict[str, Any] = {
+            "auth_token": api_provider.api_key,
+            "default_headers": {
                 "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
                 "user-agent": "claude-cli/2.1.2 (external, cli)",
                 "x-app": "cli",
             },
-        )
+        }
+        if timeout is not None:
+            _anth_kwargs["timeout"] = timeout
+        anth_client = anthropic.Anthropic(**_anth_kwargs)
         _summary_tb = preset.thinking_budget or 0
         anth_kwargs: dict[str, Any] = {
             "model": preset.model_name,
@@ -71,7 +75,10 @@ def _call_model_raw(
             if block.type == "text":
                 content += block.text
     else:
-        oai_client = OpenAI(api_key=api_provider.api_key, base_url=base_url)
+        _oai_kwargs: dict[str, Any] = {"api_key": api_provider.api_key, "base_url": base_url}
+        if timeout is not None:
+            _oai_kwargs["timeout"] = timeout
+        oai_client = OpenAI(**_oai_kwargs)
         params: dict[str, Any] = {
             "model": preset.model_name,
             "messages": [

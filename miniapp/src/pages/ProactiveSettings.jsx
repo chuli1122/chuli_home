@@ -213,7 +213,7 @@ export default function ProactiveSettings() {
 
               <NumberField
                 label="触发间隔 (分钟)"
-                hint="距离上次消息多久开始考虑 (15-120)"
+                hint="距离你的最后一次回复 (15-120)"
                 value={settings.min_gap}
                 onChange={(v) => update({ min_gap: v })}
                 min={15}
