@@ -1085,7 +1085,7 @@ class ChatService:
         "write_diary",
         "web_search",
     }
-    silent_tools = {"list_memories", "search_memory", "search_summary", "get_summary_by_id", "search_chat_history", "search_theater", "read_diary"}
+    silent_tools = {"list_memories", "search_memory", "search_summary", "get_summary_by_id", "search_chat_history", "search_theater", "read_diary", "web_fetch"}
     tool_display_names = {
         "save_memory": "创建记忆",
         "update_memory": "更新记忆",
@@ -1097,6 +1097,8 @@ class ChatService:
         "get_summary_by_id": "查看摘要",
         "search_chat_history": "搜索聊天记录",
         "search_theater": "搜索小剧场",
+        "web_search": "搜索互联网",
+        "web_fetch": "读取网页",
     }
 
     def __init__(
@@ -1512,6 +1514,8 @@ class ChatService:
             {"type": "function", "function": {"name": "search_chat_history", "description": "搜索聊天记录原文。三种模式：\n1) 关键词搜索：传 query，返回命中消息（不带上下文）\n2) ID 范围：传 msg_id_start + msg_id_end，拉取该范围内的完整对话\n3) 单条 ID：传 message_id，返回该条及前后各 3 条上下文", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "session_id": {"type": "integer"}, "msg_id_start": {"type": "integer"}, "msg_id_end": {"type": "integer"}, "message_id": {"type": "integer"}}}}},
             {"type": "function", "function": {"name": "search_theater", "description": "搜索小剧场故事摘要。用于查找过去的 RP / 小剧场剧情记录，返回故事标题、AI伙伴、摘要全文、时间跨度。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}},
             {"type": "function", "function": {"name": "read_diary", "description": "读取交换日记。两种模式：\n1) list 模式：不传 diary_id，可选传 author（user/assistant）筛选，返回日记列表（id、title、author、created_at、unlock_at、read_at），不含正文。未解锁的定时日记也会列出但标记 locked=true。\n2) read 模式：传 diary_id，返回该日记完整内容（id、title、content、author、created_at、unlock_at）。用户写给你的日记（author=user）读取时自动记录已读时间。未解锁的定时日记不允许读取。", "parameters": {"type": "object", "properties": {"diary_id": {"type": "integer", "description": "日记ID，传入则为read模式"}, "author": {"type": "string", "enum": ["user", "assistant"], "description": "list模式下按作者筛选"}}}}},
+            {"type": "function", "function": {"name": "web_search", "description": "搜索互联网获取信息。返回搜索结果列表，每条包含标题、链接和摘要。搜索后如需查看某个结果的完整内容，再调用 web_fetch。每次搜索后最多读取2个网页。", "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "搜索关键词"}}, "required": ["query"]}}},
+            {"type": "function", "function": {"name": "web_fetch", "description": "读取指定URL的网页内容，返回markdown格式的正文。内容较长时会截断，可通过offset参数翻页继续阅读。也可以直接用于读取用户发送的链接。", "parameters": {"type": "object", "properties": {"url": {"type": "string", "description": "网页地址"}, "offset": {"type": "integer", "description": "起始偏移量，用于翻页，默认0"}}, "required": ["url"]}}},
         ]
         # Client setup
         base_url = api_provider.base_url
@@ -2027,7 +2031,11 @@ class ChatService:
         if tool_name == "read_diary":
             return self.memory_service.read_diary(tool_call.arguments)
         if tool_name == "web_search":
-            return {"status": "not_implemented", "payload": tool_call.arguments}
+            from app.services.web_service import web_search
+            return web_search(tool_call.arguments)
+        if tool_name == "web_fetch":
+            from app.services.web_service import web_fetch
+            return web_fetch(tool_call.arguments)
         return {"status": "unknown_tool", "payload": tool_call.arguments}
 
     def _fetch_next_tool_calls(

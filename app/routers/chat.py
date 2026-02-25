@@ -112,6 +112,16 @@ def _compress_tool_result(tool_name: str, content: str) -> str:
         query = data.get("query", "")
         return f"[已搜索小剧场] 关键词={query}, 返回{len(results)}条"
 
+    if tool_name == "web_search":
+        results = data.get("results", [])
+        query = data.get("query", "")
+        return f"[已搜索] query={query}, 返回{len(results)}条结果"
+
+    if tool_name == "web_fetch":
+        title = data.get("title", "")
+        url = data.get("url", "")
+        return f"[已读取网页] url: {url} | title: {title}"
+
     # Fallback: tool_name + truncated content
     return f"[{tool_name}] {str(data)[:60]}"
 
