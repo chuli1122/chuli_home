@@ -1111,6 +1111,7 @@ class ChatService:
         self.assistant_name = assistant_name
         self.memory_service = MemoryService(db)
         self.session_factory = session_factory or SessionLocal
+        self.proactive_extra_prompt: str | None = None
         self._trimmed_messages: list[dict[str, Any]] = []
         self._trimmed_message_ids: list[int] = []
         self.dialogue_retain_budget, self.dialogue_trigger_threshold = (
@@ -1460,7 +1461,7 @@ class ChatService:
                 flag = ""
             full_system_prompt += f"\n\n[User recent mood: {latest_mood_tag}{flag}]"
         self._last_recall_results = []
-        if latest_user_message:
+        if not self.proactive_extra_prompt and latest_user_message:
             recall_results = self.memory_service.fast_recall(
                 latest_user_message, limit=5, current_mood_tag=latest_mood_tag
             )
@@ -1472,6 +1473,8 @@ class ChatService:
                     recall_text += f"- {mem['content']} (来源: {source})\n"
                 recall_text += """[如果以上记忆不够，可以使用 search_memory 或 search_chat_history 补充]\n（注意：记忆和摘要中的"她"均指当前对话对象，回复正文中一律使用第二人称"你"来称呼对方）\n"""
                 full_system_prompt += recall_text
+        if self.proactive_extra_prompt:
+            full_system_prompt += "\n\n" + self.proactive_extra_prompt
         save_memory_description = (
             "主动存储有价值的长期记忆。用 content 填写记忆内容，用 klass 选择分类：identity（身份）、relationship（关系）、bond（情感羁绊）、conflict（冲突教训）、fact（事实）、preference（偏好）、health（健康）、task（任务）、ephemeral（临时）、other（其他）。\n"
             "时间戳由后端自动添加，不需要在 content 里写时间。\n"

@@ -328,3 +328,94 @@ def set_mood(
 
     db.commit()
     return MoodResponse(mood=mood)
+
+
+# ── Proactive messaging ─────────────────────────────────────────────────────
+
+_PROACTIVE_DEFAULTS = {
+    "proactive_enabled": "false",
+    "proactive_interval": "30",
+    "proactive_min_gap": "30",
+    "proactive_retry_enabled": "true",
+    "proactive_retry_gap": "1.5",
+    "proactive_max_retries": "8",
+    "proactive_voice_enabled": "false",
+    "proactive_voice_chance": "30",
+}
+
+
+class ProactiveSettingsResponse(BaseModel):
+    enabled: bool
+    interval: int
+    min_gap: int
+    retry_enabled: bool
+    retry_gap: float
+    max_retries: int
+    voice_enabled: bool
+    voice_chance: int
+
+
+class ProactiveSettingsUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    interval: int | None = Field(None, ge=10, le=60)
+    min_gap: int | None = Field(None, ge=15, le=120)
+    retry_enabled: bool | None = None
+    retry_gap: float | None = Field(None, ge=0.5, le=4.0)
+    max_retries: int | None = Field(None, ge=1, le=15)
+    voice_enabled: bool | None = None
+    voice_chance: int | None = Field(None, ge=0, le=100)
+
+
+def _read_proactive_settings(db: Session) -> dict[str, str]:
+    rows = (
+        db.query(Settings)
+        .filter(Settings.key.in_(_PROACTIVE_DEFAULTS.keys()))
+        .all()
+    )
+    kv = {row.key: row.value for row in rows}
+    return {k: kv.get(k, v) for k, v in _PROACTIVE_DEFAULTS.items()}
+
+
+def _proactive_response(raw: dict[str, str]) -> ProactiveSettingsResponse:
+    return ProactiveSettingsResponse(
+        enabled=raw["proactive_enabled"] == "true",
+        interval=_safe_int(raw["proactive_interval"], 30),
+        min_gap=_safe_int(raw["proactive_min_gap"], 30),
+        retry_enabled=raw["proactive_retry_enabled"] == "true",
+        retry_gap=float(raw.get("proactive_retry_gap", "1.5")),
+        max_retries=_safe_int(raw["proactive_max_retries"], 8),
+        voice_enabled=raw["proactive_voice_enabled"] == "true",
+        voice_chance=_safe_int(raw["proactive_voice_chance"], 30),
+    )
+
+
+@router.get("/settings/proactive", response_model=ProactiveSettingsResponse)
+def get_proactive_settings(
+    db: Session = Depends(get_db),
+) -> ProactiveSettingsResponse:
+    raw = _read_proactive_settings(db)
+    return _proactive_response(raw)
+
+
+@router.put("/settings/proactive", response_model=ProactiveSettingsResponse)
+def update_proactive_settings(
+    payload: ProactiveSettingsUpdateRequest,
+    db: Session = Depends(get_db),
+) -> ProactiveSettingsResponse:
+    field_map = {
+        "enabled": ("proactive_enabled", lambda v: "true" if v else "false"),
+        "interval": ("proactive_interval", lambda v: str(int(v))),
+        "min_gap": ("proactive_min_gap", lambda v: str(int(v))),
+        "retry_enabled": ("proactive_retry_enabled", lambda v: "true" if v else "false"),
+        "retry_gap": ("proactive_retry_gap", lambda v: str(round(v, 1))),
+        "max_retries": ("proactive_max_retries", lambda v: str(int(v))),
+        "voice_enabled": ("proactive_voice_enabled", lambda v: "true" if v else "false"),
+        "voice_chance": ("proactive_voice_chance", lambda v: str(int(v))),
+    }
+    for field_name, (key, converter) in field_map.items():
+        value = getattr(payload, field_name)
+        if value is not None:
+            _upsert_setting(db, key, converter(value))
+    db.commit()
+    raw = _read_proactive_settings(db)
+    return _proactive_response(raw)

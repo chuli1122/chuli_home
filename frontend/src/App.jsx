@@ -9,6 +9,7 @@ import IconSettings from "./pages/IconSettings";
 import FontSettings from "./pages/FontSettings";
 import AppSettings from "./pages/AppSettings";
 import ApiSettings from "./pages/ApiSettings";
+import ProactiveSettings from "./pages/ProactiveSettings";
 import ChatLayout from "./pages/chat/ChatLayout";
 import MessageList from "./pages/chat/MessageList";
 import Contacts from "./pages/chat/Contacts";
@@ -126,6 +127,7 @@ export default function App() {
           <Route path="/theme/font" element={<FontSettings />} />
           <Route path="/settings" element={<AppSettings />} />
           <Route path="/settings/api" element={<ApiSettings />} />
+          <Route path="/settings/proactive" element={<ProactiveSettings />} />
           <Route path="/countdown" element={<Countdown />} />
           <Route path="/chat" element={<ChatLayout />}>
             <Route index element={<Navigate to="/chat/messages" replace />} />

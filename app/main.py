@@ -162,6 +162,10 @@ async def on_startup() -> None:
         except Exception as exc:
             print(f"[startup] Webhook FAILED for {key}: {exc}")
             logger.warning("Failed to set webhook for %s: %s", key, exc)
+    # Start proactive message loop
+    from app.services.proactive_service import proactive_loop
+    asyncio.create_task(proactive_loop())
+    logger.info("Proactive message loop started")
 
 
 @app.on_event("shutdown")
