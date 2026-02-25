@@ -99,6 +99,7 @@ export default function ProactiveSettings() {
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState({
     enabled: false,
+    random_mode: false,
     interval: 30,
     min_gap: 30,
     retry_enabled: true,
@@ -145,6 +146,7 @@ export default function ProactiveSettings() {
   const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }));
 
   const disabled = !settings.enabled;
+  const randomOn = settings.random_mode && settings.enabled;
 
   return (
     <div className="flex h-full flex-col" style={{ background: S.bg }}>
@@ -195,6 +197,18 @@ export default function ProactiveSettings() {
                 </div>
                 <Toggle on={settings.enabled} onToggle={() => update({ enabled: !settings.enabled })} />
               </div>
+              {settings.enabled && (
+                <>
+                  <Divider />
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[14px] font-semibold" style={{ color: S.text }}>随机模式</div>
+                      <div className="text-[11px]" style={{ color: S.textMuted }}>间隔参数每轮随机生成</div>
+                    </div>
+                    <Toggle on={settings.random_mode} onToggle={() => update({ random_mode: !settings.random_mode })} />
+                  </div>
+                </>
+              )}
             </Card>
 
             {/* Card: Intervals */}
@@ -202,11 +216,11 @@ export default function ProactiveSettings() {
               <NumberField
                 label="轮询间隔 (分钟)"
                 hint="每隔多久检查一次 (10-60)"
-                value={settings.interval}
+                value={randomOn ? 10 : settings.interval}
                 onChange={(v) => update({ interval: v })}
                 min={10}
                 max={60}
-                disabled={disabled}
+                disabled={disabled || randomOn}
               />
 
               <Divider />
@@ -218,7 +232,7 @@ export default function ProactiveSettings() {
                 onChange={(v) => update({ min_gap: v })}
                 min={15}
                 max={120}
-                disabled={disabled}
+                disabled={disabled || randomOn}
               />
             </Card>
 
@@ -249,6 +263,7 @@ export default function ProactiveSettings() {
                     min={0.5}
                     max={4.0}
                     step={0.1}
+                    disabled={randomOn}
                   />
                   <NumberField
                     label="最大追发次数"

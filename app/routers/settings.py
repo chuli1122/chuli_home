@@ -334,6 +334,7 @@ def set_mood(
 
 _PROACTIVE_DEFAULTS = {
     "proactive_enabled": "false",
+    "proactive_random": "false",
     "proactive_interval": "30",
     "proactive_min_gap": "30",
     "proactive_retry_enabled": "true",
@@ -346,6 +347,7 @@ _PROACTIVE_DEFAULTS = {
 
 class ProactiveSettingsResponse(BaseModel):
     enabled: bool
+    random_mode: bool
     interval: int
     min_gap: int
     retry_enabled: bool
@@ -357,6 +359,7 @@ class ProactiveSettingsResponse(BaseModel):
 
 class ProactiveSettingsUpdateRequest(BaseModel):
     enabled: bool | None = None
+    random_mode: bool | None = None
     interval: int | None = Field(None, ge=10, le=60)
     min_gap: int | None = Field(None, ge=15, le=120)
     retry_enabled: bool | None = None
@@ -379,6 +382,7 @@ def _read_proactive_settings(db: Session) -> dict[str, str]:
 def _proactive_response(raw: dict[str, str]) -> ProactiveSettingsResponse:
     return ProactiveSettingsResponse(
         enabled=raw["proactive_enabled"] == "true",
+        random_mode=raw["proactive_random"] == "true",
         interval=_safe_int(raw["proactive_interval"], 30),
         min_gap=_safe_int(raw["proactive_min_gap"], 30),
         retry_enabled=raw["proactive_retry_enabled"] == "true",
@@ -404,6 +408,7 @@ def update_proactive_settings(
 ) -> ProactiveSettingsResponse:
     field_map = {
         "enabled": ("proactive_enabled", lambda v: "true" if v else "false"),
+        "random_mode": ("proactive_random", lambda v: "true" if v else "false"),
         "interval": ("proactive_interval", lambda v: str(int(v))),
         "min_gap": ("proactive_min_gap", lambda v: str(int(v))),
         "retry_enabled": ("proactive_retry_enabled", lambda v: "true" if v else "false"),

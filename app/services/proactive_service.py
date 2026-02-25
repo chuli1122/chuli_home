@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -109,6 +110,13 @@ def _check_rules() -> bool:
         retry_enabled = _get_setting_sync("proactive_retry_enabled", "true") == "true"
         retry_gap = float(_get_setting_sync("proactive_retry_gap", "1.5"))
         max_retries = int(_get_setting_sync("proactive_max_retries", "8"))
+
+        # Random mode: override min_gap and retry_gap
+        random_mode = _get_setting_sync("proactive_random", "false") == "true"
+        if random_mode:
+            min_gap = random.randint(15, 120)
+            retry_gap = round(random.uniform(0.5, 4.0), 1)
+            logger.info("[proactive] Random mode: min_gap=%d, retry_gap=%.1f", min_gap, retry_gap)
 
         # Last user message
         last_user_msg = (
@@ -509,6 +517,9 @@ async def proactive_loop() -> None:
     while True:
         try:
             interval = int(await get_setting("proactive_interval", "30"))
+            random_mode = await get_setting("proactive_random", "false") == "true"
+            if random_mode:
+                interval = 10
             await asyncio.sleep(interval * 60)
 
             if await get_setting("proactive_enabled", "false") != "true":
