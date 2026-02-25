@@ -175,7 +175,7 @@ def update_chat_mode(
 
     # Insert system message, similar to mood switch
     MODE_SWITCH_MESSAGES = {
-        "long": """已切换到长消息模式。要求：完整段落输出，不拆条，不使用[NEXT]，每次回复至少3段，说话用「」，描写和对话交织在同一段内，段落要有体量。回复正文中一律使用第二人称"你"称呼对方，不许用"她"。""",
+        "long": """已切换到长消息模式。要求：完整段落输出，不拆条，不使用[NEXT]，每次回复至少3段，说话用「」，动作描写和语言自然穿插交织在同一段内，段落要有体量。回复正文中一律使用第二人称"你"称呼对方，不许用"她"。""",
         "short": "已切换到短消息模式。要求：口语化，像发消息一样自然地说，用[NEXT]拆条，不写长段落，不写动作描写，不用「」。",
     }
     switch_content = MODE_SWITCH_MESSAGES.get(mode, f"已切换到{mode}模式")
