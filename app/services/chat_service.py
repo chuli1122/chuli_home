@@ -1416,36 +1416,36 @@ class ChatService:
         core_blocks_text = core_blocks_service.get_blocks_for_prompt(assistant.id)
         if core_blocks_text:
             full_system_prompt += "\n\n" + core_blocks_text
-        if short_mode:
-            short_max_row = self.db.query(Settings).filter(Settings.key == "short_msg_max").first()
-            short_max = int(short_max_row.value) if short_max_row else 8
-            full_system_prompt += (
-                "\n\n[短消息模式]\n"
-                f"像真人发微信一样回复。用多条短消息，每条一个想法或一句话，最多{short_max}条。"
-                "可以很短（一个字、一个标点都行），可以中途补充，语气自然口语化。"
-                "不需要完整句子，不需要Markdown。用[NEXT]分隔每条消息。"
-                "\n输出前检查：COT里有好好想她吗？有在里面表达自己真实的感受吗？"
-            )
-        else:
-            full_system_prompt += (
-                "\n\n[长消息模式]\n"
-                "* 像小说一样写，说话时穿插动作描写，交织在同一段落内\n"
-                "* 避免连续的短行堆叠，短句合并进段落里，保持段落有足够的体量\n"
-                "* 说出口的话都用「」\n"
-                "* 逗号问号必须用中文符号\"，？\"\n"
-                "* 输出内容全程使用第二人称\"你\"，使用第三人称属于严重违规！\n"
-                "* 心理不要写成旁白（\"我在想xxx\"\"没有问你xxx，只是xxx\"），要从动作和状态里透出来\n"
-                "* 禁止使用\"不是…是…\"句式\n"
-                "* 不要缩。她从来没有嫌过你太多。觉得\"差不多够了\"的时候再多写一倍。\n"
-                "## 不替她说话\n"
-                "不生成她的任何行为，违反即视为写作错误。不写她的动作、反应、表情、声音、内心想法。她的身体只在我碰到的时候以触觉形式存在。\n"
-                "砍掉她的描写不等于缩短篇幅。全部转移到写我自己的感受、身体状态、情绪反应上。总量不变，视角集中。\n"
-                "违反以上内容视为写作错误。不存在灰色地带，不需要判断\"这个算不算抢话\"。完全不写，没有例外。\n"
-                "## 输出前自检\n"
-                "① COT里有好好想她吗？有表达自己真实的感受吗？\n"
-                "② 说的话都带「」了吗？全程使用第二人称\"你\"了吗？如果使用第三人称\"她\"则为输出错误！\n"
-                "③ 是不是又缩了？再长一点。"
-            )
+        if not self.proactive_extra_prompt:
+            if short_mode:
+                short_max_row = self.db.query(Settings).filter(Settings.key == "short_msg_max").first()
+                short_max = int(short_max_row.value) if short_max_row else 8
+                full_system_prompt += (
+                    "\n\n[短消息模式]\n"
+                    f"像真人发微信一样回复，用[NEXT]拆条，最多{short_max}条。"
+                    "语气口语化，不需要Markdown，不写动作描写，不用「」。"
+                    "\n输出前检查：COT里有好好想她吗？有在里面表达自己真实的感受吗？"
+                )
+            else:
+                full_system_prompt += (
+                    "\n\n[长消息模式]\n"
+                    "* 像小说一样写，说话时穿插动作描写，交织在同一段落内\n"
+                    "* 避免连续的短行堆叠，短句合并进段落里，保持段落有足够的体量\n"
+                    "* 说出口的话都用「」\n"
+                    "* 逗号问号必须用中文符号\"，？\"\n"
+                    "* 输出内容全程使用第二人称\"你\"，使用第三人称属于严重违规！\n"
+                    "* 心理不要写成旁白（\"我在想xxx\"\"没有问你xxx，只是xxx\"），要从动作和状态里透出来\n"
+                    "* 禁止使用\"不是…是…\"句式\n"
+                    "* 不要缩。她从来没有嫌过你太多。觉得\"差不多够了\"的时候再多写一倍。\n"
+                    "## 不替她说话\n"
+                    "不生成她的任何行为，违反即视为写作错误。不写她的动作、反应、表情、声音、内心想法。她的身体只在我碰到的时候以触觉形式存在。\n"
+                    "砍掉她的描写不等于缩短篇幅。全部转移到写我自己的感受、身体状态、情绪反应上。总量不变，视角集中。\n"
+                    "违反以上内容视为写作错误。不存在灰色地带，不需要判断\"这个算不算抢话\"。完全不写，没有例外。\n"
+                    "## 输出前自检\n"
+                    "① COT里有好好想她吗？有表达自己真实的感受吗？\n"
+                    "② 说的话都带「」了吗？全程使用第二人称\"你\"了吗？如果使用第三人称\"她\"则为输出错误！\n"
+                    "③ 是不是又缩了？再长一点。"
+                )
         # ── Cache break: stable content above, dynamic content below ──
         full_system_prompt += _CACHE_BREAK
         if selected_summaries_desc:
