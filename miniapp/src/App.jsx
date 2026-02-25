@@ -8,6 +8,7 @@ import Assistants from "./pages/Assistants";
 import AssistantEdit from "./pages/AssistantEdit";
 import Settings from "./pages/Settings";
 import ApiSettings from "./pages/ApiSettings";
+import ProactiveSettings from "./pages/ProactiveSettings";
 import CotViewer from "./pages/CotViewer";
 import Messages from "./pages/Messages";
 import Memories from "./pages/Memories";
@@ -176,6 +177,7 @@ function AppRoutes() {
       <Route path="/assistants/:id" element={<AssistantEdit />} />
       <Route path="/settings" element={<Settings />} />
       <Route path="/settings/api" element={<ApiSettings />} />
+      <Route path="/settings/proactive" element={<ProactiveSettings />} />
       <Route path="/cot" element={<CotViewer />} />
       <Route path="/memories" element={<Memories />} />
       <Route path="/diary" element={<Diary />} />

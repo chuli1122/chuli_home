@@ -11,29 +11,6 @@ const S = {
   textMuted: "var(--text-muted)",
 };
 
-function Toggle({ on, onToggle }) {
-  return (
-    <button
-      onClick={onToggle}
-      className="relative flex h-7 w-12 shrink-0 items-center rounded-full transition-all"
-      style={{
-        boxShadow: "var(--inset-shadow)",
-        background: on ? "var(--accent)" : S.bg,
-      }}
-    >
-      <span
-        className="absolute h-5 w-5 rounded-full"
-        style={{
-          left: on ? "calc(100% - 22px)" : "2px",
-          background: "white",
-          boxShadow: "2px 2px 5px rgba(174,176,182,0.5)",
-          transition: "left 0.2s ease",
-        }}
-      />
-    </button>
-  );
-}
-
 function RowLink({ icon, label, hint, onClick }) {
   return (
     <button
@@ -91,15 +68,6 @@ export default function Settings() {
   const navigate = useNavigate();
 
   // localStorage settings
-  const [autoMessage, setAutoMessage] = useState(() =>
-    JSON.parse(localStorage.getItem("app-settings") || "{}")?.autoMessage || false
-  );
-  const [intervalMin, setIntervalMin] = useState(() =>
-    JSON.parse(localStorage.getItem("app-settings") || "{}")?.autoMessageIntervalMin || 30
-  );
-  const [intervalMax, setIntervalMax] = useState(() =>
-    JSON.parse(localStorage.getItem("app-settings") || "{}")?.autoMessageIntervalMax || 60
-  );
   const [tgBufferSec, setTgBufferSec] = useState(() =>
     parseInt(localStorage.getItem("telegram_buffer_seconds") || "15")
   );
@@ -127,17 +95,6 @@ export default function Settings() {
       })
       .catch(() => setBudgetLoaded(true));
   }, []);
-
-  // Save local settings on change
-  useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem("app-settings") || "{}");
-    localStorage.setItem("app-settings", JSON.stringify({
-      ...saved,
-      autoMessage,
-      autoMessageIntervalMin: intervalMin,
-      autoMessageIntervalMax: intervalMax,
-    }));
-  }, [autoMessage, intervalMin, intervalMax]);
 
   useEffect(() => {
     localStorage.setItem("telegram_buffer_seconds", String(tgBufferSec));
@@ -217,41 +174,17 @@ export default function Settings() {
           />
         </div>
 
-        {/* Auto message toggle */}
+        {/* Proactive message entry */}
         <div
           className="rounded-[20px] overflow-hidden"
           style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
         >
-          <div className="flex items-center gap-4 px-4 py-4">
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-              style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
-            >
-              <MessageSquare size={18} style={{ color: S.text }} />
-            </div>
-            <div className="flex-1">
-              <div className="text-[15px] font-semibold" style={{ color: S.text }}>主动发消息</div>
-              <div className="text-[11px]" style={{ color: S.textMuted }}>定时触发 AI 发送消息</div>
-            </div>
-            <Toggle on={autoMessage} onToggle={() => setAutoMessage(!autoMessage)} />
-          </div>
-          {autoMessage && (
-            <div className="px-4 pb-4">
-              <div
-                className="flex items-center justify-between rounded-[12px] px-4 py-3"
-                style={{ boxShadow: "var(--inset-shadow)", background: S.bg }}
-              >
-                <span className="text-[12px] font-medium" style={{ color: S.textMuted }}>
-                  间隔 (分钟)
-                </span>
-                <div className="flex items-center gap-2">
-                  <NumberInput value={intervalMin} onChange={setIntervalMin} min={1} max={999} />
-                  <span style={{ color: S.textMuted }}>~</span>
-                  <NumberInput value={intervalMax} onChange={setIntervalMax} min={1} max={999} />
-                </div>
-              </div>
-            </div>
-          )}
+          <RowLink
+            icon={<MessageSquare size={18} style={{ color: S.text }} />}
+            label="主动发消息"
+            hint="定时触发 AI 发送消息"
+            onClick={() => navigate("/settings/proactive")}
+          />
         </div>
 
         {/* Short-mode: buffer time + max count */}
