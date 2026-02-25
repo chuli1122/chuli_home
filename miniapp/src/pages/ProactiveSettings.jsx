@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Save } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -96,6 +96,7 @@ function Divider() {
 export default function ProactiveSettings() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState({
     enabled: false,
     interval: 30,
@@ -107,7 +108,6 @@ export default function ProactiveSettings() {
     voice_chance: 30,
   });
   const [toast, setToast] = useState(null);
-  const saveTimer = useRef(null);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -127,23 +127,22 @@ export default function ProactiveSettings() {
     })();
   }, [showToast]);
 
-  const saveField = useCallback(
-    (patch) => {
-      setSettings((prev) => ({ ...prev, ...patch }));
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(async () => {
-        try {
-          await apiFetch("/api/settings/proactive", {
-            method: "PUT",
-            body: patch,
-          });
-        } catch (e) {
-          showToast("保存失败: " + e.message);
-        }
-      }, 300);
-    },
-    [showToast]
-  );
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await apiFetch("/api/settings/proactive", {
+        method: "PUT",
+        body: settings,
+      });
+      showToast("已保存");
+    } catch (e) {
+      showToast("保存失败: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const update = (patch) => setSettings((prev) => ({ ...prev, ...patch }));
 
   const disabled = !settings.enabled;
 
@@ -164,7 +163,17 @@ export default function ProactiveSettings() {
         <h1 className="text-[17px] font-bold" style={{ color: S.text }}>
           主动发消息
         </h1>
-        <div className="w-10" />
+        <button
+          className="flex h-10 w-10 items-center justify-center rounded-full"
+          style={{
+            background: S.bg,
+            boxShadow: saving ? "var(--inset-shadow)" : "var(--card-shadow-sm)",
+          }}
+          onClick={handleSave}
+          disabled={saving}
+        >
+          <Save size={18} style={{ color: S.accentDark }} />
+        </button>
       </div>
 
       {/* Content */}
@@ -178,101 +187,107 @@ export default function ProactiveSettings() {
           </div>
         ) : (
           <>
-            {/* Main toggle + intervals */}
+            {/* Card: Enable toggle */}
             <Card>
               <div className="flex items-center justify-between">
                 <div className="text-[15px] font-semibold" style={{ color: S.text }}>
-                  总开关
+                  开启
                 </div>
-                <Toggle on={settings.enabled} onToggle={() => saveField({ enabled: !settings.enabled })} />
+                <Toggle on={settings.enabled} onToggle={() => update({ enabled: !settings.enabled })} />
               </div>
+            </Card>
 
-              <Divider />
-
+            {/* Card: Intervals */}
+            <Card>
               <NumberField
                 label="轮询间隔 (分钟)"
-                hint="每隔多久检查一次"
+                hint="每隔多久检查一次 (10-60)"
                 value={settings.interval}
-                onChange={(v) => saveField({ interval: v })}
+                onChange={(v) => update({ interval: v })}
                 min={10}
                 max={60}
                 disabled={disabled}
               />
 
+              <Divider />
+
               <NumberField
                 label="触发间隔 (分钟)"
-                hint="距离上次消息多久开始考虑"
+                hint="距离上次消息多久开始考虑 (15-120)"
                 value={settings.min_gap}
-                onChange={(v) => saveField({ min_gap: v })}
+                onChange={(v) => update({ min_gap: v })}
                 min={15}
                 max={120}
                 disabled={disabled}
               />
             </Card>
 
-            {/* Retry settings */}
+            {/* Card: Retry settings */}
             <Card>
               <div
                 className="flex items-center justify-between"
                 style={{ opacity: disabled ? 0.4 : 1, pointerEvents: disabled ? "none" : "auto" }}
               >
                 <div>
-                  <div className="text-[15px] font-semibold" style={{ color: S.text }}>追发</div>
+                  <div className="text-[14px] font-semibold" style={{ color: S.text }}>追发</div>
                   <div className="text-[11px]" style={{ color: S.textMuted }}>关闭 = 不追发，只发一次</div>
                 </div>
                 <Toggle
                   on={settings.retry_enabled}
-                  onToggle={() => saveField({ retry_enabled: !settings.retry_enabled })}
+                  onToggle={() => update({ retry_enabled: !settings.retry_enabled })}
                   disabled={disabled}
                 />
               </div>
-
-              <Divider />
-
-              <NumberField
-                label="追发间隔 (小时)"
-                value={settings.retry_gap}
-                onChange={(v) => saveField({ retry_gap: v })}
-                min={0.5}
-                max={4.0}
-                step={0.1}
-                disabled={disabled || !settings.retry_enabled}
-              />
-
-              <NumberField
-                label="最大追发次数"
-                value={settings.max_retries}
-                onChange={(v) => saveField({ max_retries: v })}
-                min={1}
-                max={15}
-                disabled={disabled || !settings.retry_enabled}
-              />
+              {settings.retry_enabled && !disabled && (
+                <>
+                  <Divider />
+                  <NumberField
+                    label="追发间隔 (小时)"
+                    hint="0.5-4.0"
+                    value={settings.retry_gap}
+                    onChange={(v) => update({ retry_gap: v })}
+                    min={0.5}
+                    max={4.0}
+                    step={0.1}
+                  />
+                  <NumberField
+                    label="最大追发次数"
+                    hint="1-15"
+                    value={settings.max_retries}
+                    onChange={(v) => update({ max_retries: v })}
+                    min={1}
+                    max={15}
+                  />
+                </>
+              )}
             </Card>
 
-            {/* Voice settings */}
+            {/* Card: Voice settings */}
             <Card>
               <div
                 className="flex items-center justify-between"
                 style={{ opacity: disabled ? 0.4 : 1, pointerEvents: disabled ? "none" : "auto" }}
               >
-                <div className="text-[15px] font-semibold" style={{ color: S.text }}>语音消息</div>
+                <div className="text-[14px] font-semibold" style={{ color: S.text }}>语音消息</div>
                 <Toggle
                   on={settings.voice_enabled}
-                  onToggle={() => saveField({ voice_enabled: !settings.voice_enabled })}
+                  onToggle={() => update({ voice_enabled: !settings.voice_enabled })}
                   disabled={disabled}
                 />
               </div>
-
-              <Divider />
-
-              <NumberField
-                label="语音概率 (%)"
-                value={settings.voice_chance}
-                onChange={(v) => saveField({ voice_chance: v })}
-                min={0}
-                max={100}
-                disabled={disabled || !settings.voice_enabled}
-              />
+              {settings.voice_enabled && !disabled && (
+                <>
+                  <Divider />
+                  <NumberField
+                    label="语音概率 (%)"
+                    hint="0-100"
+                    value={settings.voice_chance}
+                    onChange={(v) => update({ voice_chance: v })}
+                    min={0}
+                    max={100}
+                  />
+                </>
+              )}
             </Card>
           </>
         )}
