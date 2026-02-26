@@ -521,7 +521,7 @@ export default function Memories() {
     setFlushResult(null);
     try {
       const res = await apiFetch("/api/settings/summary-layers/flush", { method: "POST" });
-      setFlushResult(res.flushed ? `已归档 ${res.flushed} 条摘要` : "没有需要归档的摘要");
+      setFlushResult(res.flushed ? `已归档 ${res.flushed} 条摘要` : `无需归档 (${res.debug || "all within budget"})`);
       if (res.flushed) setTimeout(loadLayers, 3000); // wait for merge
     } catch (_e) {
       setFlushResult("归档失败");
