@@ -585,6 +585,7 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
     def _estimate_tokens(text: str) -> int:
         return max(1, len(text) * 2 // 3)
 
+    # Newest first: keep within budget as "recent", rest is overflow
     used = 0
     overflow: list[SessionSummary] = []
     for s in all_summaries:
@@ -592,19 +593,19 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
         if not content:
             continue
         tokens = _estimate_tokens(content)
-        if used + tokens <= budget_recent and s.merged_into is None:
+        if used + tokens <= budget_recent:
+            # Stays in recent layer
             used += tokens
         else:
-            # Already merged → skip (already in layer)
-            if s.merged_into is not None:
-                continue
-            overflow.append(s)
+            # Beyond budget — flush if not already merged
+            if s.merged_into is None:
+                overflow.append(s)
 
     if not overflow:
         total = len(all_summaries)
         already = sum(1 for s in all_summaries if s.merged_into is not None)
         return {"flushed": 0, "to_daily": 0, "to_longterm": 0,
-                "debug": f"total={total}, already_merged={already}, budget={budget_recent}, used={used}"}
+                "debug": f"total={total}, already_merged={already}, budget={budget_recent}, used_tokens={used}"}
 
     from datetime import datetime as dt
     TZ_EAST8 = timezone(timedelta(hours=8))
