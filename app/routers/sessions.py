@@ -82,6 +82,7 @@ class SessionSummaryItem(BaseModel):
     time_start: str | None
     time_end: str | None
     mood_tag: str | None
+    merged_into: str | None
     created_at: str | None
 
 
@@ -275,6 +276,7 @@ def get_session_summaries(
             time_start=format_datetime(row.time_start),
             time_end=format_datetime(row.time_end),
             mood_tag=row.mood_tag,
+            merged_into=row.merged_into,
             created_at=format_datetime(row.created_at),
         )
         for row in rows
@@ -300,6 +302,7 @@ def get_summary_by_id(
         time_start=format_datetime(row.time_start),
         time_end=format_datetime(row.time_end),
         mood_tag=row.mood_tag,
+        merged_into=row.merged_into,
         created_at=format_datetime(row.created_at),
     )
 
@@ -360,6 +363,7 @@ def update_session_summary_mood(
             time_start=format_datetime(summary_row.time_start),
             time_end=format_datetime(summary_row.time_end),
             mood_tag=summary_row.mood_tag,
+            merged_into=summary_row.merged_into,
             created_at=format_datetime(summary_row.created_at),
         ),
         system_message=SessionMessageItem(
@@ -733,6 +737,7 @@ def update_summary_content(
         time_start=format_datetime(row.time_start),
         time_end=format_datetime(row.time_end),
         mood_tag=row.mood_tag,
+        merged_into=row.merged_into,
         created_at=format_datetime(row.created_at),
     )
 
