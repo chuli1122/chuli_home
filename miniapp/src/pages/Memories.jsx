@@ -430,7 +430,7 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, selectMode, selected,
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] font-semibold" style={{ color: roleColor(msg.role) }}>{roleLabel(msg.role)}</span>
             {msg.summary_group_id && (
-              <span className="rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: "rgba(74,138,181,0.1)", color: "#4a8ab5" }}>
+              <span className="rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ background: "rgba(74,138,181,0.1)", color: "#4a8ab5" }}>
                 已摘要：{msg.summary_group_id}
               </span>
             )}
@@ -815,7 +815,7 @@ export default function Memories() {
             selected={selectedIds.has(s.id)}
             onToggle={() => toggleSelect(s.id)}
             onLongPress={() => enterSelectMode(s.id)}
-            badge={<>{s.mood_tag && <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{s.mood_tag}</span>}{s.merged_into && <span className="mb-1 ml-1 inline-block rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: "rgba(130,180,140,0.12)", color: "#6a9e72" }}>已归档</span>}<span className="mb-1 ml-1 inline-block text-[10px]" style={{ color: S.textMuted }}>#{s.id}</span></>}
+            badge={<>{s.mood_tag && <span className="mb-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>{s.mood_tag}</span>}{s.merged_into && <span className="mb-1 ml-1 inline-block rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ background: "rgba(155,120,200,0.12)", color: "#8b6abf" }}>已归档至{s.merged_into === "daily" ? "近期" : "长期"}</span>}<span className="mb-1 ml-1 inline-block text-[10px]" style={{ color: S.textMuted }}>#{s.id}</span></>}
           >{s.summary_content || "(空)"}</ExpandableCard>
         ))}
         {hasMoreSum && (
