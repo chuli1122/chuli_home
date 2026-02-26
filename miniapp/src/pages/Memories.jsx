@@ -830,8 +830,8 @@ export default function Memories() {
     return (
       <div className="space-y-4">
         {[
-          { type: "longterm", label: "长期记忆", hint: "关系脉络、重大事件" },
           { type: "daily", label: "近期日常", hint: "当天的合并回顾" },
+          { type: "longterm", label: "长期记忆", hint: "关系脉络、重大事件" },
         ].map(({ type, label, hint }) => {
           const layer = layers[type];
           const hasContent = layer?.content?.trim();
