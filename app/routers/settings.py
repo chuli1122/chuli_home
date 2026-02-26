@@ -600,7 +600,7 @@ def flush_status(db: Session = Depends(get_db)):
             .filter(SummaryLayer.assistant_id == assistant.id, SummaryLayer.layer_type == lt)
             .first()
         )
-        if row and row.content and row.content.strip() and (row.needs_merge or pending_flush > 0):
+        if row and row.content and row.content.strip():
             pending_merge.append(lt)
 
     return {"pending_flush": pending_flush, "pending_merge": pending_merge}
