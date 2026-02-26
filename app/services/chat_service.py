@@ -1745,7 +1745,13 @@ class ChatService:
                         continue
                     else:
                         # No summary coverage → keep in context, mark for summary
-                        _uncovered_for_summary.append(messages[message_index])
+                        # Only mark if this message is outside the retain budget
+                        raw_c = messages[message_index].get("content", "") or ""
+                        _txt = self._content_to_storage(raw_c) if isinstance(raw_c, list) else raw_c
+                        _msg_tokens = self._estimate_tokens(_txt)
+                        if dialogue_token_total - _msg_tokens > retain_budget:
+                            _uncovered_for_summary.append(messages[message_index])
+                        dialogue_token_total -= _msg_tokens
                         message_index += 1
                         continue
                 message_index += 1
