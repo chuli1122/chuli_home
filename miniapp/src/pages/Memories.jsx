@@ -521,13 +521,16 @@ export default function Memories() {
     setFlushResult(null);
     try {
       const res = await apiFetch("/api/settings/summary-layers/flush", { method: "POST" });
-      setFlushResult(res.flushed ? `已归档 ${res.flushed} 条摘要` : `无需归档 (${res.debug || "all within budget"})`);
-      if (res.flushed) setTimeout(loadLayers, 3000); // wait for merge
+      const parts = [];
+      if (res.flushed) parts.push(`归档 ${res.flushed} 条`);
+      if (res.merge_triggered?.length) parts.push(`合并 ${res.merge_triggered.join("+")}`);
+      setFlushResult(parts.length ? parts.join("，") : "无需操作");
+      if (res.flushed || res.merge_triggered?.length) setTimeout(loadLayers, 5000);
     } catch (_e) {
-      setFlushResult("归档失败");
+      setFlushResult("操作失败");
     } finally {
       setFlushing(false);
-      setTimeout(() => setFlushResult(null), 3000);
+      setTimeout(() => setFlushResult(null), 4000);
     }
   };
 
@@ -889,13 +892,13 @@ export default function Memories() {
           );
         })}
         <button
-          className="mt-2 flex w-full items-center justify-center gap-2 rounded-[18px] py-3.5 text-[14px] font-bold text-white"
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-[14px] py-2.5 text-[13px] font-medium text-white"
           style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-dark))", boxShadow: "4px 4px 10px rgba(201,98,138,0.35)" }}
           onClick={handleFlush}
           disabled={flushing}
         >
-          <RefreshCw size={14} className={flushing ? "animate-spin" : ""} />
-          {flushResult || (flushing ? "归档中..." : "归档旧摘要到记忆层")}
+          <RefreshCw size={13} className={flushing ? "animate-spin" : ""} />
+          {flushResult || (flushing ? "处理中..." : "归档并合并")}
         </button>
       </div>
     );

@@ -556,7 +556,7 @@ def update_summary_layer(
 
 @router.post("/settings/summary-layers/flush")
 def flush_summaries_to_layers(db: Session = Depends(get_db)):
-    """Manually flush overflow summaries into daily/longterm layers and trigger merge."""
+    """Flush overflow summaries into layers + force merge."""
     import threading
     from app.database import SessionLocal
     from app.models.models import Assistant
@@ -570,7 +570,6 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
     budget_row = db.query(Settings).filter(Settings.key == budget_key).first()
     budget_recent = int(budget_row.value) if budget_row else DEFAULT_SUMMARY_BUDGET_RECENT
 
-    # All non-deleted summaries (including already merged ones for re-flush)
     all_summaries = (
         db.query(SessionSummary)
         .filter(
@@ -585,7 +584,7 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
     def _estimate_tokens(text: str) -> int:
         return max(1, len(text) * 2 // 3)
 
-    # Newest first: keep within budget as "recent", rest is overflow
+    # Step 1: flush un-merged overflow summaries into layers
     used = 0
     overflow: list[SessionSummary] = []
     for s in all_summaries:
@@ -594,48 +593,54 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
             continue
         tokens = _estimate_tokens(content)
         if used + tokens <= budget_recent:
-            # Stays in recent layer
             used += tokens
-        else:
-            # Beyond budget — flush if not already merged
-            if s.merged_into is None:
-                overflow.append(s)
+        elif s.merged_into is None:
+            overflow.append(s)
 
-    if not overflow:
-        total = len(all_summaries)
-        already = sum(1 for s in all_summaries if s.merged_into is not None)
-        return {"flushed": 0, "to_daily": 0, "to_longterm": 0,
-                "debug": f"total={total}, already_merged={already}, budget={budget_recent}, used_tokens={used}"}
-
-    from datetime import datetime as dt
-    TZ_EAST8 = timezone(timedelta(hours=8))
-    _today = dt.now(TZ_EAST8).date()
-    today_overflow = []
-    old_overflow = []
-    for s in overflow:
-        s_date = s.created_at
-        if s_date and s_date.tzinfo:
-            s_date = s_date.astimezone(TZ_EAST8).date()
-        elif s_date:
-            s_date = s_date.date()
-        else:
-            s_date = _today
-        if s_date == _today:
-            today_overflow.append(s)
-        else:
-            old_overflow.append(s)
-
+    flushed = 0
+    to_daily = 0
+    to_longterm = 0
     svc = SummaryService(SessionLocal)
-    if today_overflow:
-        svc.append_to_layer(db, assistant.id, "daily", list(reversed(today_overflow)))
-        for s in today_overflow:
-            s.merged_into = "daily"
-    if old_overflow:
-        svc.append_to_layer(db, assistant.id, "longterm", list(reversed(old_overflow)))
-        for s in old_overflow:
-            s.merged_into = "longterm"
+
+    if overflow:
+        TZ_EAST8 = timezone(timedelta(hours=8))
+        _today = datetime.now(TZ_EAST8).date()
+        for s in overflow:
+            s_date = s.created_at
+            if s_date and s_date.tzinfo:
+                s_date = s_date.astimezone(TZ_EAST8).date()
+            elif s_date:
+                s_date = s_date.date()
+            else:
+                s_date = _today
+            if s_date == _today:
+                svc.append_to_layer(db, assistant.id, "daily", [s])
+                s.merged_into = "daily"
+                to_daily += 1
+            else:
+                svc.append_to_layer(db, assistant.id, "longterm", [s])
+                s.merged_into = "longterm"
+                to_longterm += 1
+            flushed += 1
+        db.commit()
+
+    # Step 2: force merge on both layers (even if nothing new was flushed)
+    merged_layers = []
+    for lt in ("daily", "longterm"):
+        row = (
+            db.query(SummaryLayer)
+            .filter(SummaryLayer.assistant_id == assistant.id, SummaryLayer.layer_type == lt)
+            .first()
+        )
+        if row and row.content and row.content.strip():
+            row.needs_merge = True
+            merged_layers.append(lt)
     db.commit()
 
-    threading.Thread(target=svc.merge_layers_async, args=(assistant.id,), daemon=True).start()
+    if merged_layers:
+        threading.Thread(target=svc.merge_layers_async, args=(assistant.id,), daemon=True).start()
 
-    return {"flushed": len(overflow), "to_daily": len(today_overflow), "to_longterm": len(old_overflow)}
+    return {
+        "flushed": flushed, "to_daily": to_daily, "to_longterm": to_longterm,
+        "merge_triggered": merged_layers,
+    }
