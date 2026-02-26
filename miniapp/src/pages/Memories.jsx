@@ -494,6 +494,8 @@ export default function Memories() {
   const [editingLayer, setEditingLayer] = useState(null); // { type: "longterm"|"daily", content: "..." }
   const [flushing, setFlushing] = useState(false);
   const [flushResult, setFlushResult] = useState(null);
+  const [flushDialog, setFlushDialog] = useState(null); // { pending_flush, pending_merge, already_merged, grayClicks }
+
   const [loading, setLoading] = useState(true);
   const [hasMoreMem, setHasMoreMem] = useState(false);
   const [hasMoreSum, setHasMoreSum] = useState(false);
@@ -519,34 +521,25 @@ export default function Memories() {
   const handleFlushClick = async () => {
     try {
       const status = await apiFetch("/api/settings/summary-layers/flush-status");
-      const { pending_flush, pending_merge, already_merged } = status;
-      const lines = [];
-      if (pending_flush > 0) lines.push(`${pending_flush} 条摘要待归档`);
-      if (pending_merge?.length) lines.push(`${pending_merge.join("、")} 层待合并`);
-      if (already_merged?.length) lines.push(`${already_merged.join("、")} 层已合并`);
-      if (!lines.length) { setFlushResult("当前无需操作"); setTimeout(() => setFlushResult(null), 3000); return; }
-      setConfirm({
-        title: "归档并合并",
-        message: lines.join("，"),
-        confirmLabel: "确认",
-        confirmColor: S.accentDark,
-        action: async () => {
-          setFlushing(true); setFlushResult(null);
-          try {
-            const res = await apiFetch("/api/settings/summary-layers/flush", { method: "POST" });
-            const parts = [];
-            if (res.flushed) parts.push(`归档 ${res.flushed} 条`);
-            if (res.merge_triggered?.length) parts.push(`合并 ${res.merge_triggered.join("+")}`);
-            setFlushResult(parts.length ? parts.join("，") : "完成");
-            if (res.flushed || res.merge_triggered?.length) setTimeout(loadLayers, 5000);
-          } catch (_e) { setFlushResult("操作失败"); }
-          finally { setFlushing(false); setTimeout(() => setFlushResult(null), 4000); }
-        },
-      });
+      setFlushDialog({ ...status, grayClicks: 0 });
     } catch (_e) {
       setFlushResult("查询失败");
       setTimeout(() => setFlushResult(null), 3000);
     }
+  };
+
+  const doFlush = async () => {
+    setFlushDialog(null);
+    setFlushing(true); setFlushResult(null);
+    try {
+      const res = await apiFetch("/api/settings/summary-layers/flush", { method: "POST" });
+      const parts = [];
+      if (res.flushed) parts.push(`归档 ${res.flushed} 条`);
+      if (res.merge_triggered?.length) parts.push(`合并 ${res.merge_triggered.join("+")}`);
+      setFlushResult(parts.length ? parts.join("，") : "完成");
+      if (res.flushed || res.merge_triggered?.length) setTimeout(loadLayers, 5000);
+    } catch (_e) { setFlushResult("操作失败"); }
+    finally { setFlushing(false); setTimeout(() => setFlushResult(null), 4000); }
   };
 
   // Load sessions
@@ -1047,6 +1040,53 @@ export default function Memories() {
       )}
       {editing && <EditModal initialText={editing.text} onSave={saveEdit} onCancel={() => setEditing(null)} memoryData={editing.type === "memory" ? { klass: editing.klass, tags: editing.tags } : null} />}
       {editingLayer && <EditModal initialText={editingLayer.content} onSave={saveLayerEdit} onCancel={() => setEditingLayer(null)} />}
+      {flushDialog && (() => {
+        const { pending_flush, pending_merge, already_merged, grayClicks } = flushDialog;
+        const remerge = grayClicks >= 2;
+        const hasFlush = pending_flush > 0;
+        const hasMerge = pending_merge?.length > 0;
+        const hasAlready = already_merged?.length > 0;
+        const lines = [];
+        if (remerge) {
+          lines.push(`确定要重新合并 ${already_merged.join("、")} 层已合并内容吗？`);
+        } else {
+          if (hasFlush) lines.push(`${pending_flush} 条摘要待归档`);
+          if (hasMerge) lines.push(`${pending_merge.join("、")} 层待合并`);
+          if (hasAlready) lines.push(`${already_merged.join("、")} 层已合并`);
+          if (!lines.length) lines.push("当前无需操作");
+        }
+        let btnText, btnDisabled, btnClick;
+        if (remerge) {
+          btnText = "确认"; btnDisabled = false; btnClick = doFlush;
+        } else if (hasFlush) {
+          btnText = "归档"; btnDisabled = false; btnClick = doFlush;
+        } else if (hasMerge) {
+          btnText = "合并"; btnDisabled = false; btnClick = doFlush;
+        } else if (hasAlready) {
+          btnText = "合并"; btnDisabled = true;
+          btnClick = () => setFlushDialog((p) => ({ ...p, grayClicks: (p.grayClicks || 0) + 1 }));
+        } else {
+          btnText = "合并"; btnDisabled = true; btnClick = () => {};
+        }
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={() => setFlushDialog(null)}>
+            <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
+              <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>{remerge ? "重新合并" : "归档并合并"}</p>
+              <p className="mb-5 text-center text-[13px] leading-relaxed" style={{ color: S.textMuted }}>
+                {lines.map((l, i) => <span key={i}>{i > 0 && <br />}{l}</span>)}
+              </p>
+              <div className="flex gap-3">
+                <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text }} onClick={() => setFlushDialog(null)}>取消</button>
+                <button
+                  className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold text-white"
+                  style={{ background: btnDisabled ? "#bbb" : S.accentDark, boxShadow: btnDisabled ? "none" : "4px 4px 10px rgba(201,98,138,0.4)", opacity: btnDisabled ? 0.5 : 1 }}
+                  onClick={btnClick}
+                >{btnText}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
