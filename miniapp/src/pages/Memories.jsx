@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Trash2, ChevronDown, Pencil, Search, X, Check, BookOpen } from "lucide-react";
+import { ChevronLeft, Trash2, ChevronDown, Pencil, Search, X, Check, BookOpen, RefreshCw } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -492,6 +492,8 @@ export default function Memories() {
   const [layers, setLayers] = useState({ longterm: null, daily: null });
   const [layersLoading, setLayersLoading] = useState(false);
   const [editingLayer, setEditingLayer] = useState(null); // { type: "longterm"|"daily", content: "..." }
+  const [flushing, setFlushing] = useState(false);
+  const [flushResult, setFlushResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hasMoreMem, setHasMoreMem] = useState(false);
   const [hasMoreSum, setHasMoreSum] = useState(false);
@@ -500,15 +502,34 @@ export default function Memories() {
   // Exit select mode on tab/layers change
   useEffect(() => { setSelectMode(false); setSelectedIds(new Set()); }, [tab, layersMode]);
 
-  // Load summary layers when entering layers view
-  useEffect(() => {
-    if (tab !== "messages" || !layersMode) return;
+  const loadLayers = () => {
     setLayersLoading(true);
     apiFetch("/api/settings/summary-layers")
       .then((d) => setLayers({ longterm: d.longterm, daily: d.daily }))
       .catch((e) => console.error(e))
       .finally(() => setLayersLoading(false));
+  };
+
+  // Load summary layers when entering layers view
+  useEffect(() => {
+    if (tab !== "messages" || !layersMode) return;
+    loadLayers();
   }, [tab, layersMode]);
+
+  const handleFlush = async () => {
+    setFlushing(true);
+    setFlushResult(null);
+    try {
+      const res = await apiFetch("/api/settings/summary-layers/flush", { method: "POST" });
+      setFlushResult(res.flushed ? `已归档 ${res.flushed} 条摘要` : "没有需要归档的摘要");
+      if (res.flushed) setTimeout(loadLayers, 3000); // wait for merge
+    } catch (_e) {
+      setFlushResult("归档失败");
+    } finally {
+      setFlushing(false);
+      setTimeout(() => setFlushResult(null), 3000);
+    }
+  };
 
   // Load sessions
   useEffect(() => {
@@ -867,6 +888,15 @@ export default function Memories() {
             </div>
           );
         })}
+        <button
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-[14px] py-2.5 text-[13px] font-medium"
+          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.textMuted }}
+          onClick={handleFlush}
+          disabled={flushing}
+        >
+          <RefreshCw size={13} className={flushing ? "animate-spin" : ""} />
+          {flushResult || (flushing ? "归档中..." : "归档旧摘要到记忆层")}
+        </button>
       </div>
     );
   };
