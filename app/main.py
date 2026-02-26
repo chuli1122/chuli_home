@@ -164,7 +164,7 @@ async def on_startup() -> None:
     cot_broadcaster.set_loop(asyncio.get_running_loop())
     print(f"[startup] bots to register: {list(bots.keys())}")
     from aiogram.types import MenuButtonWebApp, WebAppInfo
-    from app.telegram.config import MINI_APP_BASE_URL
+    from app.telegram.config import MINI_APP_URL
 
     for key, bot in bots.items():
         webhook_url = f"{WEBHOOK_BASE_URL}{BOTS_CONFIG[key]['webhook_path']}"
@@ -180,7 +180,7 @@ async def on_startup() -> None:
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
                     text="WHISPER",
-                    web_app=WebAppInfo(url=MINI_APP_BASE_URL),
+                    web_app=WebAppInfo(url=MINI_APP_URL),
                 ),
             )
             print(f"[startup] Menu button set for {key}")
