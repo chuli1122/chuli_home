@@ -164,7 +164,7 @@ export default function Settings() {
         <div className="w-10" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-px space-y-4">
+      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-4">
 
         {/* Navigation links */}
         <div

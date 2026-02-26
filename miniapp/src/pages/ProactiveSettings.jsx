@@ -179,7 +179,7 @@ export default function ProactiveSettings() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-px">
+      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5">
         {loading ? (
           <div className="flex justify-center py-20">
             <div

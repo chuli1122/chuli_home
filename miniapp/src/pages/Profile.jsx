@@ -148,7 +148,7 @@ export default function Profile() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-px space-y-4">
+      <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-4">
         {loading ? (
           <div className="flex h-40 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2" style={{ borderColor: S.accent, borderTopColor: "transparent" }} />
