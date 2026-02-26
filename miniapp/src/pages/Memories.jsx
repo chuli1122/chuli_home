@@ -864,11 +864,11 @@ export default function Memories() {
                   <div className="text-[11px]" style={{ color: S.textMuted }}>{hint}</div>
                 </div>
                 <button
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
                   style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
                   onClick={() => setEditingLayer({ type, content: layer?.content || "" })}
                 >
-                  <Pencil size={13} style={{ color: S.accentDark }} />
+                  <Pencil size={11} style={{ color: S.accentDark }} />
                 </button>
               </div>
               <div
