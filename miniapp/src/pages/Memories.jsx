@@ -836,7 +836,7 @@ export default function Memories() {
           const layer = layers[type];
           const hasContent = layer?.content?.trim();
           return (
-            <div key={type} className="rounded-[18px] p-4" style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}>
+            <div key={type} className="rounded-[18px] p-4" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <div className="text-[15px] font-semibold" style={{ color: S.text }}>{label}</div>
