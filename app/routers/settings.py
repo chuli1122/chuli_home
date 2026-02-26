@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -552,3 +552,85 @@ def update_summary_layer(
         content=row.content,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
     )
+
+
+@router.post("/settings/summary-layers/flush")
+def flush_summaries_to_layers(db: Session = Depends(get_db)):
+    """Manually flush overflow summaries into daily/longterm layers and trigger merge."""
+    import threading
+    from app.database import SessionLocal
+    from app.models.models import Assistant
+    from app.services.summary_service import SummaryService
+
+    assistant = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).first()
+    if not assistant:
+        raise HTTPException(status_code=404, detail="No assistant found")
+
+    budget_key = "summary_budget_recent"
+    budget_row = db.query(Settings).filter(Settings.key == budget_key).first()
+    budget_recent = int(budget_row.value) if budget_row else DEFAULT_SUMMARY_BUDGET_RECENT
+
+    summaries = (
+        db.query(SessionSummary)
+        .filter(
+            SessionSummary.assistant_id == assistant.id,
+            SessionSummary.deleted_at.is_(None),
+            SessionSummary.merged_into.is_(None),
+            SessionSummary.msg_id_start.isnot(None),
+        )
+        .order_by(SessionSummary.created_at.desc())
+        .all()
+    )
+
+    def _estimate_tokens(text: str) -> int:
+        return max(1, len(text) * 2 // 3)
+
+    used = 0
+    keep: list[int] = []
+    overflow: list[SessionSummary] = []
+    for s in summaries:
+        content = (s.summary_content or "").strip()
+        if not content:
+            continue
+        tokens = _estimate_tokens(content)
+        if used + tokens <= budget_recent:
+            keep.append(s.id)
+            used += tokens
+        else:
+            overflow.append(s)
+
+    if not overflow:
+        return {"flushed": 0, "to_daily": 0, "to_longterm": 0}
+
+    from datetime import datetime as dt
+    TZ_EAST8 = timezone(timedelta(hours=8))
+    _today = dt.now(TZ_EAST8).date()
+    today_overflow = []
+    old_overflow = []
+    for s in overflow:
+        s_date = s.created_at
+        if s_date and s_date.tzinfo:
+            s_date = s_date.astimezone(TZ_EAST8).date()
+        elif s_date:
+            s_date = s_date.date()
+        else:
+            s_date = _today
+        if s_date == _today:
+            today_overflow.append(s)
+        else:
+            old_overflow.append(s)
+
+    svc = SummaryService(SessionLocal)
+    if today_overflow:
+        svc.append_to_layer(db, assistant.id, "daily", list(reversed(today_overflow)))
+        for s in today_overflow:
+            s.merged_into = "daily"
+    if old_overflow:
+        svc.append_to_layer(db, assistant.id, "longterm", list(reversed(old_overflow)))
+        for s in old_overflow:
+            s.merged_into = "longterm"
+    db.commit()
+
+    threading.Thread(target=svc.merge_layers_async, args=(assistant.id,), daemon=True).start()
+
+    return {"flushed": len(overflow), "to_daily": len(today_overflow), "to_longterm": len(old_overflow)}
