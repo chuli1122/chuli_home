@@ -519,10 +519,11 @@ export default function Memories() {
   const handleFlushClick = async () => {
     try {
       const status = await apiFetch("/api/settings/summary-layers/flush-status");
-      const { pending_flush, pending_merge } = status;
+      const { pending_flush, pending_merge, already_merged } = status;
       const lines = [];
       if (pending_flush > 0) lines.push(`${pending_flush} 条摘要待归档`);
       if (pending_merge?.length) lines.push(`${pending_merge.join("、")} 层待合并`);
+      if (already_merged?.length) lines.push(`${already_merged.join("、")} 层已合并`);
       if (!lines.length) { setFlushResult("当前无需操作"); setTimeout(() => setFlushResult(null), 3000); return; }
       setConfirm({
         title: "归档并合并",

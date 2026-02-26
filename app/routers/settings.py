@@ -594,6 +594,7 @@ def flush_status(db: Session = Depends(get_db)):
             pending_flush += 1
 
     pending_merge = []
+    already_merged = []
     for lt in ("daily", "longterm"):
         row = (
             db.query(SummaryLayer)
@@ -601,9 +602,12 @@ def flush_status(db: Session = Depends(get_db)):
             .first()
         )
         if row and row.content and row.content.strip():
-            pending_merge.append(lt)
+            if row.needs_merge:
+                pending_merge.append(lt)
+            else:
+                already_merged.append(lt)
 
-    return {"pending_flush": pending_flush, "pending_merge": pending_merge}
+    return {"pending_flush": pending_flush, "pending_merge": pending_merge, "already_merged": already_merged}
 
 
 @router.post("/settings/summary-layers/flush")
