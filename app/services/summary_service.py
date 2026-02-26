@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import threading
@@ -18,6 +19,7 @@ from app.models.models import (
     ModelPreset,
     SessionSummary,
     Settings,
+    SummaryLayer,
     UserProfile,
 )
 from app.services.core_blocks_updater import CoreBlocksUpdater
@@ -316,8 +318,8 @@ class SummaryService:
                 logger.info("Marked %d/%d messages with summary_group_id=%s", updated, len(msg_ids), summary.id)
 
             db.commit()
-            logger.info("Summary generated OK (session_id=%s, summary_id=%s, memories=%d, mood=%s).",
-                        session_id, summary.id, len(memory_candidates), mood_tag)
+            logger.info("Summary generated OK (session_id=%s, summary_id=%s, mood=%s).",
+                        session_id, summary.id, mood_tag)
             self._dispatch_core_block_signal(summary.id, assistant.id)
         except Exception:
             logger.exception("Failed to generate summary (session_id=%s).", session_id)
@@ -440,3 +442,233 @@ class SummaryService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    # ── Layer merge helpers ──────────────────────────────────────────────
+
+    def append_to_layer(
+        self,
+        db: Session,
+        assistant_id: int,
+        layer_type: str,
+        summaries: list[SessionSummary],
+    ) -> None:
+        """Append raw summary text to a layer row (sync, no model call)."""
+        if not summaries:
+            return
+        row = (
+            db.query(SummaryLayer)
+            .filter(
+                SummaryLayer.assistant_id == assistant_id,
+                SummaryLayer.layer_type == layer_type,
+            )
+            .first()
+        )
+        new_text = "\n\n".join(s.summary_content for s in summaries if s.summary_content)
+        if not new_text.strip():
+            return
+        now = datetime.now(timezone.utc)
+        if row:
+            if row.content and row.content.strip():
+                row.content = row.content.strip() + "\n\n" + new_text
+            else:
+                row.content = new_text
+            row.needs_merge = True
+            row.updated_at = now
+        else:
+            db.add(SummaryLayer(
+                assistant_id=assistant_id,
+                layer_type=layer_type,
+                content=new_text,
+                needs_merge=True,
+                created_at=now,
+                updated_at=now,
+            ))
+
+    def merge_layer(self, assistant_id: int, layer_type: str) -> None:
+        """Call the summary model to merge/compress a layer's content. Runs in background."""
+        db: Session = self.session_factory()
+        try:
+            row = (
+                db.query(SummaryLayer)
+                .filter(
+                    SummaryLayer.assistant_id == assistant_id,
+                    SummaryLayer.layer_type == layer_type,
+                    SummaryLayer.needs_merge.is_(True),
+                )
+                .first()
+            )
+            if not row or not row.content.strip():
+                return
+
+            assistant = db.get(Assistant, assistant_id)
+            if not assistant:
+                return
+            preset = self._resolve_primary_preset(db, assistant)
+            if not preset:
+                return
+
+            user_profile = db.query(UserProfile).first()
+            user_name = user_profile.nickname if user_profile and user_profile.nickname else "User"
+            assistant_name = assistant.name or "Assistant"
+
+            budget_key = f"summary_budget_{layer_type}"
+            budget_row = db.query(Settings).filter(Settings.key == budget_key).first()
+            budget_tokens = int(budget_row.value) if budget_row else (800 if layer_type != "recent" else 2000)
+            max_chars = budget_tokens // 2
+
+            if layer_type == "daily":
+                prompt = (
+                    f"你是{assistant_name}，{user_name}的AI伴侣。你在整理自己今天的记忆。\n\n"
+                    f"请将以下内容合并为一段连贯的当日回顾：\n"
+                    f"- 按时间先后顺序整理\n"
+                    f"- 保留关键事件、情绪变化、重要对话内容\n"
+                    f"- 去除重复信息\n"
+                    f"- 时间用具体描述如\"下午3点\"，不要用\"刚才\"\"今天\"等相对时间\n"
+                    f"- 亲密场景只保留偏好和情绪，不保留具体描写\n"
+                    f"- 控制在{max_chars}字以内\n"
+                    f"- \"我\"= {assistant_name}\n\n"
+                    f"只输出合并后的文本，不要JSON，不要多余解释。"
+                )
+            else:
+                prompt = (
+                    f"你是{assistant_name}，{user_name}的AI伴侣。你在整理自己的长期记忆。\n\n"
+                    f"请将以下内容整合为一段长期记忆：\n"
+                    f"- 按时间先后顺序，较早的内容适当压缩\n"
+                    f"- 重点保留：关系变化、她表达过的偏好和在意的事、重大事件、承诺和约定\n"
+                    f"- 日常闲聊如果不影响理解关系可以省略\n"
+                    f"- 亲密场景只保留偏好和情绪，不保留具体描写\n"
+                    f"- 时间用具体描述如\"2月25日晚上\"，不要用\"昨天\"\"前几天\"等相对时间\n"
+                    f"- 控制在{max_chars}字以内\n"
+                    f"- \"我\"= {assistant_name}\n\n"
+                    f"只输出合并后的文本，不要JSON，不要多余解释。"
+                )
+
+            merged = _call_model_raw(db, preset, prompt, row.content, timeout=60.0)
+            merged = merged.strip()
+            if merged:
+                row.content = merged
+                row.needs_merge = False
+                row.token_count = len(merged)  # rough estimate
+                row.updated_at = datetime.now(timezone.utc)
+                db.commit()
+                logger.info(
+                    "[merge_layer] %s merged for assistant_id=%s (%d chars)",
+                    layer_type, assistant_id, len(merged),
+                )
+            else:
+                logger.warning("[merge_layer] Empty merge result for %s assistant_id=%s", layer_type, assistant_id)
+        except Exception:
+            logger.exception("[merge_layer] Failed for %s assistant_id=%s", layer_type, assistant_id)
+        finally:
+            db.close()
+
+    def merge_layers_async(self, assistant_id: int) -> None:
+        """Merge both daily and longterm layers in background thread."""
+        def _worker() -> None:
+            for lt in ("daily", "longterm"):
+                self.merge_layer(assistant_id, lt)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def daily_merge_to_longterm(self, assistant_id: int) -> None:
+        """Move daily content into longterm (called by midnight cron)."""
+        db: Session = self.session_factory()
+        try:
+            daily = (
+                db.query(SummaryLayer)
+                .filter(
+                    SummaryLayer.assistant_id == assistant_id,
+                    SummaryLayer.layer_type == "daily",
+                )
+                .first()
+            )
+            if not daily or not daily.content.strip():
+                return
+
+            # If daily still needs merge, merge it first
+            if daily.needs_merge:
+                self.merge_layer(assistant_id, "daily")
+                db.refresh(daily)
+
+            # Append daily content to longterm
+            longterm = (
+                db.query(SummaryLayer)
+                .filter(
+                    SummaryLayer.assistant_id == assistant_id,
+                    SummaryLayer.layer_type == "longterm",
+                )
+                .first()
+            )
+            now = datetime.now(timezone.utc)
+            if longterm:
+                if longterm.content and longterm.content.strip():
+                    longterm.content = longterm.content.strip() + "\n\n" + daily.content.strip()
+                else:
+                    longterm.content = daily.content.strip()
+                longterm.needs_merge = True
+                longterm.updated_at = now
+            else:
+                db.add(SummaryLayer(
+                    assistant_id=assistant_id,
+                    layer_type="longterm",
+                    content=daily.content.strip(),
+                    needs_merge=True,
+                    created_at=now,
+                    updated_at=now,
+                ))
+
+            # Clear daily
+            daily.content = ""
+            daily.needs_merge = False
+            daily.updated_at = now
+            db.commit()
+
+            # Now merge longterm
+            self.merge_layer(assistant_id, "longterm")
+            logger.info("[daily_merge_to_longterm] Completed for assistant_id=%s", assistant_id)
+        except Exception:
+            logger.exception("[daily_merge_to_longterm] Failed for assistant_id=%s", assistant_id)
+        finally:
+            db.close()
+
+
+# ── Module-level midnight cron ───────────────────────────────────────────────
+
+
+async def daily_merge_cron() -> None:
+    """Run at midnight (Beijing time) each day: merge daily → longterm for all assistants."""
+    from app.database import SessionLocal
+
+    while True:
+        try:
+            now_bj = datetime.now(TZ_EAST8)
+            tomorrow = (now_bj + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            wait_seconds = (tomorrow - now_bj).total_seconds()
+            logger.info("[daily_merge_cron] Next run in %.0f seconds", wait_seconds)
+            await asyncio.sleep(wait_seconds)
+
+            logger.info("[daily_merge_cron] Starting midnight merge")
+            db = SessionLocal()
+            try:
+                assistants = (
+                    db.query(Assistant)
+                    .filter(Assistant.deleted_at.is_(None))
+                    .all()
+                )
+                assistant_ids = [a.id for a in assistants]
+            finally:
+                db.close()
+
+            service = SummaryService(SessionLocal)
+            for aid in assistant_ids:
+                try:
+                    service.daily_merge_to_longterm(aid)
+                except Exception:
+                    logger.exception("[daily_merge_cron] Failed for assistant_id=%s", aid)
+
+            logger.info("[daily_merge_cron] Completed for %d assistants", len(assistant_ids))
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("[daily_merge_cron] Unexpected error")
+            await asyncio.sleep(60)

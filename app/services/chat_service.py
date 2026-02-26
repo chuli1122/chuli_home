@@ -19,7 +19,7 @@ import requests
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import func, text
 
-from app.models.models import ApiProvider, Assistant, ChatSession, CotRecord, Diary, Memory, Message, ModelPreset, SessionSummary, Settings, TheaterStory, UserProfile
+from app.models.models import ApiProvider, Assistant, ChatSession, CotRecord, Diary, Memory, Message, ModelPreset, SessionSummary, Settings, SummaryLayer, TheaterStory, UserProfile
 from app.services.core_blocks_service import CoreBlocksService
 from app.services.embedding_service import EmbeddingService
 from app.services.summary_service import SummaryService
@@ -40,7 +40,9 @@ NEGATIVE_MOOD_TAGS = [
 ]
 DEFAULT_DIALOGUE_RETAIN_BUDGET = 8000
 DEFAULT_DIALOGUE_TRIGGER_THRESHOLD = 16000
-DEFAULT_SUMMARY_BUDGET = 2000
+DEFAULT_SUMMARY_BUDGET_LONGTERM = 800
+DEFAULT_SUMMARY_BUDGET_DAILY = 800
+DEFAULT_SUMMARY_BUDGET_RECENT = 2000
 
 @dataclass
 class ToolCall:
@@ -1156,21 +1158,27 @@ class ChatService:
         self.api_timeout: float | None = None
         self._trimmed_messages: list[dict[str, Any]] = []
         self._trimmed_message_ids: list[int] = []
-        self.dialogue_retain_budget, self.dialogue_trigger_threshold, self.summary_budget = (
-            self._load_context_budgets()
-        )
+        budgets = self._load_context_budgets()
+        self.dialogue_retain_budget = budgets[0]
+        self.dialogue_trigger_threshold = budgets[1]
+        self.summary_budget_longterm = budgets[2]
+        self.summary_budget_daily = budgets[3]
+        self.summary_budget_recent = budgets[4]
 
-    def _load_context_budgets(self) -> tuple[int, int, int]:
+    def _load_context_budgets(self) -> tuple[int, int, int, int, int]:
         retain_budget = DEFAULT_DIALOGUE_RETAIN_BUDGET
         trigger_threshold = DEFAULT_DIALOGUE_TRIGGER_THRESHOLD
-        summary_budget = DEFAULT_SUMMARY_BUDGET
+        sb_longterm = DEFAULT_SUMMARY_BUDGET_LONGTERM
+        sb_daily = DEFAULT_SUMMARY_BUDGET_DAILY
+        sb_recent = DEFAULT_SUMMARY_BUDGET_RECENT
         try:
             rows = (
                 self.db.query(Settings)
                 .filter(
-                    Settings.key.in_(
-                        ["dialogue_retain_budget", "dialogue_trigger_threshold", "summary_budget"]
-                    )
+                    Settings.key.in_([
+                        "dialogue_retain_budget", "dialogue_trigger_threshold",
+                        "summary_budget_longterm", "summary_budget_daily", "summary_budget_recent",
+                    ])
                 )
                 .all()
             )
@@ -1182,15 +1190,23 @@ class ChatService:
                 kv.get("dialogue_trigger_threshold"),
                 DEFAULT_DIALOGUE_TRIGGER_THRESHOLD,
             )
-            summary_budget = self._safe_int(
-                kv.get("summary_budget"), DEFAULT_SUMMARY_BUDGET
+            sb_longterm = self._safe_int(
+                kv.get("summary_budget_longterm"), DEFAULT_SUMMARY_BUDGET_LONGTERM
+            )
+            sb_daily = self._safe_int(
+                kv.get("summary_budget_daily"), DEFAULT_SUMMARY_BUDGET_DAILY
+            )
+            sb_recent = self._safe_int(
+                kv.get("summary_budget_recent"), DEFAULT_SUMMARY_BUDGET_RECENT
             )
         except Exception:
             logger.exception("Failed to load context budget settings, using defaults.")
         retain_budget = max(1, retain_budget)
         trigger_threshold = max(retain_budget, trigger_threshold)
-        summary_budget = max(500, summary_budget)
-        return retain_budget, trigger_threshold, summary_budget
+        sb_longterm = max(200, sb_longterm)
+        sb_daily = max(200, sb_daily)
+        sb_recent = max(500, sb_recent)
+        return retain_budget, trigger_threshold, sb_longterm, sb_daily, sb_recent
 
     @staticmethod
     def _safe_int(raw_value: Any, default: int) -> int:
@@ -1330,12 +1346,17 @@ class ChatService:
             if _ns_assistant_row:
                 _ns_assistant_id = _ns_assistant_row.id
         self._maybe_trigger_post_reply(session_id, _ns_assistant_id, background_tasks)
-        if all_trimmed_messages:
+        # Collect IDs that need summary: trimmed (covered) + pending (uncovered)
+        _all_ids_for_summary = list(all_trimmed_message_ids)
+        _pending = getattr(self, "_pending_summary_ids", [])
+        if _pending:
+            _all_ids_for_summary.extend(_pending)
+        if _all_ids_for_summary:
             if _ns_assistant_id is not None:
                 unique_trimmed_ids = list(
                     dict.fromkeys(
                         message_id
-                        for message_id in all_trimmed_message_ids
+                        for message_id in _all_ids_for_summary
                         if isinstance(message_id, int)
                     )
                 )
@@ -1398,29 +1419,97 @@ class ChatService:
         )
         latest_user_message = self._content_to_storage(raw_latest) if isinstance(raw_latest, list) else raw_latest
         base_system_prompt = assistant.system_prompt
+
+        # ── Three-layer summary selection ──
+
+        # Recent layer: only unmerged, non-deleted originals
         summaries_desc = (
             self.db.query(SessionSummary)
-            .filter(SessionSummary.assistant_id == assistant.id)
+            .filter(
+                SessionSummary.assistant_id == assistant.id,
+                SessionSummary.deleted_at.is_(None),
+                SessionSummary.merged_into.is_(None),
+                SessionSummary.msg_id_start.isnot(None),
+            )
             .order_by(SessionSummary.created_at.desc())
             .all()
         )
-        summary_budget_tokens = self.summary_budget
+        budget_recent = self.summary_budget_recent
         used_summary_tokens = 0
         selected_summaries_desc: list[SessionSummary] = []
+        overflow_summaries: list[SessionSummary] = []
         latest_mood_tag = None
         for summary in summaries_desc:
             if latest_mood_tag is None and summary.mood_tag:
                 latest_mood_tag = summary.mood_tag
-            if summary.msg_id_start is None:
-                continue
             summary_content = (summary.summary_content or "").strip()
             if not summary_content:
                 continue
             summary_tokens = self._estimate_tokens(summary_content)
-            if used_summary_tokens + summary_tokens > summary_budget_tokens:
-                break
-            selected_summaries_desc.append(summary)
-            used_summary_tokens += summary_tokens
+            if used_summary_tokens + summary_tokens <= budget_recent:
+                selected_summaries_desc.append(summary)
+                used_summary_tokens += summary_tokens
+            else:
+                overflow_summaries.append(summary)
+        # Also check all summaries (including merged) for mood if not found yet
+        if latest_mood_tag is None:
+            mood_row = (
+                self.db.query(SessionSummary)
+                .filter(
+                    SessionSummary.assistant_id == assistant.id,
+                    SessionSummary.mood_tag.isnot(None),
+                    SessionSummary.deleted_at.is_(None),
+                )
+                .order_by(SessionSummary.created_at.desc())
+                .first()
+            )
+            if mood_row:
+                latest_mood_tag = mood_row.mood_tag
+
+        # Handle overflow: append to daily/longterm layers
+        if overflow_summaries:
+            _today = datetime.now(TZ_EAST8).date()
+            today_overflow = []
+            old_overflow = []
+            for s in overflow_summaries:
+                s_date = s.created_at
+                if s_date and s_date.tzinfo:
+                    s_date = s_date.astimezone(TZ_EAST8).date()
+                elif s_date:
+                    s_date = s_date.date()
+                else:
+                    s_date = _today
+                if s_date == _today:
+                    today_overflow.append(s)
+                else:
+                    old_overflow.append(s)
+
+            summary_svc = SummaryService(SessionLocal)
+            if today_overflow:
+                summary_svc.append_to_layer(self.db, assistant.id, "daily", list(reversed(today_overflow)))
+                for s in today_overflow:
+                    s.merged_into = "daily"
+            if old_overflow:
+                summary_svc.append_to_layer(self.db, assistant.id, "longterm", list(reversed(old_overflow)))
+                for s in old_overflow:
+                    s.merged_into = "longterm"
+            self.db.commit()
+            # Trigger async merge in background
+            summary_svc.merge_layers_async(assistant.id)
+
+        # Read layer content
+        longterm_row = (
+            self.db.query(SummaryLayer)
+            .filter(SummaryLayer.assistant_id == assistant.id, SummaryLayer.layer_type == "longterm")
+            .first()
+        )
+        daily_row = (
+            self.db.query(SummaryLayer)
+            .filter(SummaryLayer.assistant_id == assistant.id, SummaryLayer.layer_type == "daily")
+            .first()
+        )
+        _longterm_text = longterm_row.content.strip() if longterm_row and longterm_row.content else ""
+        _daily_text = daily_row.content.strip() if daily_row and daily_row.content else ""
         prompt_parts: list[str] = []
         # Current date in Beijing time
         _weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
@@ -1495,8 +1584,13 @@ class ChatService:
                 )
         # ── Cache break: stable content above, dynamic content below ──
         full_system_prompt += _CACHE_BREAK
+        # Three-layer summary injection
+        if _longterm_text:
+            full_system_prompt += f"[长期记忆]\n{_longterm_text}"
+        if _daily_text:
+            full_system_prompt += f"\n\n[近期日常]\n{_daily_text}"
         if selected_summaries_desc:
-            summary_text = "[历史对话摘要]\n"
+            summary_text = "\n\n[最近对话摘要]\n" if (_longterm_text or _daily_text) else "[最近对话摘要]\n"
             for s in reversed(selected_summaries_desc):
                 summary_text += f"- {s.summary_content}\n"
             full_system_prompt += summary_text.rstrip()
@@ -1591,7 +1685,7 @@ class ChatService:
             if self.api_timeout is not None:
                 _oai_kw["timeout"] = self.api_timeout
             client = OpenAI(**_oai_kw)
-        # Token trimming
+        # Token trimming — only trim messages covered by a summary
         retain_budget = self.dialogue_retain_budget
         trigger_threshold = self.dialogue_trigger_threshold
         dialogue_token_total = 0
@@ -1602,29 +1696,68 @@ class ChatService:
                 dialogue_token_total += self._estimate_tokens(text_for_tokens)
         message_index = 0
         if dialogue_token_total > trigger_threshold:
+            # Load coverage ranges from existing summaries
+            _existing_summaries = (
+                self.db.query(SessionSummary)
+                .filter(
+                    SessionSummary.assistant_id == assistant.id,
+                    SessionSummary.deleted_at.is_(None),
+                    SessionSummary.msg_id_start.isnot(None),
+                    SessionSummary.msg_id_end.isnot(None),
+                )
+                .all()
+            )
+            _covered_ranges = [
+                (s.msg_id_start, s.msg_id_end) for s in _existing_summaries
+            ]
+
+            def _is_covered(msg_id: int) -> bool:
+                return any(start <= msg_id <= end for start, end in _covered_ranges)
+
+            _uncovered_for_summary: list[dict[str, Any]] = []
+
             while dialogue_token_total > retain_budget and message_index < len(messages):
                 role = messages[message_index].get("role")
                 if role in ("user", "assistant"):
-                    trimmed_message = messages.pop(message_index)
-                    raw_content = trimmed_message.get("content", "") or ""
-                    text_for_tokens = self._content_to_storage(raw_content) if isinstance(raw_content, list) else raw_content
-                    dialogue_token_total -= self._estimate_tokens(text_for_tokens)
-                    self._trimmed_messages.append(trimmed_message)
-                    trimmed_id = trimmed_message.get("id")
-                    if isinstance(trimmed_id, int):
-                        self._trimmed_message_ids.append(trimmed_id)
-                    if role == "assistant":
-                        while message_index < len(messages):
-                            next_msg = messages[message_index]
-                            if next_msg.get("role") != "tool":
-                                break
-                            trimmed_tool = messages.pop(message_index)
-                            self._trimmed_messages.append(trimmed_tool)
-                            trimmed_tool_id = trimmed_tool.get("id")
-                            if isinstance(trimmed_tool_id, int):
-                                self._trimmed_message_ids.append(trimmed_tool_id)
-                    continue
+                    msg_id = messages[message_index].get("id")
+                    covered = isinstance(msg_id, int) and _is_covered(msg_id)
+
+                    if covered:
+                        # Has summary coverage → safe to trim
+                        trimmed_message = messages.pop(message_index)
+                        raw_content = trimmed_message.get("content", "") or ""
+                        text_for_tokens = self._content_to_storage(raw_content) if isinstance(raw_content, list) else raw_content
+                        dialogue_token_total -= self._estimate_tokens(text_for_tokens)
+                        self._trimmed_messages.append(trimmed_message)
+                        trimmed_id = trimmed_message.get("id")
+                        if isinstance(trimmed_id, int):
+                            self._trimmed_message_ids.append(trimmed_id)
+                        if role == "assistant":
+                            while message_index < len(messages):
+                                next_msg = messages[message_index]
+                                if next_msg.get("role") != "tool":
+                                    break
+                                trimmed_tool = messages.pop(message_index)
+                                self._trimmed_messages.append(trimmed_tool)
+                                trimmed_tool_id = trimmed_tool.get("id")
+                                if isinstance(trimmed_tool_id, int):
+                                    self._trimmed_message_ids.append(trimmed_tool_id)
+                        continue
+                    else:
+                        # No summary coverage → keep in context, mark for summary
+                        _uncovered_for_summary.append(messages[message_index])
+                        message_index += 1
+                        continue
                 message_index += 1
+
+            # If there are uncovered messages, trigger summary generation for them
+            if _uncovered_for_summary:
+                _uncovered_ids = [
+                    m.get("id") for m in _uncovered_for_summary
+                    if isinstance(m.get("id"), int)
+                ]
+                if _uncovered_ids:
+                    self._pending_summary_ids = _uncovered_ids
         # Format api_messages
         def _ts_east8(dt):
             """Convert a datetime (possibly naive UTC) to East8 timestamp string."""
@@ -2013,11 +2146,15 @@ class ChatService:
             # Post-reply triggers: image description + file summarization
             _stream_assistant_id = session.assistant_id if session else None
             self._maybe_trigger_post_reply(session_id, _stream_assistant_id, background_tasks)
-            if all_trimmed_message_ids:
+            _stream_all_ids = list(all_trimmed_message_ids)
+            _stream_pending = getattr(self, "_pending_summary_ids", [])
+            if _stream_pending:
+                _stream_all_ids.extend(_stream_pending)
+            if _stream_all_ids:
                 assistant_id = session.assistant_id if session else None
                 if assistant_id:
                     unique_ids = list(dict.fromkeys(
-                        mid for mid in all_trimmed_message_ids if isinstance(mid, int)
+                        mid for mid in _stream_all_ids if isinstance(mid, int)
                     ))
                     if background_tasks:
                         background_tasks.add_task(

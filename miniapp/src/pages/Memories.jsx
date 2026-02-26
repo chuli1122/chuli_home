@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Trash2, ChevronDown, Pencil, Search, X, Check } from "lucide-react";
+import { ChevronLeft, Trash2, ChevronDown, Pencil, Search, X, Check, BookOpen } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -116,15 +116,15 @@ function SelectCircle({ selected }) {
 
 /* ── Confirm dialog ── */
 
-function ConfirmDialog({ message, onConfirm, onCancel }) {
+function ConfirmDialog({ title = "确认删除", message, confirmLabel = "删除", confirmColor = "#ff4d6d", onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onCancel}>
       <div className="mx-6 w-full max-w-[300px] rounded-[22px] p-6" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
-        <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>确认删除</p>
+        <p className="mb-1 text-center text-[16px] font-bold" style={{ color: S.text }}>{title}</p>
         <p className="mb-5 text-center text-[13px]" style={{ color: S.textMuted }}>{message}</p>
         <div className="flex gap-3">
           <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.text }} onClick={onCancel}>取消</button>
-          <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold text-white" style={{ background: "#ff4d6d", boxShadow: "4px 4px 10px rgba(255,77,109,0.4)" }} onClick={onConfirm}>删除</button>
+          <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold text-white" style={{ background: confirmColor, boxShadow: `4px 4px 10px ${confirmColor}66` }} onClick={onConfirm}>{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -466,6 +466,7 @@ function MessageCard({ msg, keyword, roleLabel, roleColor, selectMode, selected,
 export default function Memories() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("memories");
+  const [layersMode, setLayersMode] = useState(false);
   const [trashMode, setTrashMode] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -488,13 +489,26 @@ export default function Memories() {
   const [messages, setMessages] = useState([]);
   const [trashMemories, setTrashMemories] = useState([]);
   const [trashSummaries, setTrashSummaries] = useState([]);
+  const [layers, setLayers] = useState({ longterm: null, daily: null });
+  const [layersLoading, setLayersLoading] = useState(false);
+  const [editingLayer, setEditingLayer] = useState(null); // { type: "longterm"|"daily", content: "..." }
   const [loading, setLoading] = useState(true);
   const [hasMoreMem, setHasMoreMem] = useState(false);
   const [hasMoreSum, setHasMoreSum] = useState(false);
   const [hasMoreMsg, setHasMoreMsg] = useState(false);
 
-  // Exit select mode on tab change
-  useEffect(() => { setSelectMode(false); setSelectedIds(new Set()); }, [tab]);
+  // Exit select mode on tab/layers change
+  useEffect(() => { setSelectMode(false); setSelectedIds(new Set()); }, [tab, layersMode]);
+
+  // Load summary layers when entering layers view
+  useEffect(() => {
+    if (tab !== "messages" || !layersMode) return;
+    setLayersLoading(true);
+    apiFetch("/api/settings/summary-layers")
+      .then((d) => setLayers({ longterm: d.longterm, daily: d.daily }))
+      .catch((e) => console.error(e))
+      .finally(() => setLayersLoading(false));
+  }, [tab, layersMode]);
 
   // Load sessions
   useEffect(() => {
@@ -694,6 +708,22 @@ export default function Memories() {
     setEditing(null);
   };
 
+  const saveLayerEdit = (text) => {
+    if (!editingLayer) return;
+    const layerType = editingLayer.type;
+    setEditingLayer(null);
+    setConfirm({
+      title: "确认修改",
+      message: "修改后将直接覆盖，不会自动恢复。",
+      confirmLabel: "保存",
+      confirmColor: S.accentDark,
+      action: async () => {
+        await apiFetch(`/api/settings/summary-layers/${layerType}`, { method: "PUT", body: { content: text } });
+        setLayers((prev) => ({ ...prev, [layerType]: { ...(prev[layerType] || {}), content: text } }));
+      },
+    });
+  };
+
   const roleLabel = (role) => { if (role === "user") return "我"; if (role === "assistant") return assistantName || "助手"; return "系统"; };
   const roleColor = (role) => { if (role === "user") return S.accentDark; if (role === "assistant") return "#8d68c4"; return S.textMuted; };
 
@@ -795,7 +825,55 @@ export default function Memories() {
     ));
   };
 
-  const content = trashMode ? renderTrash() : tab === "memories" ? renderMemories() : tab === "summaries" ? renderSummaries() : renderMessages();
+  const renderLayers = () => {
+    if (layersLoading) return <Spinner />;
+    return (
+      <div className="space-y-4">
+        {[
+          { type: "longterm", label: "长期记忆", hint: "关系脉络、重大事件" },
+          { type: "daily", label: "近期日常", hint: "当天的合并回顾" },
+        ].map(({ type, label, hint }) => {
+          const layer = layers[type];
+          const hasContent = layer?.content?.trim();
+          return (
+            <div key={type} className="rounded-[18px] p-4" style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-[15px] font-semibold" style={{ color: S.text }}>{label}</div>
+                  <div className="text-[11px]" style={{ color: S.textMuted }}>{hint}</div>
+                </div>
+                <button
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                  style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+                  onClick={() => setEditingLayer({ type, content: layer?.content || "" })}
+                >
+                  <Pencil size={13} style={{ color: S.accentDark }} />
+                </button>
+              </div>
+              <div
+                className="text-[12px] leading-relaxed whitespace-pre-wrap break-words"
+                style={{ color: hasContent ? S.text : S.textMuted }}
+              >
+                {hasContent ? layer.content : "暂无内容"}
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-[10px]" style={{ color: S.textMuted }}>
+                  {layer?.updated_at ? `更新于 ${fmtTime(layer.updated_at)}` : ""}
+                </span>
+                {hasContent && (
+                  <span className="text-[10px]" style={{ color: S.textMuted }}>
+                    {layer.content.length} 字
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const content = trashMode ? renderTrash() : tab === "memories" ? renderMemories() : tab === "summaries" ? renderSummaries() : layersMode ? renderLayers() : renderMessages();
 
   return (
     <div className="flex h-full flex-col" style={{ background: S.bg }}>
@@ -804,10 +882,18 @@ export default function Memories() {
         <button className="flex h-10 w-10 items-center justify-center rounded-full" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={() => navigate("/", { replace: true })}>
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
-        <h1 className="text-[17px] font-bold" style={{ color: S.text }}>{trashMode ? "回收站" : "记忆管理"}</h1>
-        <button className="flex h-10 w-10 items-center justify-center rounded-full" style={{ background: S.bg, boxShadow: trashMode ? "var(--inset-shadow)" : "var(--card-shadow-sm)" }} onClick={() => setTrashMode(!trashMode)}>
-          <Trash2 size={16} style={{ color: trashMode ? "#ef4444" : S.accentDark }} />
-        </button>
+        <h1 className="text-[17px] font-bold" style={{ color: S.text }}>
+          {trashMode ? "回收站" : "记忆管理"}
+        </h1>
+        {tab === "messages" ? (
+          <button className="flex h-10 w-10 items-center justify-center rounded-full" style={{ background: S.bg, boxShadow: layersMode ? "var(--inset-shadow)" : "var(--card-shadow-sm)" }} onClick={() => setLayersMode(!layersMode)}>
+            <BookOpen size={16} style={{ color: layersMode ? S.accentDark : S.textMuted }} />
+          </button>
+        ) : (
+          <button className="flex h-10 w-10 items-center justify-center rounded-full" style={{ background: S.bg, boxShadow: trashMode ? "var(--inset-shadow)" : "var(--card-shadow-sm)" }} onClick={() => setTrashMode(!trashMode)}>
+            <Trash2 size={16} style={{ color: trashMode ? "#ef4444" : S.accentDark }} />
+          </button>
+        )}
       </div>
 
       {/* Select mode toolbar */}
@@ -844,11 +930,12 @@ export default function Memories() {
             {TABS.map((t) => {
               const disabled = trashMode && t.key === "messages";
               const active = tab === t.key;
+              const label = t.key === "messages" && layersMode ? "长期记忆" : t.label;
               return (
                 <button key={t.key} className="flex-1 rounded-[12px] py-2 text-[12px] font-medium transition-all"
                   style={disabled ? { color: S.textMuted, opacity: 0.35, cursor: "default" } : active ? { background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark } : { color: S.textMuted }}
                   disabled={disabled} onClick={() => !disabled && setTab(t.key)}
-                >{t.label}</button>
+                >{label}</button>
               );
             })}
           </div>
@@ -856,7 +943,7 @@ export default function Memories() {
       )}
 
       {/* Session dropdown + Filter + Search */}
-      {!selectMode && (
+      {!selectMode && !(tab === "messages" && layersMode) && (
         <div className="shrink-0 px-5 pb-3">
           <div className="flex items-center gap-1.5">
             {/* Session dropdown */}
@@ -903,12 +990,17 @@ export default function Memories() {
 
       {/* Modals */}
       {confirm && (
-        <ConfirmDialog message={confirm.message}
+        <ConfirmDialog
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          confirmColor={confirm.confirmColor}
           onConfirm={async () => { try { await confirm.action(); } catch (e) { console.error(e); } setConfirm(null); }}
           onCancel={() => setConfirm(null)}
         />
       )}
       {editing && <EditModal initialText={editing.text} onSave={saveEdit} onCancel={() => setEditing(null)} memoryData={editing.type === "memory" ? { klass: editing.klass, tags: editing.tags } : null} />}
+      {editingLayer && <EditModal initialText={editingLayer.content} onSave={saveLayerEdit} onCancel={() => setEditingLayer(null)} />}
     </div>
   );
 }

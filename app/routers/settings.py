@@ -8,14 +8,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.models import ChatSession, Message, SessionSummary, Settings, UserProfile
+from app.models.models import ChatSession, Message, SessionSummary, Settings, SummaryLayer, UserProfile
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 DEFAULT_DIALOGUE_RETAIN_BUDGET = 8000
 DEFAULT_DIALOGUE_TRIGGER_THRESHOLD = 16000
-DEFAULT_SUMMARY_BUDGET = 2000
+DEFAULT_SUMMARY_BUDGET_LONGTERM = 800
+DEFAULT_SUMMARY_BUDGET_DAILY = 800
+DEFAULT_SUMMARY_BUDGET_RECENT = 2000
 DEFAULT_GROUP_CHAT_WAIT_SECONDS = 5
 DEFAULT_GROUP_CHAT_MAX_TOKENS = 600
 
@@ -23,13 +25,17 @@ DEFAULT_GROUP_CHAT_MAX_TOKENS = 600
 class ContextBudgetResponse(BaseModel):
     retain_budget: int
     trigger_threshold: int
-    summary_budget: int
+    summary_budget_longterm: int
+    summary_budget_daily: int
+    summary_budget_recent: int
 
 
 class ContextBudgetUpdateRequest(BaseModel):
     retain_budget: int = Field(..., ge=1)
     trigger_threshold: int = Field(..., ge=1)
-    summary_budget: int = Field(..., ge=500, le=20000)
+    summary_budget_longterm: int = Field(..., ge=200, le=5000)
+    summary_budget_daily: int = Field(..., ge=200, le=5000)
+    summary_budget_recent: int = Field(..., ge=500, le=20000)
 
 
 class GroupChatSettingsResponse(BaseModel):
@@ -49,10 +55,13 @@ def _safe_int(raw_value: str | None, default: int) -> int:
         return default
 
 
-def _read_context_budget(db: Session) -> tuple[int, int, int]:
+def _read_context_budget(db: Session) -> tuple[int, int, int, int, int]:
     rows = (
         db.query(Settings)
-        .filter(Settings.key.in_(["dialogue_retain_budget", "dialogue_trigger_threshold", "summary_budget"]))
+        .filter(Settings.key.in_([
+            "dialogue_retain_budget", "dialogue_trigger_threshold",
+            "summary_budget_longterm", "summary_budget_daily", "summary_budget_recent",
+        ]))
         .all()
     )
     kv = {row.key: row.value for row in rows}
@@ -62,13 +71,21 @@ def _read_context_budget(db: Session) -> tuple[int, int, int]:
     trigger_threshold = _safe_int(
         kv.get("dialogue_trigger_threshold"), DEFAULT_DIALOGUE_TRIGGER_THRESHOLD
     )
-    summary_budget = _safe_int(
-        kv.get("summary_budget"), DEFAULT_SUMMARY_BUDGET
+    sb_longterm = _safe_int(
+        kv.get("summary_budget_longterm"), DEFAULT_SUMMARY_BUDGET_LONGTERM
+    )
+    sb_daily = _safe_int(
+        kv.get("summary_budget_daily"), DEFAULT_SUMMARY_BUDGET_DAILY
+    )
+    sb_recent = _safe_int(
+        kv.get("summary_budget_recent"), DEFAULT_SUMMARY_BUDGET_RECENT
     )
     retain_budget = max(1, retain_budget)
     trigger_threshold = max(retain_budget, trigger_threshold)
-    summary_budget = max(500, summary_budget)
-    return retain_budget, trigger_threshold, summary_budget
+    sb_longterm = max(200, sb_longterm)
+    sb_daily = max(200, sb_daily)
+    sb_recent = max(500, sb_recent)
+    return retain_budget, trigger_threshold, sb_longterm, sb_daily, sb_recent
 
 
 def _upsert_setting(db: Session, key: str, value: str | int) -> None:
@@ -99,11 +116,13 @@ def _read_group_chat_settings(db: Session) -> tuple[int, int]:
 
 @router.get("/settings/context-budget", response_model=ContextBudgetResponse)
 def get_context_budget(db: Session = Depends(get_db)) -> ContextBudgetResponse:
-    retain_budget, trigger_threshold, summary_budget = _read_context_budget(db)
+    retain, trigger, sb_lt, sb_d, sb_r = _read_context_budget(db)
     return ContextBudgetResponse(
-        retain_budget=retain_budget,
-        trigger_threshold=trigger_threshold,
-        summary_budget=summary_budget,
+        retain_budget=retain,
+        trigger_threshold=trigger,
+        summary_budget_longterm=sb_lt,
+        summary_budget_daily=sb_d,
+        summary_budget_recent=sb_r,
     )
 
 
@@ -114,15 +133,21 @@ def update_context_budget(
 ) -> ContextBudgetResponse:
     retain_budget = max(1, int(payload.retain_budget))
     trigger_threshold = max(retain_budget, int(payload.trigger_threshold))
-    summary_budget = max(500, int(payload.summary_budget))
+    sb_longterm = max(200, int(payload.summary_budget_longterm))
+    sb_daily = max(200, int(payload.summary_budget_daily))
+    sb_recent = max(500, int(payload.summary_budget_recent))
     _upsert_setting(db, "dialogue_retain_budget", retain_budget)
     _upsert_setting(db, "dialogue_trigger_threshold", trigger_threshold)
-    _upsert_setting(db, "summary_budget", summary_budget)
+    _upsert_setting(db, "summary_budget_longterm", sb_longterm)
+    _upsert_setting(db, "summary_budget_daily", sb_daily)
+    _upsert_setting(db, "summary_budget_recent", sb_recent)
     db.commit()
     return ContextBudgetResponse(
         retain_budget=retain_budget,
         trigger_threshold=trigger_threshold,
-        summary_budget=summary_budget,
+        summary_budget_longterm=sb_longterm,
+        summary_budget_daily=sb_daily,
+        summary_budget_recent=sb_recent,
     )
 
 
@@ -435,3 +460,95 @@ def update_proactive_settings(
     db.commit()
     raw = _read_proactive_settings(db)
     return _proactive_response(raw)
+
+
+# ── Summary layers (longterm / daily) ────────────────────────────────────────
+
+
+class SummaryLayerItem(BaseModel):
+    content: str
+    updated_at: str | None
+
+
+class SummaryLayersResponse(BaseModel):
+    longterm: SummaryLayerItem
+    daily: SummaryLayerItem
+
+
+class SummaryLayerUpdateRequest(BaseModel):
+    content: str
+
+
+@router.get("/settings/summary-layers", response_model=SummaryLayersResponse)
+def get_summary_layers(db: Session = Depends(get_db)) -> SummaryLayersResponse:
+    from app.models.models import Assistant
+    assistant = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).first()
+    if not assistant:
+        return SummaryLayersResponse(
+            longterm=SummaryLayerItem(content="", updated_at=None),
+            daily=SummaryLayerItem(content="", updated_at=None),
+        )
+    rows = (
+        db.query(SummaryLayer)
+        .filter(
+            SummaryLayer.assistant_id == assistant.id,
+            SummaryLayer.layer_type.in_(["longterm", "daily"]),
+        )
+        .all()
+    )
+    by_type = {row.layer_type: row for row in rows}
+
+    def _item(layer_type: str) -> SummaryLayerItem:
+        row = by_type.get(layer_type)
+        if row:
+            return SummaryLayerItem(
+                content=row.content or "",
+                updated_at=row.updated_at.isoformat() if row.updated_at else None,
+            )
+        return SummaryLayerItem(content="", updated_at=None)
+
+    return SummaryLayersResponse(longterm=_item("longterm"), daily=_item("daily"))
+
+
+@router.put("/settings/summary-layers/{layer_type}", response_model=SummaryLayerItem)
+def update_summary_layer(
+    layer_type: str,
+    payload: SummaryLayerUpdateRequest,
+    db: Session = Depends(get_db),
+) -> SummaryLayerItem:
+    if layer_type not in ("longterm", "daily"):
+        raise HTTPException(status_code=400, detail="Invalid layer type")
+
+    from app.models.models import Assistant
+    assistant = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).first()
+    if not assistant:
+        raise HTTPException(status_code=404, detail="No assistant found")
+
+    row = (
+        db.query(SummaryLayer)
+        .filter(
+            SummaryLayer.assistant_id == assistant.id,
+            SummaryLayer.layer_type == layer_type,
+        )
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if row:
+        row.content = payload.content
+        row.needs_merge = False
+        row.updated_at = now
+    else:
+        row = SummaryLayer(
+            assistant_id=assistant.id,
+            layer_type=layer_type,
+            content=payload.content,
+            needs_merge=False,
+            updated_at=now,
+        )
+        db.add(row)
+
+    db.commit()
+    return SummaryLayerItem(
+        content=row.content,
+        updated_at=row.updated_at.isoformat() if row.updated_at else None,
+    )

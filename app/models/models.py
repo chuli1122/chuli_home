@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column
 from pgvector.sqlalchemy import Vector
@@ -52,8 +52,27 @@ class SessionSummary(Base):
     time_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     time_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     mood_tag: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    merged_into: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SummaryLayer(Base):
+    __tablename__ = "summary_layers"
+    __table_args__ = (
+        UniqueConstraint("assistant_id", "layer_type", name="uq_summary_layers_assistant_type"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    assistant_id: Mapped[int] = mapped_column(Integer, ForeignKey("assistants.id"), nullable=False, index=True)
+    layer_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    time_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    time_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    needs_merge: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class CoreBlock(Base):

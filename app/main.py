@@ -132,6 +132,16 @@ def _run_migrations(eng) -> None:
                 conn.execute(text("ALTER TABLE model_presets ADD COLUMN thinking_budget INTEGER NOT NULL DEFAULT 0"))
             logger.info("Added thinking_budget column to model_presets")
 
+    # session_summaries.merged_into
+    if "session_summaries" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("session_summaries")]
+        if "merged_into" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE session_summaries ADD COLUMN merged_into VARCHAR(20)"
+                ))
+            logger.info("Added merged_into column to session_summaries")
+
     # memories.updated_at
     if "memories" in insp.get_table_names():
         cols = [c["name"] for c in insp.get_columns("memories")]
@@ -166,6 +176,10 @@ async def on_startup() -> None:
     from app.services.proactive_service import proactive_loop
     asyncio.create_task(proactive_loop())
     logger.info("Proactive message loop started")
+    # Start daily summary merge cron
+    from app.services.summary_service import daily_merge_cron
+    asyncio.create_task(daily_merge_cron())
+    logger.info("Daily summary merge cron started")
 
 
 @app.on_event("shutdown")

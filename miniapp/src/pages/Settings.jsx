@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Server, Mic2, MessageSquare, Database, Timer, Hash } from "lucide-react";
+import { ChevronLeft, ChevronRight, Server, Mic2, MessageSquare, Database, Timer, Hash, BookOpen } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -76,7 +76,9 @@ export default function Settings() {
   // API settings
   const [retainBudget, setRetainBudget] = useState(8000);
   const [triggerThreshold, setTriggerThreshold] = useState(16000);
-  const [summaryBudget, setSummaryBudget] = useState(2000);
+  const [sbLongterm, setSbLongterm] = useState(800);
+  const [sbDaily, setSbDaily] = useState(800);
+  const [sbRecent, setSbRecent] = useState(2000);
   const [budgetLoaded, setBudgetLoaded] = useState(false);
   const [budgetSaving, setBudgetSaving] = useState(false);
 
@@ -92,7 +94,9 @@ export default function Settings() {
       .then((d) => {
         setRetainBudget(d.retain_budget);
         setTriggerThreshold(d.trigger_threshold);
-        setSummaryBudget(d.summary_budget);
+        setSbLongterm(d.summary_budget_longterm);
+        setSbDaily(d.summary_budget_daily);
+        setSbRecent(d.summary_budget_recent);
         setBudgetLoaded(true);
       })
       .catch(() => setBudgetLoaded(true));
@@ -126,9 +130,15 @@ export default function Settings() {
     try {
       await apiFetch("/api/settings/context-budget", {
         method: "PUT",
-        body: { retain_budget: retainBudget, trigger_threshold: triggerThreshold, summary_budget: summaryBudget },
+        body: {
+          retain_budget: retainBudget,
+          trigger_threshold: triggerThreshold,
+          summary_budget_longterm: sbLongterm,
+          summary_budget_daily: sbDaily,
+          summary_budget_recent: sbRecent,
+        },
       });
-      showToast("上下文预算已保存");
+      showToast("预算已保存");
     } catch (_e) {
       showToast("保存失败");
     } finally {
@@ -229,11 +239,12 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Context budget */}
+        {/* Context + Summary budget */}
         <div
           className="rounded-[20px] p-4"
           style={{ background: S.bg, boxShadow: "var(--card-shadow)" }}
         >
+          {/* 上下文预算 title */}
           <div className="flex items-center gap-3 mb-4">
             <div
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
@@ -262,14 +273,43 @@ export default function Settings() {
                 </div>
                 <NumberInput value={triggerThreshold} onChange={setTriggerThreshold} min={1000} max={200000} />
               </div>
-              <div className="h-px mb-3" style={{ background: "rgba(136,136,160,0.15)" }} />
+
+              {/* 摘要预算 title */}
+              <div className="h-px mb-4" style={{ background: "rgba(136,136,160,0.15)" }} />
+              <div className="flex items-center gap-3 mb-4">
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+                  style={{ boxShadow: "var(--icon-inset)", background: S.bg }}
+                >
+                  <BookOpen size={18} style={{ color: S.text }} />
+                </div>
+                <div>
+                  <div className="text-[15px] font-semibold" style={{ color: S.text }}>摘要预算</div>
+                  <div className="text-[11px]" style={{ color: S.textMuted }}>三层摘要注入上限</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-[13px] font-medium" style={{ color: S.text }}>长期记忆 (tokens)</div>
+                  <div className="text-[10px]" style={{ color: S.textMuted }}>关系脉络、重大事件</div>
+                </div>
+                <NumberInput value={sbLongterm} onChange={setSbLongterm} min={200} max={5000} />
+              </div>
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-[13px] font-medium" style={{ color: S.text }}>近期日常 (tokens)</div>
+                  <div className="text-[10px]" style={{ color: S.textMuted }}>当天的合并回顾</div>
+                </div>
+                <NumberInput value={sbDaily} onChange={setSbDaily} min={200} max={5000} />
+              </div>
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <div className="text-[13px] font-medium" style={{ color: S.text }}>摘要预算 (tokens)</div>
-                  <div className="text-[10px]" style={{ color: S.textMuted }}>注入系统提示词的摘要上限</div>
+                  <div className="text-[13px] font-medium" style={{ color: S.text }}>最近摘要 (tokens)</div>
+                  <div className="text-[10px]" style={{ color: S.textMuted }}>保留最近几条原始摘要</div>
                 </div>
-                <NumberInput value={summaryBudget} onChange={setSummaryBudget} min={500} max={20000} />
+                <NumberInput value={sbRecent} onChange={setSbRecent} min={500} max={20000} />
               </div>
+
               <button
                 className="w-full rounded-[14px] py-3 text-[14px] font-bold text-white"
                 style={{
