@@ -554,6 +554,58 @@ def update_summary_layer(
     )
 
 
+@router.get("/settings/summary-layers/flush-status")
+def flush_status(db: Session = Depends(get_db)):
+    """Preview what flush would do."""
+    from app.models.models import Assistant
+
+    assistant = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).first()
+    if not assistant:
+        return {"pending_flush": 0, "pending_merge": []}
+
+    budget_key = "summary_budget_recent"
+    budget_row = db.query(Settings).filter(Settings.key == budget_key).first()
+    budget_recent = int(budget_row.value) if budget_row else DEFAULT_SUMMARY_BUDGET_RECENT
+
+    all_summaries = (
+        db.query(SessionSummary)
+        .filter(
+            SessionSummary.assistant_id == assistant.id,
+            SessionSummary.deleted_at.is_(None),
+            SessionSummary.msg_id_start.isnot(None),
+        )
+        .order_by(SessionSummary.created_at.desc())
+        .all()
+    )
+
+    def _est(text: str) -> int:
+        return max(1, len(text) * 2 // 3)
+
+    used = 0
+    pending_flush = 0
+    for s in all_summaries:
+        content = (s.summary_content or "").strip()
+        if not content:
+            continue
+        tokens = _est(content)
+        if used + tokens <= budget_recent:
+            used += tokens
+        elif s.merged_into is None:
+            pending_flush += 1
+
+    pending_merge = []
+    for lt in ("daily", "longterm"):
+        row = (
+            db.query(SummaryLayer)
+            .filter(SummaryLayer.assistant_id == assistant.id, SummaryLayer.layer_type == lt)
+            .first()
+        )
+        if row and row.content and row.content.strip():
+            pending_merge.append(lt)
+
+    return {"pending_flush": pending_flush, "pending_merge": pending_merge}
+
+
 @router.post("/settings/summary-layers/flush")
 def flush_summaries_to_layers(db: Session = Depends(get_db)):
     """Flush overflow summaries into layers + force merge."""
