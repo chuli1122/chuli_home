@@ -516,34 +516,35 @@ export default function Memories() {
     loadLayers();
   }, [tab, layersMode]);
 
-  const [flushConfirm, setFlushConfirm] = useState(null); // { pending_flush, pending_merge }
-
   const handleFlushClick = async () => {
     try {
       const status = await apiFetch("/api/settings/summary-layers/flush-status");
-      setFlushConfirm(status);
+      const { pending_flush, pending_merge } = status;
+      const lines = [];
+      if (pending_flush > 0) lines.push(`${pending_flush} 条摘要待归档`);
+      if (pending_merge?.length) lines.push(`${pending_merge.join("、")} 层待合并`);
+      if (!lines.length) { setFlushResult("当前无需操作"); setTimeout(() => setFlushResult(null), 3000); return; }
+      setConfirm({
+        title: "归档并合并",
+        message: lines.join("，"),
+        confirmLabel: "确认",
+        confirmColor: S.accentDark,
+        action: async () => {
+          setFlushing(true); setFlushResult(null);
+          try {
+            const res = await apiFetch("/api/settings/summary-layers/flush", { method: "POST" });
+            const parts = [];
+            if (res.flushed) parts.push(`归档 ${res.flushed} 条`);
+            if (res.merge_triggered?.length) parts.push(`合并 ${res.merge_triggered.join("+")}`);
+            setFlushResult(parts.length ? parts.join("，") : "完成");
+            if (res.flushed || res.merge_triggered?.length) setTimeout(loadLayers, 5000);
+          } catch (_e) { setFlushResult("操作失败"); }
+          finally { setFlushing(false); setTimeout(() => setFlushResult(null), 4000); }
+        },
+      });
     } catch (_e) {
       setFlushResult("查询失败");
       setTimeout(() => setFlushResult(null), 3000);
-    }
-  };
-
-  const handleFlushConfirm = async () => {
-    setFlushConfirm(null);
-    setFlushing(true);
-    setFlushResult(null);
-    try {
-      const res = await apiFetch("/api/settings/summary-layers/flush", { method: "POST" });
-      const parts = [];
-      if (res.flushed) parts.push(`归档 ${res.flushed} 条`);
-      if (res.merge_triggered?.length) parts.push(`合并 ${res.merge_triggered.join("+")}`);
-      setFlushResult(parts.length ? parts.join("，") : "无需操作");
-      if (res.flushed || res.merge_triggered?.length) setTimeout(loadLayers, 5000);
-    } catch (_e) {
-      setFlushResult("操作失败");
-    } finally {
-      setFlushing(false);
-      setTimeout(() => setFlushResult(null), 4000);
     }
   };
 
@@ -917,40 +918,6 @@ export default function Memories() {
     );
   };
 
-  const FlushConfirmDialog = () => {
-    if (!flushConfirm) return null;
-    const { pending_flush, pending_merge } = flushConfirm;
-    const lines = [];
-    if (pending_flush > 0) lines.push(`${pending_flush} 条摘要待归档`);
-    if (pending_merge?.length) lines.push(`${pending_merge.join("、")} 层待合并`);
-    if (!lines.length) lines.push("无需操作");
-    const hasWork = pending_flush > 0 || pending_merge?.length > 0;
-    return (
-      <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.35)" }} onClick={() => setFlushConfirm(null)}>
-        <div className="mx-6 w-full max-w-[280px] rounded-[20px] p-5" style={{ background: S.bg, boxShadow: "var(--card-shadow)" }} onClick={(e) => e.stopPropagation()}>
-          <div className="mb-1 text-[15px] font-bold" style={{ color: S.text }}>归档并合并</div>
-          <div className="mb-4 text-[13px] leading-relaxed" style={{ color: S.textMuted }}>
-            {lines.map((l, i) => <div key={i}>{l}</div>)}
-          </div>
-          <div className="flex gap-3">
-            <button
-              className="flex-1 rounded-[12px] py-2 text-[13px] font-medium"
-              style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.textMuted }}
-              onClick={() => setFlushConfirm(null)}
-            >取消</button>
-            {hasWork && (
-              <button
-                className="flex-1 rounded-[12px] py-2 text-[13px] font-bold text-white"
-                style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-dark))" }}
-                onClick={handleFlushConfirm}
-              >确认</button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const content = trashMode ? renderTrash() : tab === "memories" ? renderMemories() : tab === "summaries" ? renderSummaries() : layersMode ? renderLayers() : renderMessages();
 
   return (
@@ -1079,7 +1046,6 @@ export default function Memories() {
       )}
       {editing && <EditModal initialText={editing.text} onSave={saveEdit} onCancel={() => setEditing(null)} memoryData={editing.type === "memory" ? { klass: editing.klass, tags: editing.tags } : null} />}
       {editingLayer && <EditModal initialText={editingLayer.content} onSave={saveLayerEdit} onCancel={() => setEditingLayer(null)} />}
-      <FlushConfirmDialog />
     </div>
   );
 }
