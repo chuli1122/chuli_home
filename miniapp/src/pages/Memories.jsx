@@ -856,10 +856,13 @@ export default function Memories() {
               >
                 {hasContent ? layer.content : "暂无内容"}
               </div>
-              <div className="mt-2 text-[10px]" style={{ color: S.textMuted }}>
-                {hasContent && <span>{layer.content.length} 字</span>}
-                {hasContent && layer?.updated_at && <span> · </span>}
-                {layer?.updated_at && <span>更新于 {fmtTime(layer.updated_at)}</span>}
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-[10px]" style={{ color: S.textMuted }}>
+                  {layer?.updated_at ? `更新于 ${fmtTime(layer.updated_at)}` : ""}
+                </span>
+                <span className="text-[10px]" style={{ color: S.textMuted }}>
+                  {layer?.content?.length || 0} 字
+                </span>
               </div>
             </div>
           );
