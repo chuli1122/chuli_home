@@ -828,7 +828,7 @@ export default function Memories() {
   const renderLayers = () => {
     if (layersLoading) return <Spinner />;
     return (
-      <div className="space-y-4 pt-1">
+      <div className="space-y-4 pt-3">
         {[
           { type: "longterm", label: "长期记忆", hint: "关系脉络、重大事件" },
           { type: "daily", label: "近期日常", hint: "当天的合并回顾" },
