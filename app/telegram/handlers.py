@@ -10,7 +10,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from .config import ALLOWED_CHAT_ID
-from .keyboards import get_main_keyboard
+from aiogram.types import ReplyKeyboardRemove
 from .service import (
     call_chat_completion,
     call_chat_completion_with_image,
@@ -253,7 +253,7 @@ async def cmd_start(message: Message, bot_key: str, **_kw) -> None:
         return
     await message.answer(
         "你好 ❤",
-        reply_markup=get_main_keyboard(),
+        reply_markup=ReplyKeyboardRemove(),
     )
 
 
