@@ -828,7 +828,7 @@ export default function Memories() {
   const renderLayers = () => {
     if (layersLoading) return <Spinner />;
     return (
-      <div className="space-y-4 pt-3">
+      <div className="space-y-4">
         {[
           { type: "longterm", label: "长期记忆", hint: "关系脉络、重大事件" },
           { type: "daily", label: "近期日常", hint: "当天的合并回顾" },
@@ -981,6 +981,11 @@ export default function Memories() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Spacer when filter bar is hidden (layers mode) */}
+      {!selectMode && tab === "messages" && layersMode && (
+        <div className="shrink-0 pb-3" />
       )}
 
       {/* Content */}
