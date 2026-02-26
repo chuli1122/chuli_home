@@ -889,12 +889,12 @@ export default function Memories() {
           );
         })}
         <button
-          className="mt-2 flex w-full items-center justify-center gap-2 rounded-[14px] py-2.5 text-[13px] font-medium"
-          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }}
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-[18px] py-3.5 text-[14px] font-bold text-white"
+          style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-dark))", boxShadow: "4px 4px 10px rgba(201,98,138,0.35)" }}
           onClick={handleFlush}
           disabled={flushing}
         >
-          <RefreshCw size={13} className={flushing ? "animate-spin" : ""} />
+          <RefreshCw size={14} className={flushing ? "animate-spin" : ""} />
           {flushResult || (flushing ? "归档中..." : "归档旧摘要到记忆层")}
         </button>
       </div>
