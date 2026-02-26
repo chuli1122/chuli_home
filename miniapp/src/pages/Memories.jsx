@@ -828,7 +828,7 @@ export default function Memories() {
   const renderLayers = () => {
     if (layersLoading) return <Spinner />;
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 pt-1">
         {[
           { type: "longterm", label: "长期记忆", hint: "关系脉络、重大事件" },
           { type: "daily", label: "近期日常", hint: "当天的合并回顾" },
@@ -856,15 +856,10 @@ export default function Memories() {
               >
                 {hasContent ? layer.content : "暂无内容"}
               </div>
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-[10px]" style={{ color: S.textMuted }}>
-                  {layer?.updated_at ? `更新于 ${fmtTime(layer.updated_at)}` : ""}
-                </span>
-                {hasContent && (
-                  <span className="text-[10px]" style={{ color: S.textMuted }}>
-                    {layer.content.length} 字
-                  </span>
-                )}
+              <div className="mt-2 text-[10px]" style={{ color: S.textMuted }}>
+                {hasContent && <span>{layer.content.length} 字</span>}
+                {hasContent && layer?.updated_at && <span> · </span>}
+                {layer?.updated_at && <span>更新于 {fmtTime(layer.updated_at)}</span>}
               </div>
             </div>
           );

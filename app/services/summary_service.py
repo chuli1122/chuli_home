@@ -543,12 +543,35 @@ class SummaryService:
                     f"只输出合并后的文本，不要JSON，不要多余解释。"
                 )
 
-            merged = _call_model_raw(db, preset, prompt, row.content, timeout=60.0)
-            merged = merged.strip()
+            merged = None
+            try:
+                merged = _call_model_raw(db, preset, prompt, row.content, timeout=60.0)
+                merged = (merged or "").strip()
+            except Exception:
+                logger.warning(
+                    "[merge_layer] Primary preset failed for %s assistant_id=%s, trying fallback",
+                    layer_type, assistant_id,
+                )
+            if not merged:
+                fallback = self._resolve_fallback_preset(db, assistant)
+                if fallback and fallback.id != preset.id:
+                    try:
+                        merged = _call_model_raw(db, fallback, prompt, row.content, timeout=60.0)
+                        merged = (merged or "").strip()
+                        if merged:
+                            logger.info(
+                                "[merge_layer] %s merged via fallback for assistant_id=%s",
+                                layer_type, assistant_id,
+                            )
+                    except Exception:
+                        logger.exception(
+                            "[merge_layer] Fallback also failed for %s assistant_id=%s",
+                            layer_type, assistant_id,
+                        )
             if merged:
                 row.content = merged
                 row.needs_merge = False
-                row.token_count = len(merged)  # rough estimate
+                row.token_count = len(merged)
                 row.updated_at = datetime.now(timezone.utc)
                 db.commit()
                 logger.info(
