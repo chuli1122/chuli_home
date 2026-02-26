@@ -8,15 +8,22 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
-    <div id="root">
-      <p id="__dbg" style="text-align:center;margin-top:40vh;color:#333;font-size:14px;">loading...</p>
+    <div id="__dbg_banner" style="position:fixed;top:0;left:0;right:0;z-index:999999;background:#ff0000;color:#fff;padding:12px;font-size:13px;text-align:left;font-family:monospace;word-break:break-all;">
+      HTML OK
+      <script>
+        var b=document.getElementById('__dbg_banner');
+        b.innerHTML+=' | '+location.href;
+        try{b.innerHTML+=' | tg='+(window.Telegram?'Y':'N')}catch(e){}
+        window.onerror=function(m,s,l){b.innerHTML+='<br>ERR: '+m+' @ '+s+':'+l;};
+        setTimeout(function(){
+          try{b.innerHTML+=' | initData='+(window.Telegram&&window.Telegram.WebApp?window.Telegram.WebApp.initData.length:'-')}catch(e){b.innerHTML+=' | initData=ERR'}
+          b.innerHTML+=' | token='+(localStorage.getItem('whisper_token')?'Y':'N');
+        },1000);
+      </script>
     </div>
-    <script>
-      window.onerror=function(m,s,l,c,e){
-        var d=document.getElementById('__dbg');
-        if(d)d.innerHTML='<b>ERR</b><br>'+m+'<br>'+s+':'+l+':'+c;
-      };
-    </script>
+    <div id="root">
+      <p style="text-align:center;margin-top:40vh;color:#333;font-size:14px;">loading...</p>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
