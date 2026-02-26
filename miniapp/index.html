@@ -9,8 +9,14 @@
   </head>
   <body>
     <div id="root">
-      <p style="text-align:center;margin-top:40vh;color:#888;font-size:14px;">loading...</p>
+      <p id="__dbg" style="text-align:center;margin-top:40vh;color:#333;font-size:14px;">loading...</p>
     </div>
+    <script>
+      window.onerror=function(m,s,l,c,e){
+        var d=document.getElementById('__dbg');
+        if(d)d.innerHTML='<b>ERR</b><br>'+m+'<br>'+s+':'+l+':'+c;
+      };
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
