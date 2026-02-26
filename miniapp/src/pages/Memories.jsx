@@ -983,13 +983,8 @@ export default function Memories() {
         </div>
       )}
 
-      {/* Spacer when filter bar is hidden (layers mode) */}
-      {!selectMode && tab === "messages" && layersMode && (
-        <div className="shrink-0 pb-3" />
-      )}
-
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-5 pb-8">{content}</div>
+      <div className={`flex-1 overflow-y-auto px-5 pb-8${tab === "messages" && layersMode ? " pt-5" : ""}`}>{content}</div>
 
       {/* Modals */}
       {confirm && (
