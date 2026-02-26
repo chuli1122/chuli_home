@@ -1977,7 +1977,21 @@ class ChatService:
                 try:
                     for chunk in stream:
                         if hasattr(chunk, "usage") and chunk.usage:
-                            total_prompt_tokens += getattr(chunk.usage, "prompt_tokens", 0)
+                            _p = getattr(chunk.usage, "prompt_tokens", 0) or 0
+                            # Subtract cached tokens so display shows only new input
+                            _details = getattr(chunk.usage, "prompt_tokens_details", None)
+                            _cached = getattr(_details, "cached_tokens", 0) if _details else 0
+                            if not _cached and isinstance(_details, dict):
+                                _cached = _details.get("cached_tokens", 0) or 0
+                            if _cached:
+                                anth_cache_hit = True
+                                _p -= _cached
+                            logger.info(
+                                "[OAI usage] prompt=%s cached=%s effective=%s output=%s",
+                                getattr(chunk.usage, "prompt_tokens", 0), _cached, _p,
+                                getattr(chunk.usage, "completion_tokens", 0),
+                            )
+                            total_prompt_tokens += _p
                             total_completion_tokens += getattr(chunk.usage, "completion_tokens", 0)
                         if not chunk.choices:
                             continue
@@ -2368,7 +2382,14 @@ class ChatService:
             _persist_error(e)
             return []
         if hasattr(response, "usage") and response.usage:
-            self._total_prompt_tokens += getattr(response.usage, "prompt_tokens", 0)
+            _p = getattr(response.usage, "prompt_tokens", 0) or 0
+            _details = getattr(response.usage, "prompt_tokens_details", None)
+            _cached = getattr(_details, "cached_tokens", 0) if _details else 0
+            if not _cached and isinstance(_details, dict):
+                _cached = _details.get("cached_tokens", 0) or 0
+            if _cached:
+                _p -= _cached
+            self._total_prompt_tokens += _p
             self._total_completion_tokens += getattr(response.usage, "completion_tokens", 0)
         if not response.choices:
             logger.warning("[_fetch_next_tool_calls] LLM response had no choices (session=%s)", session_id)
