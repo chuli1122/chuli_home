@@ -163,6 +163,9 @@ async def on_startup() -> None:
         logger.warning("migration failed: %s", exc)
     cot_broadcaster.set_loop(asyncio.get_running_loop())
     print(f"[startup] bots to register: {list(bots.keys())}")
+    from aiogram.types import MenuButtonWebApp, WebAppInfo
+    from app.telegram.config import MINI_APP_BASE_URL
+
     for key, bot in bots.items():
         webhook_url = f"{WEBHOOK_BASE_URL}{BOTS_CONFIG[key]['webhook_path']}"
         try:
@@ -172,6 +175,18 @@ async def on_startup() -> None:
         except Exception as exc:
             print(f"[startup] Webhook FAILED for {key}: {exc}")
             logger.warning("Failed to set webhook for %s: %s", key, exc)
+        # Set menu button (default for all private chats)
+        try:
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="WHISPER",
+                    web_app=WebAppInfo(url=MINI_APP_BASE_URL),
+                ),
+            )
+            print(f"[startup] Menu button set for {key}")
+        except Exception as exc:
+            print(f"[startup] Menu button FAILED for {key}: {exc}")
+            logger.warning("Failed to set menu button for %s: %s", key, exc)
     # Start proactive message loop
     from app.services.proactive_service import proactive_loop
     asyncio.create_task(proactive_loop())
