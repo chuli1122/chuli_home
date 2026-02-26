@@ -20,7 +20,6 @@ from app.models.models import (
     Settings,
     UserProfile,
 )
-from app.services.embedding_service import EmbeddingService
 from app.services.core_blocks_updater import CoreBlocksUpdater
 
 logger = logging.getLogger(__name__)
@@ -287,17 +286,10 @@ class SummaryService:
             msg_id_end = msg_ids[-1] if msg_ids else None
             time_start = self._to_utc(messages[0].created_at) if messages else None
             time_end = self._to_utc(messages[-1].created_at) if messages else None
-            summary_embedding = None
-            try:
-                summary_embedding = EmbeddingService().get_embedding(summary_text)
-            except Exception as exc:
-                logger.warning("Summary embedding failed, continue without embedding: %s", exc)
-
             summary = SessionSummary(
                 session_id=session_id,
                 assistant_id=assistant_id,
                 summary_content=summary_text,
-                embedding=summary_embedding,
                 perspective=assistant_name,
                 msg_id_start=msg_id_start,
                 msg_id_end=msg_id_end,

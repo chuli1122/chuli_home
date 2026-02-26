@@ -40,6 +40,7 @@ NEGATIVE_MOOD_TAGS = [
 ]
 DEFAULT_DIALOGUE_RETAIN_BUDGET = 8000
 DEFAULT_DIALOGUE_TRIGGER_THRESHOLD = 16000
+DEFAULT_SUMMARY_BUDGET = 2000
 
 @dataclass
 class ToolCall:
@@ -421,27 +422,40 @@ class MemoryService:
 
     def search_summary(self, payload: dict[str, Any]) -> dict[str, Any]:
         query = str(payload.get("query", "") or "").strip()
+        limit = min(max(1, int(payload.get("limit", 5) or 5)), 10)
         try:
-            limit = max(1, int(payload.get("limit", 5)))
+            offset = max(0, int(payload.get("offset", 0) or 0))
         except Exception:
-            limit = 5
+            offset = 0
+        assistant_id = payload.get("assistant_id")
         start_time = self._parse_iso_datetime(payload.get("start_time"))
         end_time = self._parse_iso_datetime(payload.get("end_time"))
         if start_time and end_time and start_time > end_time:
             start_time, end_time = end_time, start_time
 
         if not query:
-            return {"query": query, "results": []}
+            return {"query": query, "total": 0, "offset": offset, "limit": limit, "results": []}
 
         # Pgroonga search on session_summaries
-        pgroonga_where = "WHERE summary_content &@~ :query"
-        pgroonga_params = {"query": query, "limit": limit}
+        pgroonga_where = "WHERE summary_content &@~ :query AND deleted_at IS NULL"
+        pgroonga_params: dict[str, Any] = {"query": query, "limit": limit, "offset": offset}
+        if assistant_id is not None:
+            pgroonga_where += " AND assistant_id = :assistant_id"
+            pgroonga_params["assistant_id"] = assistant_id
         if start_time is not None:
-            pgroonga_where += " AND time_start >= :start_time"
+            pgroonga_where += " AND time_end >= :start_time"
             pgroonga_params["start_time"] = start_time
         if end_time is not None:
-            pgroonga_where += " AND time_end <= :end_time"
+            pgroonga_where += " AND time_start <= :end_time"
             pgroonga_params["end_time"] = end_time
+
+        # Count total matches
+        count_sql = text(
+            "SELECT COUNT(*) FROM session_summaries {pgroonga_where}".format(
+                pgroonga_where=pgroonga_where
+            )
+        )
+        total = self.db.execute(count_sql, pgroonga_params).scalar() or 0
 
         pgroonga_sql = text(
             """
@@ -450,7 +464,7 @@ class MemoryService:
     FROM session_summaries
     {pgroonga_where}
     ORDER BY pgroonga_score(tableoid, ctid) DESC
-    LIMIT :limit
+    LIMIT :limit OFFSET :offset
 """.format(pgroonga_where=pgroonga_where)
         )
         rows = self.db.execute(pgroonga_sql, pgroonga_params).all()
@@ -469,7 +483,7 @@ class MemoryService:
             }
             for row in rows
         ]
-        return {"query": query, "results": results}
+        return {"query": query, "total": total, "offset": offset, "limit": limit, "results": results}
 
     def get_summary_by_id(self, payload: dict[str, Any]) -> dict[str, Any]:
         summary_id = payload.get("id")
@@ -516,6 +530,10 @@ class MemoryService:
             )
         except Exception:
             message_id = None
+        try:
+            offset = max(0, int(payload.get("offset", 0) or 0))
+        except Exception:
+            offset = 0
 
         if (
             msg_id_start is not None
@@ -525,8 +543,9 @@ class MemoryService:
             msg_id_start, msg_id_end = msg_id_end, msg_id_start
 
         context_size = 3
+        ID_RANGE_LIMIT = 20
 
-        # Mode 1: ID range mode
+        # Mode 1: ID range mode (max 20 messages)
         use_id_range = msg_id_start is not None and msg_id_end is not None
         if use_id_range:
             messages_query = self.db.query(Message).filter(
@@ -536,9 +555,14 @@ class MemoryService:
             )
             if session_id is not None:
                 messages_query = messages_query.filter(Message.session_id == session_id)
+            total_in_range = (
+                messages_query.filter(Message.id.between(msg_id_start, msg_id_end))
+                .count()
+            )
             hit_messages = (
                 messages_query.filter(Message.id.between(msg_id_start, msg_id_end))
                 .order_by(Message.id.asc())
+                .limit(ID_RANGE_LIMIT)
                 .all()
             )
             results = [
@@ -553,6 +577,8 @@ class MemoryService:
             ]
             return {
                 "query": query,
+                "total": total_in_range,
+                "limit": ID_RANGE_LIMIT,
                 "results": results,
                 "mode": "id_range",
             }
@@ -606,18 +632,30 @@ class MemoryService:
                 "mode": "message_id",
             }
 
-        # Mode 3: Keyword search using pgroonga (returns hit messages only, no context)
+        # Mode 3: Keyword search using pgroonga (with pagination)
         if query:
+            base_where = "WHERE content &@~ :query AND role IN ('user', 'assistant')"
+            base_params: dict[str, Any] = {"query": query}
+            if session_id is not None:
+                base_where += " AND session_id = :session_id"
+                base_params["session_id"] = session_id
+
+            count_sql = text(
+                "SELECT COUNT(*) FROM messages {w}".format(w=base_where)
+            )
+            total = self.db.execute(count_sql, base_params).scalar() or 0
+
+            search_params = {**base_params, "limit": 10, "offset": offset}
             pgroonga_sql = text(
                 """
     SELECT id, session_id, role, content, created_at
     FROM messages
-    WHERE content &@~ :query
+    {w}
     ORDER BY pgroonga_score(tableoid, ctid) DESC
-    LIMIT 10
-"""
+    LIMIT :limit OFFSET :offset
+""".format(w=base_where)
             )
-            rows = self.db.execute(pgroonga_sql, {"query": query}).all()
+            rows = self.db.execute(pgroonga_sql, search_params).all()
             results = [
                 {
                     "id": row.id,
@@ -630,6 +668,9 @@ class MemoryService:
             ]
             return {
                 "query": query,
+                "total": total,
+                "offset": offset,
+                "limit": 10,
                 "results": results,
                 "mode": "keyword",
             }
@@ -1115,19 +1156,20 @@ class ChatService:
         self.api_timeout: float | None = None
         self._trimmed_messages: list[dict[str, Any]] = []
         self._trimmed_message_ids: list[int] = []
-        self.dialogue_retain_budget, self.dialogue_trigger_threshold = (
+        self.dialogue_retain_budget, self.dialogue_trigger_threshold, self.summary_budget = (
             self._load_context_budgets()
         )
 
-    def _load_context_budgets(self) -> tuple[int, int]:
+    def _load_context_budgets(self) -> tuple[int, int, int]:
         retain_budget = DEFAULT_DIALOGUE_RETAIN_BUDGET
         trigger_threshold = DEFAULT_DIALOGUE_TRIGGER_THRESHOLD
+        summary_budget = DEFAULT_SUMMARY_BUDGET
         try:
             rows = (
                 self.db.query(Settings)
                 .filter(
                     Settings.key.in_(
-                        ["dialogue_retain_budget", "dialogue_trigger_threshold"]
+                        ["dialogue_retain_budget", "dialogue_trigger_threshold", "summary_budget"]
                     )
                 )
                 .all()
@@ -1140,11 +1182,15 @@ class ChatService:
                 kv.get("dialogue_trigger_threshold"),
                 DEFAULT_DIALOGUE_TRIGGER_THRESHOLD,
             )
+            summary_budget = self._safe_int(
+                kv.get("summary_budget"), DEFAULT_SUMMARY_BUDGET
+            )
         except Exception:
             logger.exception("Failed to load context budget settings, using defaults.")
         retain_budget = max(1, retain_budget)
         trigger_threshold = max(retain_budget, trigger_threshold)
-        return retain_budget, trigger_threshold
+        summary_budget = max(500, summary_budget)
+        return retain_budget, trigger_threshold, summary_budget
 
     @staticmethod
     def _safe_int(raw_value: Any, default: int) -> int:
@@ -1339,6 +1385,7 @@ class ChatService:
         if not assistant:
             return None
         self._current_assistant_id = assistant.id
+        self._current_session_id = session_id
         model_preset = self.db.get(ModelPreset, assistant.model_preset_id)
         if not model_preset:
             return None
@@ -1357,7 +1404,7 @@ class ChatService:
             .order_by(SessionSummary.created_at.desc())
             .all()
         )
-        summary_budget_tokens = 2000
+        summary_budget_tokens = self.summary_budget
         used_summary_tokens = 0
         selected_summaries_desc: list[SessionSummary] = []
         latest_mood_tag = None
@@ -1513,9 +1560,9 @@ class ChatService:
             {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本,也可以写给她看的信。可以设置定时解锁，让她在指定时间后才能看到。", "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "日记标题"}, "content": {"type": "string", "description": "日记正文"}, "unlock_at": {"type": "string", "description": "定时解锁时间，ISO格式如 2025-03-01T09:00:00+08:00。不传则立即可见。设置后她在解锁前只能看到标题，无法阅读内容。"}}, "required": ["title", "content"]}}},
             {"type": "function", "function": {"name": "list_memories", "description": "按时间范围或分类列出已存的记忆，不做搜索。用于回顾已存记忆、避免重复存储。", "parameters": {"type": "object", "properties": {"start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20 或 2025-02-20T14:00:00+08:00"}, "end_time": {"type": "string", "description": "结束时间，同上格式。不传则不限结束时间"}, "klass": {"type": "string", "description": "分类筛选: identity/relationship/bond/conflict/fact/preference/health/task/ephemeral/other"}, "limit": {"type": "integer", "description": "返回条数，默认10，最大20。一般只在需要回顾已存记忆、避免重复存储时使用，不要一次拉太多，够用就不要加大limit"}}}}},
             {"type": "function", "function": {"name": "search_memory", "description": "搜索记忆卡片。从长期记忆中按关键词或语义查找信息。返回匹配的记忆条目。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "source": {"type": "string"}}}}},
-            {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}, "start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20"}, "end_time": {"type": "string", "description": "结束时间，同上格式"}}, "required": ["query"]}}},
+            {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。返回 total 表示总匹配数，可通过 offset 翻页。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "description": "每页条数，最多10"}, "offset": {"type": "integer", "description": "翻页偏移量，默认0"}, "start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20"}, "end_time": {"type": "string", "description": "结束时间，同上格式"}}, "required": ["query"]}}},
             {"type": "function", "function": {"name": "get_summary_by_id", "description": "按id查看摘要详情，返回摘要完整内容", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
-            {"type": "function", "function": {"name": "search_chat_history", "description": "搜索聊天记录原文。三种模式：\n1) 关键词搜索：传 query，返回命中消息（不带上下文）\n2) ID 范围：传 msg_id_start + msg_id_end，拉取该范围内的完整对话\n3) 单条 ID：传 message_id，返回该条及前后各 3 条上下文", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "session_id": {"type": "integer"}, "msg_id_start": {"type": "integer"}, "msg_id_end": {"type": "integer"}, "message_id": {"type": "integer"}}}}},
+            {"type": "function", "function": {"name": "search_chat_history", "description": "搜索聊天记录原文。三种模式：\n1) 关键词搜索：传 query，返回命中消息（不带上下文），返回 total 表示总匹配数，可通过 offset 翻页\n2) ID 范围：传 msg_id_start + msg_id_end，拉取该范围内的完整对话（最多20条，返回 total 表示范围内总数）\n3) 单条 ID：传 message_id，返回该条及前后各 3 条上下文", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "msg_id_start": {"type": "integer"}, "msg_id_end": {"type": "integer"}, "message_id": {"type": "integer"}, "offset": {"type": "integer", "description": "关键词搜索翻页偏移量，默认0"}}}}},
             {"type": "function", "function": {"name": "search_theater", "description": "搜索小剧场故事摘要。用于查找过去的 RP / 小剧场剧情记录，返回故事标题、AI伙伴、摘要全文、时间跨度。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}},
             {"type": "function", "function": {"name": "read_diary", "description": "读取交换日记。两种模式：\n1) list 模式：不传 diary_id，可选传 author（user/assistant）筛选，返回日记列表（id、title、author、created_at、unlock_at、read_at），不含正文。未解锁的定时日记也会列出但标记 locked=true。\n2) read 模式：传 diary_id，返回该日记完整内容（id、title、content、author、created_at、unlock_at）。用户写给你的日记（author=user）读取时自动记录已读时间。未解锁的定时日记不允许读取。", "parameters": {"type": "object", "properties": {"diary_id": {"type": "integer", "description": "日记ID，传入则为read模式"}, "author": {"type": "string", "enum": ["user", "assistant"], "description": "list模式下按作者筛选"}}}}},
             {"type": "function", "function": {"name": "web_search", "description": "搜索互联网获取信息。返回搜索结果列表，每条包含标题、链接和摘要。搜索后如需查看某个结果的完整内容，再调用 web_fetch。每次搜索后最多读取2个网页。", "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "搜索关键词"}}, "required": ["query"]}}},
@@ -2031,10 +2078,12 @@ class ChatService:
         if tool_name == "search_memory":
             return self.memory_service.search_memory(tool_call.arguments)
         if tool_name == "search_summary":
+            tool_call.arguments["assistant_id"] = getattr(self, "_current_assistant_id", None)
             return self.memory_service.search_summary(tool_call.arguments)
         if tool_name == "get_summary_by_id":
             return self.memory_service.get_summary_by_id(tool_call.arguments)
         if tool_name == "search_chat_history":
+            tool_call.arguments["session_id"] = getattr(self, "_current_session_id", None)
             return self.memory_service.search_chat_history(tool_call.arguments)
         if tool_name == "search_theater":
             return self.memory_service.search_theater(tool_call.arguments)

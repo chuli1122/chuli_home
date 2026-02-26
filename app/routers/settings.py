@@ -15,6 +15,7 @@ router = APIRouter()
 
 DEFAULT_DIALOGUE_RETAIN_BUDGET = 8000
 DEFAULT_DIALOGUE_TRIGGER_THRESHOLD = 16000
+DEFAULT_SUMMARY_BUDGET = 2000
 DEFAULT_GROUP_CHAT_WAIT_SECONDS = 5
 DEFAULT_GROUP_CHAT_MAX_TOKENS = 600
 
@@ -22,11 +23,13 @@ DEFAULT_GROUP_CHAT_MAX_TOKENS = 600
 class ContextBudgetResponse(BaseModel):
     retain_budget: int
     trigger_threshold: int
+    summary_budget: int
 
 
 class ContextBudgetUpdateRequest(BaseModel):
     retain_budget: int = Field(..., ge=1)
     trigger_threshold: int = Field(..., ge=1)
+    summary_budget: int = Field(..., ge=500, le=20000)
 
 
 class GroupChatSettingsResponse(BaseModel):
@@ -46,10 +49,10 @@ def _safe_int(raw_value: str | None, default: int) -> int:
         return default
 
 
-def _read_context_budget(db: Session) -> tuple[int, int]:
+def _read_context_budget(db: Session) -> tuple[int, int, int]:
     rows = (
         db.query(Settings)
-        .filter(Settings.key.in_(["dialogue_retain_budget", "dialogue_trigger_threshold"]))
+        .filter(Settings.key.in_(["dialogue_retain_budget", "dialogue_trigger_threshold", "summary_budget"]))
         .all()
     )
     kv = {row.key: row.value for row in rows}
@@ -59,9 +62,13 @@ def _read_context_budget(db: Session) -> tuple[int, int]:
     trigger_threshold = _safe_int(
         kv.get("dialogue_trigger_threshold"), DEFAULT_DIALOGUE_TRIGGER_THRESHOLD
     )
+    summary_budget = _safe_int(
+        kv.get("summary_budget"), DEFAULT_SUMMARY_BUDGET
+    )
     retain_budget = max(1, retain_budget)
     trigger_threshold = max(retain_budget, trigger_threshold)
-    return retain_budget, trigger_threshold
+    summary_budget = max(500, summary_budget)
+    return retain_budget, trigger_threshold, summary_budget
 
 
 def _upsert_setting(db: Session, key: str, value: str | int) -> None:
@@ -92,10 +99,11 @@ def _read_group_chat_settings(db: Session) -> tuple[int, int]:
 
 @router.get("/settings/context-budget", response_model=ContextBudgetResponse)
 def get_context_budget(db: Session = Depends(get_db)) -> ContextBudgetResponse:
-    retain_budget, trigger_threshold = _read_context_budget(db)
+    retain_budget, trigger_threshold, summary_budget = _read_context_budget(db)
     return ContextBudgetResponse(
         retain_budget=retain_budget,
         trigger_threshold=trigger_threshold,
+        summary_budget=summary_budget,
     )
 
 
@@ -106,12 +114,15 @@ def update_context_budget(
 ) -> ContextBudgetResponse:
     retain_budget = max(1, int(payload.retain_budget))
     trigger_threshold = max(retain_budget, int(payload.trigger_threshold))
+    summary_budget = max(500, int(payload.summary_budget))
     _upsert_setting(db, "dialogue_retain_budget", retain_budget)
     _upsert_setting(db, "dialogue_trigger_threshold", trigger_threshold)
+    _upsert_setting(db, "summary_budget", summary_budget)
     db.commit()
     return ContextBudgetResponse(
         retain_budget=retain_budget,
         trigger_threshold=trigger_threshold,
+        summary_budget=summary_budget,
     )
 
 

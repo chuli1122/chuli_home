@@ -76,6 +76,7 @@ export default function Settings() {
   // API settings
   const [retainBudget, setRetainBudget] = useState(8000);
   const [triggerThreshold, setTriggerThreshold] = useState(16000);
+  const [summaryBudget, setSummaryBudget] = useState(2000);
   const [budgetLoaded, setBudgetLoaded] = useState(false);
   const [budgetSaving, setBudgetSaving] = useState(false);
 
@@ -91,6 +92,7 @@ export default function Settings() {
       .then((d) => {
         setRetainBudget(d.retain_budget);
         setTriggerThreshold(d.trigger_threshold);
+        setSummaryBudget(d.summary_budget);
         setBudgetLoaded(true);
       })
       .catch(() => setBudgetLoaded(true));
@@ -124,7 +126,7 @@ export default function Settings() {
     try {
       await apiFetch("/api/settings/context-budget", {
         method: "PUT",
-        body: { retain_budget: retainBudget, trigger_threshold: triggerThreshold },
+        body: { retain_budget: retainBudget, trigger_threshold: triggerThreshold, summary_budget: summaryBudget },
       });
       showToast("上下文预算已保存");
     } catch (_e) {
@@ -253,12 +255,20 @@ export default function Settings() {
                 </div>
                 <NumberInput value={retainBudget} onChange={setRetainBudget} min={1000} max={100000} />
               </div>
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-3">
                 <div>
                   <div className="text-[13px] font-medium" style={{ color: S.text }}>触发阈值 (tokens)</div>
                   <div className="text-[10px]" style={{ color: S.textMuted }}>超过此值时触发摘要</div>
                 </div>
                 <NumberInput value={triggerThreshold} onChange={setTriggerThreshold} min={1000} max={200000} />
+              </div>
+              <div className="h-px mb-3" style={{ background: "rgba(136,136,160,0.15)" }} />
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <div className="text-[13px] font-medium" style={{ color: S.text }}>摘要预算 (tokens)</div>
+                  <div className="text-[10px]" style={{ color: S.textMuted }}>注入系统提示词的摘要上限</div>
+                </div>
+                <NumberInput value={summaryBudget} onChange={setSummaryBudget} min={500} max={20000} />
               </div>
               <button
                 className="w-full rounded-[14px] py-3 text-[14px] font-bold text-white"
