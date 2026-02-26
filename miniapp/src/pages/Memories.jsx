@@ -890,7 +890,7 @@ export default function Memories() {
         })}
         <button
           className="mt-2 flex w-full items-center justify-center gap-2 rounded-[14px] py-2.5 text-[13px] font-medium"
-          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.textMuted }}
+          style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)", color: S.accentDark }}
           onClick={handleFlush}
           disabled={flushing}
         >
