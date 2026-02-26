@@ -570,12 +570,12 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
     budget_row = db.query(Settings).filter(Settings.key == budget_key).first()
     budget_recent = int(budget_row.value) if budget_row else DEFAULT_SUMMARY_BUDGET_RECENT
 
-    summaries = (
+    # All non-deleted summaries (including already merged ones for re-flush)
+    all_summaries = (
         db.query(SessionSummary)
         .filter(
             SessionSummary.assistant_id == assistant.id,
             SessionSummary.deleted_at.is_(None),
-            SessionSummary.merged_into.is_(None),
             SessionSummary.msg_id_start.isnot(None),
         )
         .order_by(SessionSummary.created_at.desc())
@@ -586,21 +586,25 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
         return max(1, len(text) * 2 // 3)
 
     used = 0
-    keep: list[int] = []
     overflow: list[SessionSummary] = []
-    for s in summaries:
+    for s in all_summaries:
         content = (s.summary_content or "").strip()
         if not content:
             continue
         tokens = _estimate_tokens(content)
-        if used + tokens <= budget_recent:
-            keep.append(s.id)
+        if used + tokens <= budget_recent and s.merged_into is None:
             used += tokens
         else:
+            # Already merged → skip (already in layer)
+            if s.merged_into is not None:
+                continue
             overflow.append(s)
 
     if not overflow:
-        return {"flushed": 0, "to_daily": 0, "to_longterm": 0}
+        total = len(all_summaries)
+        already = sum(1 for s in all_summaries if s.merged_into is not None)
+        return {"flushed": 0, "to_daily": 0, "to_longterm": 0,
+                "debug": f"total={total}, already_merged={already}, budget={budget_recent}, used={used}"}
 
     from datetime import datetime as dt
     TZ_EAST8 = timezone(timedelta(hours=8))
