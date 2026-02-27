@@ -1243,6 +1243,7 @@ class ChatService:
         start_time = time.monotonic()
         self._total_prompt_tokens = 0
         self._total_completion_tokens = 0
+        self._total_input_raw = 0
         # Persist all NEW user messages (those without a DB id)
         for msg in messages:
             if msg.get("role") == "user" and not msg.get("id"):
@@ -1329,6 +1330,7 @@ class ChatService:
             cot_broadcaster.publish({
                 "type": "tokens_update", "request_id": request_id,
                 "prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens,
+                "total_input": self._total_input_raw,
             })
             logger.info("[chat_completion] Tool calls done, making follow-up API call (session=%s)", session_id)
             round_index += 1
@@ -1377,12 +1379,12 @@ class ChatService:
         if self._total_prompt_tokens or self._total_completion_tokens or elapsed_ms:
             self._write_cot_block(
                 request_id, 9999, "usage",
-                json.dumps({"prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens, "elapsed_ms": elapsed_ms}),
+                json.dumps({"prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens, "elapsed_ms": elapsed_ms, "total_input": self._total_input_raw}),
             )
         cot_broadcaster.publish({
             "type": "done", "request_id": request_id,
             "prompt_tokens": self._total_prompt_tokens, "completion_tokens": self._total_completion_tokens,
-            "elapsed_ms": elapsed_ms,
+            "elapsed_ms": elapsed_ms, "total_input": self._total_input_raw,
         })
         return messages
 
@@ -1839,6 +1841,7 @@ class ChatService:
         all_trimmed_message_ids: list[int] = []
         total_prompt_tokens = 0
         total_completion_tokens = 0
+        total_input_raw = 0
         anth_cache_hit = False
         round_index = 0
         while True:
@@ -1941,7 +1944,9 @@ class ChatService:
                             getattr(_u, "output_tokens", None),
                         )
                         _cache_create = getattr(_u, "cache_creation_input_tokens", 0) or 0
-                        total_prompt_tokens += getattr(_u, "input_tokens", 0) - _cache_read - _cache_create
+                        _raw_input = getattr(_u, "input_tokens", 0)
+                        total_prompt_tokens += _raw_input - _cache_read - _cache_create
+                        total_input_raw += _raw_input
                         total_completion_tokens += getattr(_u, "output_tokens", 0)
                     for idx, block in enumerate(b for b in final_msg.content if b.type == "tool_use"):
                         tool_calls_acc[idx] = {
@@ -1999,6 +2004,7 @@ class ChatService:
                                 getattr(chunk.usage, "completion_tokens", 0),
                             )
                             total_prompt_tokens += _p
+                            total_input_raw += getattr(chunk.usage, "prompt_tokens", 0) or 0
                             total_completion_tokens += getattr(chunk.usage, "completion_tokens", 0)
                         if not chunk.choices:
                             continue
@@ -2122,7 +2128,7 @@ class ChatService:
                 cot_broadcaster.publish({
                     "type": "tokens_update", "request_id": request_id,
                     "prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens,
-                    "cache_hit": anth_cache_hit,
+                    "cache_hit": anth_cache_hit, "total_input": total_input_raw,
                 })
                 logger.info("[stream] Tool calls done, making follow-up API call (session=%s)", session_id)
                 round_index += 1
@@ -2191,12 +2197,12 @@ class ChatService:
             if total_prompt_tokens or total_completion_tokens or elapsed_ms:
                 self._write_cot_block(
                     request_id, 9999, "usage",
-                    json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit}),
+                    json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit, "total_input": total_input_raw}),
                 )
             cot_broadcaster.publish({
                 "type": "done", "request_id": request_id,
                 "prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens,
-                "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit,
+                "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit, "total_input": total_input_raw,
             })
             yield 'data: [DONE]\n\n'
             return
@@ -2206,12 +2212,12 @@ class ChatService:
         if total_prompt_tokens or total_completion_tokens or elapsed_ms:
             self._write_cot_block(
                 request_id, 9999, "usage",
-                json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit}),
+                json.dumps({"prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens, "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit, "total_input": total_input_raw}),
             )
         cot_broadcaster.publish({
             "type": "done", "request_id": request_id,
             "prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens,
-            "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit,
+            "elapsed_ms": elapsed_ms, "cache_hit": anth_cache_hit, "total_input": total_input_raw,
         })
         yield 'data: [DONE]\n\n'
 
@@ -2267,6 +2273,7 @@ class ChatService:
         if not hasattr(self, "_total_prompt_tokens"):
             self._total_prompt_tokens = 0
             self._total_completion_tokens = 0
+            self._total_input_raw = 0
         params = self._build_api_call_params(messages, session_id, short_mode=short_mode)
         if params is None:
             return []
@@ -2335,7 +2342,9 @@ class ChatService:
             if hasattr(response, "usage") and response.usage:
                 _cr = getattr(response.usage, "cache_read_input_tokens", 0) or 0
                 _cc = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-                self._total_prompt_tokens += getattr(response.usage, "input_tokens", 0) - _cr - _cc
+                _raw = getattr(response.usage, "input_tokens", 0)
+                self._total_prompt_tokens += _raw - _cr - _cc
+                self._total_input_raw += _raw
                 self._total_completion_tokens += getattr(response.usage, "output_tokens", 0)
             text_content = ""
             thinking_content = ""
@@ -2399,6 +2408,7 @@ class ChatService:
             if _cached:
                 _p -= _cached
             self._total_prompt_tokens += _p
+            self._total_input_raw += getattr(response.usage, "prompt_tokens", 0) or 0
             self._total_completion_tokens += getattr(response.usage, "completion_tokens", 0)
         if not response.choices:
             logger.warning("[_fetch_next_tool_calls] LLM response had no choices (session=%s)", session_id)

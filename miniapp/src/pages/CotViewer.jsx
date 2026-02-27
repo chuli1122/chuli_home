@@ -152,7 +152,7 @@ function fmtElapsed(ms) {
   return sec >= 100 ? `${Math.round(sec)}s` : `${sec.toFixed(1)}s`;
 }
 
-function TokenBadges({ prompt, completion, elapsedMs, hasToolCalls, cacheHit }) {
+function TokenBadges({ prompt, completion, elapsedMs, hasToolCalls, cacheHit, totalInput }) {
   // Show badges if we have any non-zero values OR if there were tool calls
   // (tool calls consume tokens even if final response is empty)
   const hasAnyValue = prompt || completion || elapsedMs;
@@ -167,7 +167,7 @@ function TokenBadges({ prompt, completion, elapsedMs, hasToolCalls, cacheHit }) 
         className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
         style={{ background: promptBg, color: promptColor }}
       >
-        ↑{fmtTokens(prompt)}
+        ↑{fmtTokens(prompt)}{totalInput > 0 && totalInput !== prompt ? `/${fmtTokens(totalInput)}` : ""}
       </span>
       <span
         className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap"
@@ -271,6 +271,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
               elapsedMs={item.elapsed_ms || 0}
               hasToolCalls={item.has_tool_calls}
               cacheHit={item.cache_hit}
+              totalInput={item.total_input || 0}
             />
             <span className="text-[10px]" style={{ color: S.textMuted }}>
               {item.created_at || ""}
@@ -503,7 +504,7 @@ export default function CotViewer() {
             setItems((prev) =>
               prev.map((it) =>
                 it.request_id === request_id
-                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, cache_hit: msg.cache_hit || false }
+                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, cache_hit: msg.cache_hit || false, total_input: msg.total_input || 0 }
                   : it
               )
             );
@@ -545,6 +546,7 @@ export default function CotViewer() {
               if (msg.prompt_tokens) item.prompt_tokens = msg.prompt_tokens;
               if (msg.completion_tokens) item.completion_tokens = msg.completion_tokens;
               if (msg.cache_hit) item.cache_hit = msg.cache_hit;
+              if (msg.total_input) item.total_input = msg.total_input;
               arr[idx] = item;
               return arr;
             });
@@ -563,7 +565,7 @@ export default function CotViewer() {
             setItems((prev) =>
               prev.map((it) =>
                 it.request_id === request_id
-                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, elapsed_ms: msg.elapsed_ms || 0, cache_hit: msg.cache_hit || false, textPreview: "" }
+                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, elapsed_ms: msg.elapsed_ms || 0, cache_hit: msg.cache_hit || false, total_input: msg.total_input || 0, textPreview: "" }
                   : it
               )
             );

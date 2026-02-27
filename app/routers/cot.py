@@ -46,6 +46,7 @@ class CotItem(BaseModel):
     completion_tokens: int = 0
     elapsed_ms: int = 0
     cache_hit: bool = False
+    total_input: int = 0
     rounds: list[CotRound]
     injectedMemories: list[CotMemory] = []
 
@@ -165,6 +166,7 @@ def list_cot(
             completion_tokens = 0
             elapsed_ms = 0
             cache_hit = False
+            total_input = 0
             injected_memories: list[CotMemory] = []
 
             for round_idx in sorted(rounds_map.keys()):
@@ -178,6 +180,7 @@ def list_cot(
                             completion_tokens = usage.get("completion_tokens", 0)
                             elapsed_ms = usage.get("elapsed_ms", 0)
                             cache_hit = usage.get("cache_hit", False)
+                            total_input = usage.get("total_input", 0)
                         except Exception:
                             pass
                         continue
@@ -213,6 +216,7 @@ def list_cot(
                     completion_tokens=completion_tokens,
                     elapsed_ms=elapsed_ms,
                     cache_hit=cache_hit,
+                    total_input=total_input,
                     rounds=rounds,
                     injectedMemories=injected_memories,
                 )
