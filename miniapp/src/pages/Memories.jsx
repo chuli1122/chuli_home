@@ -531,15 +531,37 @@ export default function Memories() {
   const doFlush = async () => {
     setFlushDialog(null);
     setFlushing(true); setFlushResult(null);
+    let merging = false;
     try {
       const res = await apiFetch("/api/settings/summary-layers/flush", { method: "POST" });
       const parts = [];
       if (res.flushed) parts.push(`归档 ${res.flushed} 条`);
-      if (res.merge_triggered?.length) parts.push(`合并 ${res.merge_triggered.join("+")}`);
+      if (res.merge_triggered?.length) {
+        merging = true;
+        setFlushResult("正在合并...");
+        // Poll until merge finishes
+        for (let i = 0; i < 40; i++) {
+          await new Promise((r) => setTimeout(r, 3000));
+          try {
+            const st = await apiFetch("/api/settings/summary-layers/flush-status");
+            if (!st.pending_merge?.length) {
+              setFlushResult("合并完成"); loadLayers();
+              setTimeout(() => setFlushResult(null), 3000);
+              return;
+            }
+          } catch (_) { /* keep polling */ }
+        }
+        setFlushResult("合并超时");
+        setTimeout(() => setFlushResult(null), 3000);
+        return;
+      }
       setFlushResult(parts.length ? parts.join("，") : "完成");
-      if (res.flushed || res.merge_triggered?.length) setTimeout(loadLayers, 5000);
-    } catch (_e) { setFlushResult("操作失败"); }
-    finally { setFlushing(false); setTimeout(() => setFlushResult(null), 4000); }
+      if (res.flushed) setTimeout(loadLayers, 2000);
+      setTimeout(() => setFlushResult(null), 4000);
+    } catch (_e) {
+      setFlushResult("操作失败");
+      setTimeout(() => setFlushResult(null), 4000);
+    } finally { setFlushing(false); }
   };
 
   // Load sessions
