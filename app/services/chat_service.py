@@ -1940,8 +1940,7 @@ class ChatService:
                             _cache_read or None,
                             getattr(_u, "output_tokens", None),
                         )
-                        _cache_create = getattr(_u, "cache_creation_input_tokens", 0) or 0
-                        total_prompt_tokens += getattr(_u, "input_tokens", 0) - _cache_read - _cache_create
+                        total_prompt_tokens += getattr(_u, "input_tokens", 0)
                         total_completion_tokens += getattr(_u, "output_tokens", 0)
                     for idx, block in enumerate(b for b in final_msg.content if b.type == "tool_use"):
                         tool_calls_acc[idx] = {
@@ -1992,10 +1991,9 @@ class ChatService:
                                 _cached = _details.get("cached_tokens", 0) or 0
                             if _cached:
                                 anth_cache_hit = True
-                                _p -= _cached
                             logger.info(
-                                "[OAI usage] prompt=%s cached=%s effective=%s output=%s",
-                                getattr(chunk.usage, "prompt_tokens", 0), _cached, _p,
+                                "[OAI usage] prompt=%s cached=%s output=%s",
+                                getattr(chunk.usage, "prompt_tokens", 0), _cached,
                                 getattr(chunk.usage, "completion_tokens", 0),
                             )
                             total_prompt_tokens += _p
@@ -2333,9 +2331,7 @@ class ChatService:
                 _persist_error(e)
                 return []
             if hasattr(response, "usage") and response.usage:
-                _cr = getattr(response.usage, "cache_read_input_tokens", 0) or 0
-                _cc = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-                self._total_prompt_tokens += getattr(response.usage, "input_tokens", 0) - _cr - _cc
+                self._total_prompt_tokens += getattr(response.usage, "input_tokens", 0)
                 self._total_completion_tokens += getattr(response.usage, "output_tokens", 0)
             text_content = ""
             thinking_content = ""
@@ -2396,8 +2392,6 @@ class ChatService:
             _cached = getattr(_details, "cached_tokens", 0) if _details else 0
             if not _cached and isinstance(_details, dict):
                 _cached = _details.get("cached_tokens", 0) or 0
-            if _cached:
-                _p -= _cached
             self._total_prompt_tokens += _p
             self._total_completion_tokens += getattr(response.usage, "completion_tokens", 0)
         if not response.choices:
