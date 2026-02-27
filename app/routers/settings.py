@@ -607,6 +607,10 @@ def flush_status(db: Session = Depends(get_db)):
             else:
                 already_merged.append(lt)
 
+    logger.info(
+        "[flush-status] assistant=%s pending_flush=%d pending_merge=%s already_merged=%s",
+        assistant.id, pending_flush, pending_merge, already_merged,
+    )
     return {"pending_flush": pending_flush, "pending_merge": pending_merge, "already_merged": already_merged}
 
 
