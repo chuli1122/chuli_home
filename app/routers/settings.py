@@ -481,22 +481,17 @@ class SummaryLayerUpdateRequest(BaseModel):
 
 @router.get("/settings/summary-layers", response_model=SummaryLayersResponse)
 def get_summary_layers(db: Session = Depends(get_db)) -> SummaryLayersResponse:
-    from app.models.models import Assistant
-    assistant = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).first()
-    if not assistant:
-        return SummaryLayersResponse(
-            longterm=SummaryLayerItem(content="", updated_at=None),
-            daily=SummaryLayerItem(content="", updated_at=None),
-        )
     rows = (
         db.query(SummaryLayer)
-        .filter(
-            SummaryLayer.assistant_id == assistant.id,
-            SummaryLayer.layer_type.in_(["longterm", "daily"]),
-        )
+        .filter(SummaryLayer.layer_type.in_(["longterm", "daily"]))
         .all()
     )
-    by_type = {row.layer_type: row for row in rows}
+    # Pick the row with the most content per layer type
+    by_type: dict[str, SummaryLayer] = {}
+    for row in rows:
+        prev = by_type.get(row.layer_type)
+        if not prev or len(row.content or "") > len(prev.content or ""):
+            by_type[row.layer_type] = row
 
     def _item(layer_type: str) -> SummaryLayerItem:
         row = by_type.get(layer_type)
@@ -519,17 +514,11 @@ def update_summary_layer(
     if layer_type not in ("longterm", "daily"):
         raise HTTPException(status_code=400, detail="Invalid layer type")
 
-    from app.models.models import Assistant
-    assistant = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).first()
-    if not assistant:
-        raise HTTPException(status_code=404, detail="No assistant found")
-
+    # Find existing layer row (any assistant)
     row = (
         db.query(SummaryLayer)
-        .filter(
-            SummaryLayer.assistant_id == assistant.id,
-            SummaryLayer.layer_type == layer_type,
-        )
+        .filter(SummaryLayer.layer_type == layer_type)
+        .order_by(SummaryLayer.updated_at.desc())
         .first()
     )
     now = datetime.now(timezone.utc)
@@ -538,6 +527,10 @@ def update_summary_layer(
         row.needs_merge = False
         row.updated_at = now
     else:
+        from app.models.models import Assistant
+        assistant = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).first()
+        if not assistant:
+            raise HTTPException(status_code=404, detail="No assistant found")
         row = SummaryLayer(
             assistant_id=assistant.id,
             layer_type=layer_type,
@@ -559,63 +552,59 @@ def flush_status(db: Session = Depends(get_db)):
     """Preview what flush would do."""
     from app.models.models import Assistant
 
-    assistant = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).first()
-    if not assistant:
-        return {"pending_flush": 0, "pending_merge": []}
+    assistants = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).all()
+    if not assistants:
+        return {"pending_flush": 0, "pending_merge": [], "already_merged": []}
 
     budget_key = "summary_budget_recent"
     budget_row = db.query(Settings).filter(Settings.key == budget_key).first()
     budget_recent = int(budget_row.value) if budget_row else DEFAULT_SUMMARY_BUDGET_RECENT
 
-    all_summaries = (
-        db.query(SessionSummary)
-        .filter(
-            SessionSummary.assistant_id == assistant.id,
-            SessionSummary.deleted_at.is_(None),
-            SessionSummary.msg_id_start.isnot(None),
-        )
-        .order_by(SessionSummary.created_at.desc())
-        .all()
-    )
-
     def _est(text: str) -> int:
         return max(1, len(text) * 2 // 3)
 
-    used = 0
     pending_flush = 0
-    for s in all_summaries:
-        content = (s.summary_content or "").strip()
-        if not content:
-            continue
-        tokens = _est(content)
-        if used + tokens <= budget_recent:
-            used += tokens
-        elif s.merged_into is None:
-            pending_flush += 1
+    for assistant in assistants:
+        all_summaries = (
+            db.query(SessionSummary)
+            .filter(
+                SessionSummary.assistant_id == assistant.id,
+                SessionSummary.deleted_at.is_(None),
+                SessionSummary.msg_id_start.isnot(None),
+            )
+            .order_by(SessionSummary.created_at.desc())
+            .all()
+        )
+        used = 0
+        for s in all_summaries:
+            content = (s.summary_content or "").strip()
+            if not content:
+                continue
+            tokens = _est(content)
+            if used + tokens <= budget_recent:
+                used += tokens
+            elif s.merged_into is None:
+                pending_flush += 1
 
     pending_merge = []
     already_merged = []
-    for lt in ("daily", "longterm"):
-        row = (
-            db.query(SummaryLayer)
-            .filter(SummaryLayer.assistant_id == assistant.id, SummaryLayer.layer_type == lt)
-            .first()
-        )
-        logger.info(
-            "[flush-status] layer=%s row=%s content_len=%s needs_merge=%s",
-            lt, row is not None, len(row.content) if row and row.content else 0,
-            row.needs_merge if row else "N/A",
-        )
-        if row and row.content and row.content.strip():
+    layer_rows = (
+        db.query(SummaryLayer)
+        .filter(SummaryLayer.layer_type.in_(["daily", "longterm"]))
+        .all()
+    )
+    seen_types = set()
+    for row in layer_rows:
+        lt = row.layer_type
+        if lt in seen_types:
+            continue
+        if row.content and row.content.strip():
+            seen_types.add(lt)
             if row.needs_merge:
                 pending_merge.append(lt)
             else:
                 already_merged.append(lt)
 
-    logger.info(
-        "[flush-status] assistant=%s pending_flush=%d pending_merge=%s already_merged=%s",
-        assistant.id, pending_flush, pending_merge, already_merged,
-    )
     return {"pending_flush": pending_flush, "pending_merge": pending_merge, "already_merged": already_merged}
 
 
@@ -627,49 +616,48 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
     from app.models.models import Assistant
     from app.services.summary_service import SummaryService
 
-    assistant = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).first()
-    if not assistant:
+    assistants = db.query(Assistant).filter(Assistant.deleted_at.is_(None)).all()
+    if not assistants:
         raise HTTPException(status_code=404, detail="No assistant found")
 
     budget_key = "summary_budget_recent"
     budget_row = db.query(Settings).filter(Settings.key == budget_key).first()
     budget_recent = int(budget_row.value) if budget_row else DEFAULT_SUMMARY_BUDGET_RECENT
 
-    all_summaries = (
-        db.query(SessionSummary)
-        .filter(
-            SessionSummary.assistant_id == assistant.id,
-            SessionSummary.deleted_at.is_(None),
-            SessionSummary.msg_id_start.isnot(None),
-        )
-        .order_by(SessionSummary.created_at.desc())
-        .all()
-    )
-
     def _estimate_tokens(text: str) -> int:
         return max(1, len(text) * 2 // 3)
 
-    # Step 1: flush un-merged overflow summaries into layers
-    used = 0
-    overflow: list[SessionSummary] = []
-    for s in all_summaries:
-        content = (s.summary_content or "").strip()
-        if not content:
-            continue
-        tokens = _estimate_tokens(content)
-        if used + tokens <= budget_recent:
-            used += tokens
-        elif s.merged_into is None:
-            overflow.append(s)
-
+    # Step 1: flush un-merged overflow summaries into layers (per assistant)
     flushed = 0
     to_daily = 0
     to_longterm = 0
     svc = SummaryService(SessionLocal)
+    TZ_EAST8 = timezone(timedelta(hours=8))
+    _today = datetime.now(TZ_EAST8).date()
 
-    if overflow:
-        TZ_EAST8 = timezone(timedelta(hours=8))
-        _today = datetime.now(TZ_EAST8).date()
+    for assistant in assistants:
+        all_summaries = (
+            db.query(SessionSummary)
+            .filter(
+                SessionSummary.assistant_id == assistant.id,
+                SessionSummary.deleted_at.is_(None),
+                SessionSummary.msg_id_start.isnot(None),
+            )
+            .order_by(SessionSummary.created_at.desc())
+            .all()
+        )
+        used = 0
+        overflow: list[SessionSummary] = []
+        for s in all_summaries:
+            content = (s.summary_content or "").strip()
+            if not content:
+                continue
+            tokens = _estimate_tokens(content)
+            if used + tokens <= budget_recent:
+                used += tokens
+            elif s.merged_into is None:
+                overflow.append(s)
+
         for s in overflow:
             s_date = s.created_at
             if s_date and s_date.tzinfo:
@@ -687,23 +675,27 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
                 s.merged_into = "longterm"
                 to_longterm += 1
             flushed += 1
+    if flushed:
         db.commit()
 
-    # Step 2: force merge on both layers (even if nothing new was flushed)
+    # Step 2: force merge on all layers with content
     merged_layers = []
-    for lt in ("daily", "longterm"):
-        row = (
-            db.query(SummaryLayer)
-            .filter(SummaryLayer.assistant_id == assistant.id, SummaryLayer.layer_type == lt)
-            .first()
-        )
-        if row and row.content and row.content.strip():
+    merge_assistant_ids = set()
+    layer_rows = (
+        db.query(SummaryLayer)
+        .filter(SummaryLayer.layer_type.in_(["daily", "longterm"]))
+        .all()
+    )
+    for row in layer_rows:
+        if row.content and row.content.strip():
             row.needs_merge = True
-            merged_layers.append(lt)
+            if row.layer_type not in merged_layers:
+                merged_layers.append(row.layer_type)
+            merge_assistant_ids.add(row.assistant_id)
     db.commit()
 
-    if merged_layers:
-        threading.Thread(target=svc.merge_layers_async, args=(assistant.id,), daemon=True).start()
+    for aid in merge_assistant_ids:
+        threading.Thread(target=svc.merge_layers_async, args=(aid,), daemon=True).start()
 
     return {
         "flushed": flushed, "to_daily": to_daily, "to_longterm": to_longterm,
