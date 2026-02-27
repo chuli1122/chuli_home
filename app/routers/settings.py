@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.models import ChatSession, Message, SessionSummary, Settings, SummaryLayer, UserProfile
+from app.models.models import ChatSession, Message, SessionSummary, Settings, SummaryLayer, SummaryLayerHistory, UserProfile
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -523,6 +523,15 @@ def update_summary_layer(
     )
     now = datetime.now(timezone.utc)
     if row:
+        if payload.content != row.content:
+            db.add(SummaryLayerHistory(
+                summary_layer_id=row.id,
+                layer_type=row.layer_type,
+                assistant_id=row.assistant_id,
+                content=row.content,
+                version=row.version,
+            ))
+            row.version += 1
         row.content = payload.content
         row.needs_merge = False
         row.updated_at = now
@@ -545,6 +554,114 @@ def update_summary_layer(
         content=row.content,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
     )
+
+
+# ── Summary layer history ───────────────────────────────────────────────────
+
+
+@router.get("/settings/summary-layers/{layer_type}/history")
+def get_summary_layer_history(
+    layer_type: str,
+    db: Session = Depends(get_db),
+):
+    if layer_type not in ("longterm", "daily"):
+        raise HTTPException(status_code=400, detail="Invalid layer type")
+    rows = (
+        db.query(SummaryLayerHistory)
+        .filter(SummaryLayerHistory.layer_type == layer_type)
+        .order_by(SummaryLayerHistory.version.desc(), SummaryLayerHistory.id.desc())
+        .all()
+    )
+    import json as _json
+    return {
+        "history": [
+            {
+                "id": r.id,
+                "version": r.version,
+                "content": r.content,
+                "merged_summary_ids": _json.loads(r.merged_summary_ids) if r.merged_summary_ids else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.delete("/settings/summary-layers/history/{history_id}")
+def delete_summary_layer_history(
+    history_id: int,
+    db: Session = Depends(get_db),
+):
+    row = db.query(SummaryLayerHistory).filter(SummaryLayerHistory.id == history_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="History entry not found")
+    db.delete(row)
+    db.commit()
+    return {"success": True}
+
+
+class RollbackRequest(BaseModel):
+    history_id: int
+
+
+@router.post("/settings/summary-layers/{layer_type}/rollback")
+def rollback_summary_layer(
+    layer_type: str,
+    payload: RollbackRequest,
+    db: Session = Depends(get_db),
+):
+    if layer_type not in ("longterm", "daily"):
+        raise HTTPException(status_code=400, detail="Invalid layer type")
+
+    history = db.query(SummaryLayerHistory).filter(SummaryLayerHistory.id == payload.history_id).first()
+    if not history or history.layer_type != layer_type:
+        raise HTTPException(status_code=404, detail="History entry not found")
+
+    # Find the layer row
+    row = db.query(SummaryLayer).filter(SummaryLayer.id == history.summary_layer_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Layer not found")
+
+    # Save current content to history before rollback
+    if row.content != history.content:
+        db.add(SummaryLayerHistory(
+            summary_layer_id=row.id,
+            layer_type=row.layer_type,
+            assistant_id=row.assistant_id,
+            content=row.content,
+            version=row.version,
+        ))
+        row.version += 1
+
+    # Restore old content
+    row.content = history.content
+    row.needs_merge = False
+    row.updated_at = datetime.now(timezone.utc)
+
+    # Release summaries merged after the target history version
+    released = (
+        db.query(SessionSummary)
+        .filter(
+            SessionSummary.merged_into == layer_type,
+            SessionSummary.created_at > history.created_at,
+        )
+        .all()
+    )
+    released_ids = []
+    for s in released:
+        s.merged_into = None
+        released_ids.append(s.id)
+
+    db.commit()
+    logger.info(
+        "[rollback] %s rolled back to v%d, released %d summaries: %s",
+        layer_type, history.version, len(released_ids), released_ids,
+    )
+    return {
+        "content": row.content,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "released_summary_ids": released_ids,
+    }
 
 
 @router.get("/settings/summary-layers/flush-status")

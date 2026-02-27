@@ -71,8 +71,22 @@ class SummaryLayer(Base):
     time_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     needs_merge: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class SummaryLayerHistory(Base):
+    __tablename__ = "summary_layer_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    summary_layer_id: Mapped[int] = mapped_column(Integer, ForeignKey("summary_layers.id"), index=True)
+    layer_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    assistant_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("assistants.id"), nullable=True, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    merged_summary_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class CoreBlock(Base):

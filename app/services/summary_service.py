@@ -20,6 +20,7 @@ from app.models.models import (
     SessionSummary,
     Settings,
     SummaryLayer,
+    SummaryLayerHistory,
     UserProfile,
 )
 from app.services.core_blocks_updater import CoreBlocksUpdater
@@ -569,14 +570,38 @@ class SummaryService:
                             layer_type, assistant_id,
                         )
             if merged:
+                # Save old content to history before overwriting
+                new_ids = [
+                    s.id for s in db.query(SessionSummary.id).filter(
+                        SessionSummary.assistant_id == assistant_id,
+                        SessionSummary.merged_into == layer_type,
+                        SessionSummary.created_at >= row.updated_at,
+                    ).all()
+                ] if row.updated_at else []
+                db.add(SummaryLayerHistory(
+                    summary_layer_id=row.id,
+                    layer_type=row.layer_type,
+                    assistant_id=row.assistant_id,
+                    content=row.content,
+                    version=row.version,
+                    merged_summary_ids=json.dumps(new_ids) if new_ids else None,
+                ))
+                row.version += 1
                 row.content = merged
                 row.needs_merge = False
                 row.token_count = len(merged)
                 row.updated_at = datetime.now(timezone.utc)
                 db.commit()
+                # Cleanup history older than 7 days
+                cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+                db.query(SummaryLayerHistory).filter(
+                    SummaryLayerHistory.summary_layer_id == row.id,
+                    SummaryLayerHistory.created_at < cutoff,
+                ).delete()
+                db.commit()
                 logger.info(
-                    "[merge_layer] %s merged for assistant_id=%s (%d chars)",
-                    layer_type, assistant_id, len(merged),
+                    "[merge_layer] %s merged for assistant_id=%s (%d chars, v%d)",
+                    layer_type, assistant_id, len(merged), row.version,
                 )
             else:
                 logger.warning("[merge_layer] Empty merge result for %s assistant_id=%s", layer_type, assistant_id)

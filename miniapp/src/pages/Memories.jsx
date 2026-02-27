@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Trash2, ChevronDown, Pencil, Search, X, Check, BookOpen, RefreshCw } from "lucide-react";
+import { ChevronLeft, Trash2, ChevronDown, Pencil, Search, X, Check, BookOpen, RefreshCw, History, Minimize2 } from "lucide-react";
 import { apiFetch } from "../utils/api";
 
 const S = {
@@ -127,6 +127,118 @@ function ConfirmDialog({ title = "确认删除", message, confirmLabel = "删除
           <button className="flex-1 rounded-[16px] py-3 text-[15px] font-semibold text-white" style={{ background: confirmColor, boxShadow: `4px 4px 10px ${confirmColor}66` }} onClick={onConfirm}>{confirmLabel}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Layer history overlay ── */
+
+function LayerHistoryOverlay({ items, currentContent, onApply, onClose, onDelete }) {
+  const [selected, setSelected] = useState("current");
+  const [detail, setDetail] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+
+  const fmtDate = (ts) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    return d.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+
+  const handleApply = async () => {
+    if (selected === "current") { onClose(); return; }
+    const item = items.find((h) => h.id === selected);
+    if (item) await onApply(item);
+    onClose();
+  };
+
+  if (detail) {
+    return (
+      <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: S.bg }}>
+        <div className="flex shrink-0 items-center justify-between px-5 py-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}>
+          <span className="text-[15px] font-bold" style={{ color: S.text }}>版本 {detail.version}</span>
+          <button className="flex h-10 w-10 items-center justify-center rounded-full" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={() => setDetail(null)}>
+            <Minimize2 size={18} style={{ color: S.accentDark }} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 pb-10">
+          {detail.merged_summary_ids?.length > 0 && (
+            <p className="mb-2 text-[11px]" style={{ color: S.textMuted }}>
+              合并摘要: {detail.merged_summary_ids.map((id) => `#${id}`).join(", ")}
+            </p>
+          )}
+          <div className="rounded-[14px] p-4" style={{ boxShadow: "var(--inset-shadow)", background: S.bg }}>
+            <p className="whitespace-pre-wrap text-[13px] leading-relaxed" style={{ color: S.text }}>{detail.content}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: S.bg }}>
+      <div className="flex shrink-0 items-center justify-between px-5 py-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}>
+        <span className="text-[15px] font-bold" style={{ color: S.text }}>历史版本</span>
+        <button className="flex h-10 w-10 items-center justify-center rounded-full" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={onClose}>
+          <Minimize2 size={18} style={{ color: S.accentDark }} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5">
+        {/* Current version */}
+        <div className="mb-2 flex items-center gap-3 rounded-[14px] p-3" style={{ boxShadow: selected === "current" ? "var(--inset-shadow)" : "var(--card-shadow-sm)", background: S.bg }}>
+          <button onClick={() => setSelected("current")} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: selected === "current" ? S.accentDark : S.bg, boxShadow: selected === "current" ? "none" : "var(--icon-inset)" }}>
+            {selected === "current" && <Check size={12} color="white" />}
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold" style={{ color: S.text }}>当前版本</span>
+              <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ color: "#2a9d5c", background: "rgba(42,157,92,0.12)" }}>当前</span>
+            </div>
+            <p className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{currentContent}</p>
+          </div>
+        </div>
+
+        {items.length === 0 && (
+          <p className="py-8 text-center text-[13px]" style={{ color: S.textMuted }}>暂无历史版本</p>
+        )}
+
+        {items.map((item) => (
+          <div key={item.id} className="mb-2 flex items-center gap-3 rounded-[14px] p-3" style={{ boxShadow: selected === item.id ? "var(--inset-shadow)" : "var(--card-shadow-sm)", background: S.bg }}>
+            <button onClick={() => setSelected(item.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: selected === item.id ? S.accentDark : S.bg, boxShadow: selected === item.id ? "none" : "var(--icon-inset)" }}>
+              {selected === item.id && <Check size={12} color="white" />}
+            </button>
+            <div className="flex-1 min-w-0" onClick={() => setDetail(item)}>
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-semibold" style={{ color: S.text }}>版本 {item.version}</span>
+                <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtDate(item.created_at)}</span>
+              </div>
+              <p className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{item.content}</p>
+              {item.merged_summary_ids?.length > 0 && (
+                <p className="mt-0.5 text-[10px]" style={{ color: S.accent }}>
+                  合并摘要: {item.merged_summary_ids.map((id) => `#${id}`).join(", ")}
+                </p>
+              )}
+            </div>
+            <button onClick={() => setConfirmId(item.id)} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ color: "#ccc" }}>
+              <Trash2 size={11} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="shrink-0 p-5">
+        <button className="w-full rounded-[14px] py-3.5 text-[15px] font-bold text-white" style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-dark))", boxShadow: "4px 4px 10px rgba(201,98,138,0.35)" }} onClick={handleApply}>
+          确定
+        </button>
+      </div>
+
+      {confirmId && (
+        <ConfirmDialog
+          message="确定要删除这条历史版本吗？"
+          onCancel={() => setConfirmId(null)}
+          onConfirm={() => { onDelete(confirmId); setConfirmId(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -492,6 +604,7 @@ export default function Memories() {
   const [layers, setLayers] = useState({ longterm: null, daily: null });
   const [layersLoading, setLayersLoading] = useState(false);
   const [editingLayer, setEditingLayer] = useState(null); // { type: "longterm"|"daily", content: "..." }
+  const [layerHistory, setLayerHistory] = useState(null); // { type, items }
   const [flushing, setFlushing] = useState(false);
   const [flushResult, setFlushResult] = useState(null);
   const [flushDialog, setFlushDialog] = useState(null); // { pending_flush, pending_merge, already_merged, grayClicks }
@@ -517,6 +630,13 @@ export default function Memories() {
     if (tab !== "messages" || !layersMode) return;
     loadLayers();
   }, [tab, layersMode]);
+
+  const openLayerHistory = async (type) => {
+    try {
+      const data = await apiFetch(`/api/settings/summary-layers/${type}/history`);
+      setLayerHistory({ type, items: data.history || [] });
+    } catch (_e) { /* ignore */ }
+  };
 
   const handleFlushClick = async () => {
     try {
@@ -900,18 +1020,27 @@ export default function Memories() {
           const hasContent = layer?.content?.trim();
           return (
             <div key={type} className="rounded-[18px] p-4" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="text-[15px] font-semibold" style={{ color: S.text }}>{label}</div>
                   <div className="text-[11px]" style={{ color: S.textMuted }}>{hint}</div>
                 </div>
-                <button
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
-                  style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
-                  onClick={() => setEditingLayer({ type, content: layer?.content || "" })}
-                >
-                  <Pencil size={11} style={{ color: S.accentDark }} />
-                </button>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <button
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                    style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+                    onClick={() => openLayerHistory(type)}
+                  >
+                    <History size={11} style={{ color: S.textMuted }} />
+                  </button>
+                  <button
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                    style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}
+                    onClick={() => setEditingLayer({ type, content: layer?.content || "" })}
+                  >
+                    <Pencil size={11} style={{ color: S.accentDark }} />
+                  </button>
+                </div>
               </div>
               <div
                 className="text-[12px] leading-relaxed whitespace-pre-wrap break-words"
@@ -1062,6 +1191,25 @@ export default function Memories() {
       )}
       {editing && <EditModal initialText={editing.text} onSave={saveEdit} onCancel={() => setEditing(null)} memoryData={editing.type === "memory" ? { klass: editing.klass, tags: editing.tags } : null} />}
       {editingLayer && <EditModal initialText={editingLayer.content} onSave={saveLayerEdit} onCancel={() => setEditingLayer(null)} />}
+      {layerHistory && (
+        <LayerHistoryOverlay
+          items={layerHistory.items}
+          currentContent={layers[layerHistory.type]?.content || ""}
+          onApply={async (item) => {
+            try {
+              const res = await apiFetch(`/api/settings/summary-layers/${layerHistory.type}/rollback`, { method: "POST", body: { history_id: item.id } });
+              setLayers((p) => ({ ...p, [layerHistory.type]: { ...p[layerHistory.type], content: res.content, updated_at: res.updated_at } }));
+            } catch (_e) { /* ignore */ }
+          }}
+          onDelete={async (historyId) => {
+            try {
+              await apiFetch(`/api/settings/summary-layers/history/${historyId}`, { method: "DELETE" });
+              setLayerHistory((p) => p ? { ...p, items: p.items.filter((h) => h.id !== historyId) } : null);
+            } catch (_e) { /* ignore */ }
+          }}
+          onClose={() => setLayerHistory(null)}
+        />
+      )}
       {flushDialog && (() => {
         const { pending_flush, pending_merge, already_merged, grayClicks } = flushDialog;
         const remerge = grayClicks >= 2;
