@@ -11,7 +11,7 @@ _raw_chat_id = os.getenv("TELEGRAM_CHAT_ID", "0")
 ALLOWED_CHAT_ID: int = int(_raw_chat_id) if _raw_chat_id.lstrip("-").isdigit() else 0
 
 # Mini App URLs
-MINI_APP_URL: str = "https://chat.chuli.win/miniapp/?v=3#/cot"
+MINI_APP_URL: str = "https://chat.chuli.win/miniapp/?v=4#/cot"
 MINI_APP_BASE_URL: str = "https://chat.chuli.win/miniapp/"
 
 # Webhook
