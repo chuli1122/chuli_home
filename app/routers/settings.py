@@ -776,7 +776,7 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
                 overflow.append(s)
 
         for s in overflow:
-            s_date = s.created_at
+            s_date = s.time_end or s.created_at
             if s_date and s_date.tzinfo:
                 s_date = s_date.astimezone(TZ_EAST8).date()
             elif s_date:
