@@ -601,6 +601,11 @@ def flush_status(db: Session = Depends(get_db)):
             .filter(SummaryLayer.assistant_id == assistant.id, SummaryLayer.layer_type == lt)
             .first()
         )
+        logger.info(
+            "[flush-status] layer=%s row=%s content_len=%s needs_merge=%s",
+            lt, row is not None, len(row.content) if row and row.content else 0,
+            row.needs_merge if row else "N/A",
+        )
         if row and row.content and row.content.strip():
             if row.needs_merge:
                 pending_merge.append(lt)
