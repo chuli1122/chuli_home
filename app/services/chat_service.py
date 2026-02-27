@@ -1943,9 +1943,10 @@ class ChatService:
                             _cache_read or None,
                             getattr(_u, "output_tokens", None),
                         )
+                        _cache_create = getattr(_u, "cache_creation_input_tokens", 0) or 0
                         _raw_input = getattr(_u, "input_tokens", 0)
-                        total_prompt_tokens += _raw_input - _cache_read
-                        total_input_raw += _raw_input
+                        total_prompt_tokens += _raw_input
+                        total_input_raw += _raw_input + _cache_read + _cache_create
                         total_completion_tokens += getattr(_u, "output_tokens", 0)
                     for idx, block in enumerate(b for b in final_msg.content if b.type == "tool_use"):
                         tool_calls_acc[idx] = {
@@ -2340,9 +2341,10 @@ class ChatService:
                 return []
             if hasattr(response, "usage") and response.usage:
                 _cr = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+                _cc = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
                 _raw = getattr(response.usage, "input_tokens", 0)
-                self._total_prompt_tokens += _raw - _cr
-                self._total_input_raw += _raw
+                self._total_prompt_tokens += _raw
+                self._total_input_raw += _raw + _cr + _cc
                 self._total_completion_tokens += getattr(response.usage, "output_tokens", 0)
             text_content = ""
             thinking_content = ""
