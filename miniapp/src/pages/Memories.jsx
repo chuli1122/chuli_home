@@ -143,7 +143,7 @@ function EditModal({ initialText, onSave, onCancel, memoryData }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }} onClick={onCancel}>
       <div className="mx-5 w-full max-w-[340px] rounded-[18px] p-4" style={{ background: S.bg, boxShadow: "0 8px 30px rgba(0,0,0,0.18)" }} onClick={(e) => e.stopPropagation()}>
         <textarea
-          className="w-full rounded-[12px] p-3 text-[12px] leading-relaxed resize-none outline-none"
+          className="w-full rounded-[12px] p-3 text-[12px] leading-relaxed resize-none outline-none overflow-y-auto thin-scrollbar"
           style={{ background: S.bg, boxShadow: "var(--inset-shadow)", color: S.text, minHeight: isMemory ? 100 : 140, maxHeight: 280 }}
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -861,6 +861,15 @@ export default function Memories() {
     if (layersLoading) return <Spinner />;
     return (
       <div className="space-y-4">
+        <button
+          className="flex w-full items-center justify-center gap-2 rounded-[14px] py-2.5 text-[13px] font-medium text-white"
+          style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-dark))", boxShadow: "4px 4px 10px rgba(201,98,138,0.35)" }}
+          onClick={handleFlushClick}
+          disabled={flushing}
+        >
+          <RefreshCw size={13} className={flushing ? "animate-spin" : ""} />
+          {flushResult || (flushing ? "处理中..." : "归档并合并")}
+        </button>
         {[
           { type: "daily", label: "近期日常", hint: "当天的合并回顾" },
           { type: "longterm", label: "长期记忆", hint: "关系脉络、重大事件" },
@@ -899,15 +908,6 @@ export default function Memories() {
             </div>
           );
         })}
-        <button
-          className="mt-2 flex w-full items-center justify-center gap-2 rounded-[14px] py-2.5 text-[13px] font-medium text-white"
-          style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-dark))", boxShadow: "4px 4px 10px rgba(201,98,138,0.35)" }}
-          onClick={handleFlushClick}
-          disabled={flushing}
-        >
-          <RefreshCw size={13} className={flushing ? "animate-spin" : ""} />
-          {flushResult || (flushing ? "处理中..." : "归档并合并")}
-        </button>
       </div>
     );
   };

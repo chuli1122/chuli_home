@@ -129,3 +129,20 @@ body {
 ::-webkit-scrollbar {
   display: none;
 }
+
+/* Thin scrollbar for textareas */
+.thin-scrollbar::-webkit-scrollbar {
+  display: block;
+  width: 3px;
+}
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(160, 160, 160, 0.35);
+  border-radius: 3px;
+}
+.thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(160, 160, 160, 0.35) transparent;
+}
