@@ -31,8 +31,6 @@ DIM = "\033[2m"
 RESET = "\033[0m"
 CYAN = "\033[36m"
 YELLOW = "\033[33m"
-BG_USER = "\033[48;5;237m"  # 深灰底色 — 用户消息（发送后）
-BG_INPUT = "\033[48;5;236m"  # 输入行底色
 BOLD = "\033[1m"
 WHITE = "\033[97m"
 
@@ -44,16 +42,8 @@ def _term_width() -> int:
         return 80
 
 
-def print_user_sent(text: str) -> None:
-    """Print sent user message as full-width background bar (Claude Code style)."""
-    w = _term_width()
-    for line in text.split("\n"):
-        padded = f"  {WHITE}{BOLD}{line}{RESET}{BG_USER}".ljust(w + 20)  # +20 for ANSI codes
-        # Simpler: just pad the visible text
-        visible = f"  {line}"
-        pad_needed = max(0, w - len(visible))
-        sys.stdout.write(f"{BG_USER}{WHITE}{BOLD}  {line}{RESET}{BG_USER}{' ' * pad_needed}{RESET}\n")
-    sys.stdout.flush()
+def _separator() -> str:
+    return f"{DIM}{'─' * _term_width()}{RESET}"
 
 
 def api(method: str, path: str, body: dict | None = None, token: str | None = None,
@@ -301,11 +291,11 @@ def main():
 
     while True:
         try:
-            user_input = input(f"{BG_INPUT} {BOLD}{WHITE}❯{RESET}{BG_INPUT} ").strip()
-            # Clear the input line styling after Enter
-            sys.stdout.write(f"{RESET}")
+            print(_separator())
+            user_input = input(f"  {BOLD}❯{RESET} ").strip()
+            print(_separator())
         except (EOFError, KeyboardInterrupt):
-            sys.stdout.write(f"{RESET}\n再见 ✨\n")
+            print(f"\n再见 ✨")
             break
 
         if not user_input:
@@ -313,10 +303,6 @@ def main():
         if user_input.lower() == "/quit":
             print("再见 ✨")
             break
-
-        # Move cursor up, clear the raw input line, show styled version
-        sys.stdout.write(f"\033[A\033[2K")
-        print_user_sent(user_input)
 
         # /img 命令
         if user_input.lower().startswith("/img "):
