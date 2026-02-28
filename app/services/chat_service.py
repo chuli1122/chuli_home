@@ -1908,6 +1908,9 @@ class ChatService:
                 .first()
             )
             if last_tc_msg:
+                # Reuse the original request_id so COT shows as one card
+                if last_tc_msg.request_id:
+                    request_id = str(last_tc_msg.request_id)
                 raw_tool_calls = last_tc_msg.meta_info["tool_calls"]
                 tc_msg_id = last_tc_msg.id
                 # Remove any messages loaded from DB that are part of the pending tool round
@@ -1978,7 +1981,16 @@ class ChatService:
         total_completion_tokens = 0
         total_input_raw = 0
         anth_cache_hit = False
+        # Continue round_index from previous request when resuming with tool_results
         round_index = 0
+        if tool_results:
+            prev_max = (
+                self.db.query(func.max(CotRecord.round_index))
+                .filter(CotRecord.request_id == request_id, CotRecord.round_index < 9999)
+                .scalar()
+            )
+            if prev_max is not None:
+                round_index = prev_max + 1
         while True:
             try:
                 params = self._build_api_call_params(messages, session_id, short_mode=short_mode, source=source)
