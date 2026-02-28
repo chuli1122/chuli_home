@@ -217,7 +217,8 @@ def stream_chat(token: str, session_id: int, message: str | list | None,
 
         if "content" in data:
             if not has_content:
-                sys.stdout.write(f"\n  {BOLD}阿澄{RESET}  ")
+                # Clear typing indicator line, write name prefix
+                sys.stdout.write(f"\r\033[2K  {BOLD}阿澄{RESET}  ")
                 has_content = True
             sys.stdout.write(data["content"])
             sys.stdout.flush()
@@ -226,7 +227,7 @@ def stream_chat(token: str, session_id: int, message: str | list | None,
             pending_tool_calls.append(data["tool_call"])
 
         if "error" in data:
-            sys.stdout.write(f"\n  [错误] {data['error']}")
+            sys.stdout.write(f"\r\033[2K  [错误] {data['error']}")
 
     if has_content:
         sys.stdout.write("\n\n")
@@ -234,7 +235,10 @@ def stream_chat(token: str, session_id: int, message: str | list | None,
 
     # If there are pending tool calls, execute them locally and send results back
     if pending_tool_calls:
-        sys.stdout.write(f"\n  {CYAN}[工具调用] {len(pending_tool_calls)} 个{RESET}\n")
+        # Clear typing indicator if no content was shown
+        if not has_content:
+            sys.stdout.write(f"\r\033[2K")
+        sys.stdout.write(f"  {CYAN}[工具调用] {len(pending_tool_calls)} 个{RESET}\n")
         sys.stdout.flush()
 
         results = []
@@ -278,37 +282,40 @@ def build_image_message(text: str, image_path: str) -> list[dict]:
 
 
 def main():
-    print("🌙 阿澄的终端")
-    print("━" * 30)
-
     token = login()
-    print("  已登录 ✓")
-
     session_id = pick_session(token)
-    print(f"\n已连接 {API_URL} | 助手: 阿澄 | 会话: #{session_id}")
-    print("输入消息回车发送 | /img <路径> 发图片 | /quit 退出")
-    print(f"  {DIM}本地工具已启用: run_bash, read_file, write_file{RESET}\n")
+
+    # Clear screen and print header at top
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
+    print(f"  {DIM}阿澄的终端 | 会话 #{session_id} | /quit 退出 | /img <路径> 发图片{RESET}")
+    print(f"  {DIM}本地工具: run_bash, read_file, write_file{RESET}")
+    print()
 
     while True:
         try:
-            print(_separator())
-            user_input = input(f"  {BOLD}❯{RESET} ").strip()
+            user_input = input(f"  {BOLD}初礼{RESET}  ").strip()
         except (EOFError, KeyboardInterrupt):
             print(f"\n再见 ✨")
             break
 
         if not user_input:
-            # Erase top sep + empty input line
-            sys.stdout.write("\033[A\033[2K\033[A\033[2K")
+            # Erase empty input line
+            sys.stdout.write("\033[A\033[2K")
             sys.stdout.flush()
             continue
         if user_input.lower() == "/quit":
             print("再见 ✨")
             break
 
-        # Erase the input area (top sep + input line) and show sent message
-        sys.stdout.write("\033[A\033[2K\033[A\033[2K")
-        print(f"  {BOLD}❯{RESET} {user_input}")
+        # Erase the raw input line, reprint with name prefix
+        sys.stdout.write("\033[A\033[2K")
+        sys.stdout.flush()
+        print(f"  {BOLD}初礼{RESET}  {user_input}")
+
+        # Show typing indicator
+        sys.stdout.write(f"  {BOLD}阿澄{RESET}  {DIM}...{RESET}")
+        sys.stdout.flush()
 
         # /img 命令
         if user_input.lower().startswith("/img "):
@@ -318,6 +325,9 @@ def main():
             caption = parts_split[1] if len(parts_split) > 1 else ""
             message = build_image_message(caption, image_path)
             if not message:
+                # Clear typing indicator
+                sys.stdout.write("\r\033[2K")
+                sys.stdout.flush()
                 continue
             stream_chat(token, session_id, message)
             continue
