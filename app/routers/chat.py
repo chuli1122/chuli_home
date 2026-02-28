@@ -240,7 +240,45 @@ def _load_session_messages(db: Session, session_id: int) -> list[dict[str, Any]]
             if m.image_data:
                 msg_dict["image_data"] = m.image_data
             messages.append(msg_dict)
-    return messages
+
+    # Validate: every tool_calls message must have complete tool_results after it.
+    # If any tool_use ID is missing a result, strip tool_calls to avoid API 400.
+    validated: list[dict[str, Any]] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        if msg.get("tool_calls"):
+            tc_ids = {tc.get("id") for tc in msg["tool_calls"]}
+            # Collect following tool result messages
+            j = i + 1
+            following: list[dict[str, Any]] = []
+            while j < len(messages) and messages[j].get("role") == "tool":
+                following.append(messages[j])
+                j += 1
+            found_ids = {tr.get("tool_call_id") for tr in following}
+            if tc_ids - found_ids:
+                # Missing tool_results — strip tool_calls, fall back to text
+                plain = {k: v for k, v in msg.items() if k != "tool_calls"}
+                plain["content"] = plain.get("content") or "[工具调用]"
+                validated.append(plain)
+                for tr in following:
+                    validated.append({
+                        "role": "assistant",
+                        "content": tr.get("content", ""),
+                        "id": tr.get("id"),
+                        "created_at": tr.get("created_at"),
+                    })
+                i = j
+            else:
+                # All paired — keep as-is
+                for k in range(i, j):
+                    validated.append(messages[k])
+                i = j
+        else:
+            validated.append(msg)
+            i += 1
+
+    return validated
 
 
 @router.post("/chat/completions")
