@@ -1893,22 +1893,23 @@ class ChatService:
         start_time = time.monotonic()
         # If tool_results provided, reconstruct the tool round in messages
         if tool_results:
-            # Find the last assistant message with tool_calls in meta_info
+            # Find the last assistant message with tool_calls (plural) in meta_info.
+            # Must use has_key to skip _persist_tool_call messages which use
+            # singular "tool_call" — otherwise reconstruction fails and the
+            # model never sees the tool result, causing an infinite loop.
             last_tc_msg = (
                 self.db.query(Message)
                 .filter(
                     Message.session_id == session_id,
                     Message.role == "assistant",
+                    Message.meta_info.has_key("tool_calls"),  # noqa: W601 — JSONB operator
                 )
                 .order_by(Message.id.desc())
                 .first()
             )
-            raw_tool_calls = None
-            tc_msg_id = None
-            if last_tc_msg and last_tc_msg.meta_info and "tool_calls" in last_tc_msg.meta_info:
+            if last_tc_msg:
                 raw_tool_calls = last_tc_msg.meta_info["tool_calls"]
                 tc_msg_id = last_tc_msg.id
-            if raw_tool_calls and tc_msg_id:
                 # Remove any messages loaded from DB that are part of the pending tool round
                 messages = [m for m in messages if not m.get("id") or m["id"] < tc_msg_id]
                 # Append raw assistant message with tool_calls
