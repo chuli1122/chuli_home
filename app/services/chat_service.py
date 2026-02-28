@@ -1474,11 +1474,11 @@ class ChatService:
             today_overflow = []
             old_overflow = []
             for s in overflow_summaries:
-                s_date = s.created_at
-                if s_date and s_date.tzinfo:
+                s_date = s.time_end or s.created_at
+                if s_date:
+                    if s_date.tzinfo is None:
+                        s_date = s_date.replace(tzinfo=timezone.utc)
                     s_date = s_date.astimezone(TZ_EAST8).date()
-                elif s_date:
-                    s_date = s_date.date()
                 else:
                     s_date = _today
                 if s_date == _today:

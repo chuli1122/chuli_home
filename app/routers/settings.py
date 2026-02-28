@@ -796,8 +796,8 @@ def flush_status(db: Session = Depends(get_db)):
 
 
 @router.post("/settings/summary-layers/flush")
-def flush_summaries_to_layers(db: Session = Depends(get_db)):
-    """Flush overflow summaries into layers + force merge."""
+def flush_summaries_to_layers(force: bool = False, db: Session = Depends(get_db)):
+    """Flush overflow summaries into layers + merge pending. force=true re-merges all."""
     import threading
     from app.database import SessionLocal
     from app.models.models import Assistant
@@ -869,7 +869,7 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
     if flushed:
         db.commit()
 
-    # Step 2: force merge on all layers with content
+    # Step 2: trigger merge only on layers that already need it
     merged_layers = []
     merge_assistant_ids = set()
     layer_rows = (
@@ -878,12 +878,14 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
         .all()
     )
     for row in layer_rows:
-        if (row.content and row.content.strip()) or row.needs_merge:
+        if force and (row.content and row.content.strip()):
             row.needs_merge = True
+        if row.needs_merge:
             if row.layer_type not in merged_layers:
                 merged_layers.append(row.layer_type)
             merge_assistant_ids.add(row.assistant_id)
-    db.commit()
+    if force:
+        db.commit()
 
     for aid in merge_assistant_ids:
         threading.Thread(target=svc.merge_layers_async, args=(aid,), daemon=True).start()

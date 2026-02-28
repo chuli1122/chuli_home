@@ -717,12 +717,13 @@ export default function Memories() {
     }
   };
 
-  const doFlush = async () => {
+  const doFlush = async (force = false) => {
     setFlushDialog(null);
     setFlushing(true); setFlushResult(null);
     let merging = false;
     try {
-      const res = await apiFetch("/api/settings/summary-layers/flush", { method: "POST" });
+      const url = "/api/settings/summary-layers/flush" + (force ? "?force=true" : "");
+      const res = await apiFetch(url, { method: "POST" });
       const parts = [];
       if (res.flushed) parts.push(`归档 ${res.flushed} 条`);
       if (res.merge_triggered?.length) {
@@ -1313,7 +1314,7 @@ export default function Memories() {
         }
         let btnText, btnDisabled, btnClick;
         if (remerge) {
-          btnText = "确认"; btnDisabled = false; btnClick = doFlush;
+          btnText = "确认"; btnDisabled = false; btnClick = () => doFlush(true);
         } else if (hasFlush) {
           btnText = "归档"; btnDisabled = false; btnClick = doFlush;
         } else if (hasMerge) {
