@@ -771,9 +771,10 @@ class SummaryService:
                     merged_summary_ids=json.dumps(summary_ids) if summary_ids else None,
                 ))
 
-            # Clear daily (keep version monotonic — don't reset to 1)
+            # Clear daily — increment version to stay monotonic (don't reset to 1)
             daily.content = ""
             daily.needs_merge = False
+            daily.version += 1
             daily.updated_at = now
             db.commit()
 
