@@ -427,7 +427,7 @@ def _generate_sync() -> tuple[str | None, int | None]:
 
             try:
                 # Consume SSE stream (side effects: saves assistant message to DB)
-                for _ in chat_service.stream_chat_completion(session_id, msgs_copy):
+                for _ in chat_service.stream_chat_completion(session_id, msgs_copy, source="proactive"):
                     pass
                 break  # success
             except Exception as api_err:

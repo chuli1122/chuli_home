@@ -129,7 +129,7 @@ def _chat_completion_sync(
         # 3. Call stream_chat_completion — consume all SSE events to drive it
         #    This gives us COT broadcasts, tool execution, and message persistence
         for _ in chat_service.stream_chat_completion(
-            session_id, messages, short_mode=short_mode,
+            session_id, messages, short_mode=short_mode, source="telegram",
         ):
             pass
 
@@ -335,7 +335,7 @@ def _chat_completion_with_image_sync(
         messages = _load_session_messages(db, session_id)
 
         for _ in chat_service.stream_chat_completion(
-            session_id, messages, short_mode=short_mode,
+            session_id, messages, short_mode=short_mode, source="telegram",
         ):
             pass
 
@@ -405,7 +405,7 @@ def _chat_completion_with_meta_sync(
         messages = _load_session_messages(db, session_id)
 
         for _ in chat_service.stream_chat_completion(
-            session_id, messages, short_mode=short_mode,
+            session_id, messages, short_mode=short_mode, source="telegram",
         ):
             pass
 
