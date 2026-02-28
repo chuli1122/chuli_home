@@ -164,21 +164,30 @@ def _load_session_messages(db: Session, session_id: int) -> list[dict[str, Any]]
         .all()
     )
     messages: list[dict[str, Any]] = [{"role": "system", "content": ""}]
+    # Track tool_call_ids for matching tool results to their tool_use blocks
+    pending_tc_ids: dict[str, list[str]] = {}  # tool_name → [tc_id, ...]
     for m in db_msgs:
         if m.role == "assistant":
             meta = m.meta_info or {}
-            if "tool_call" in meta:
-                # Tool call placeholder — keep it with tool_call info
-                tc = meta["tool_call"]
-                tool_name = tc.get("tool_name", "unknown")
-                args = tc.get("arguments", {})
-                summary = f"[调用工具] {tool_name}({json.dumps(args, ensure_ascii=False)[:80]})"
+            if "tool_calls" in meta:
+                # Bulk tool_calls message — preserve proper format for API
+                tc_list = meta["tool_calls"]
+                pending_tc_ids = {}
+                for tc in tc_list:
+                    fn = tc.get("function", {})
+                    name = fn.get("name", "")
+                    tc_id = tc.get("id", "")
+                    pending_tc_ids.setdefault(name, []).append(tc_id)
                 messages.append({
                     "role": "assistant",
-                    "content": summary,
+                    "content": m.content or None,
+                    "tool_calls": tc_list,
                     "id": m.id,
                     "created_at": m.created_at,
                 })
+            elif "tool_call" in meta:
+                # Individual tool call record (redundant with bulk) — skip
+                pass
             elif m.content and m.content.strip():
                 messages.append({
                     "role": m.role,
@@ -186,17 +195,33 @@ def _load_session_messages(db: Session, session_id: int) -> list[dict[str, Any]]
                     "id": m.id,
                     "created_at": m.created_at,
                 })
-            # Skip empty assistant messages that aren't tool_call placeholders
+            # Skip empty assistant messages
         elif m.role == "tool":
             meta = m.meta_info or {}
             tool_name = meta.get("tool_name", "unknown")
+            # Match tool_call_id from pending_tc_ids
+            tool_call_id = meta.get("tool_call_id", "")
+            if not tool_call_id and tool_name in pending_tc_ids and pending_tc_ids[tool_name]:
+                tool_call_id = pending_tc_ids[tool_name].pop(0)
             compressed = _compress_tool_result(tool_name, m.content)
-            messages.append({
-                "role": "assistant",
-                "content": compressed,
-                "id": m.id,
-                "created_at": m.created_at,
-            })
+            if tool_call_id:
+                # Proper tool result format — _oai_messages_to_anthropic converts to tool_result block
+                messages.append({
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": compressed,
+                    "tool_call_id": tool_call_id,
+                    "id": m.id,
+                    "created_at": m.created_at,
+                })
+            else:
+                # Orphaned tool result (no matching tool_use) — fall back to text
+                messages.append({
+                    "role": "assistant",
+                    "content": compressed,
+                    "id": m.id,
+                    "created_at": m.created_at,
+                })
         elif m.role == "system":
             messages.append({
                 "role": "assistant",
