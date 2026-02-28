@@ -627,6 +627,9 @@ class SummaryService:
                 new_ids = [s.id for s in pending]
                 # Save current clean content to history before overwriting
                 # (skip if pre-merge content is empty — no point saving an empty snapshot)
+                # NOTE: merged_summary_ids is NOT stored here — this is the PRE-merge
+                # snapshot and doesn't contain the new summaries. The correct association
+                # is created by daily_merge_to_longterm when transferring to longterm.
                 old_content = (row.content or "").strip()
                 if old_content:
                     db.add(SummaryLayerHistory(
@@ -635,7 +638,6 @@ class SummaryService:
                         assistant_id=row.assistant_id,
                         content=row.content or "",
                         version=row.version,
-                        merged_summary_ids=json.dumps(new_ids) if new_ids else None,
                     ))
                     row.version += 1
                 row.content = merged
