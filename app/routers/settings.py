@@ -777,10 +777,10 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
 
         for s in overflow:
             s_date = s.time_end or s.created_at
-            if s_date and s_date.tzinfo:
+            if s_date:
+                if s_date.tzinfo is None:
+                    s_date = s_date.replace(tzinfo=timezone.utc)
                 s_date = s_date.astimezone(TZ_EAST8).date()
-            elif s_date:
-                s_date = s_date.date()
             else:
                 s_date = _today
             if s_date == _today:
