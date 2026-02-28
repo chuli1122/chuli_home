@@ -294,22 +294,23 @@ def main():
 
     while True:
         try:
-            user_input = input(f"  {BOLD}初礼{RESET}  ").strip()
+            print(_separator())
+            user_input = input(f"  {BOLD}❯{RESET} ").strip()
         except (EOFError, KeyboardInterrupt):
             print(f"\n再见 ✨")
             break
 
         if not user_input:
-            # Erase empty input line
-            sys.stdout.write("\033[A\033[2K")
+            # Erase top sep + empty input line
+            sys.stdout.write("\033[A\033[2K\033[A\033[2K")
             sys.stdout.flush()
             continue
         if user_input.lower() == "/quit":
             print("再见 ✨")
             break
 
-        # Erase the raw input line, reprint with name prefix
-        sys.stdout.write("\033[A\033[2K")
+        # Erase input area (sep + input line), show as sent message with name
+        sys.stdout.write("\033[A\033[2K\033[A\033[2K")
         sys.stdout.flush()
         print(f"  {BOLD}初礼{RESET}  {user_input}")
 
