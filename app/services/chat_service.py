@@ -1106,7 +1106,7 @@ def _oai_messages_to_anthropic(api_messages: list[dict[str, Any]]) -> tuple[str 
 
     # Anthropic requires last message to be from user (e.g. receive-mode has no trailing user msg)
     if messages and messages[-1]["role"] != "user":
-        messages.append({"role": "user", "content": "."})
+        messages.append({"role": "user", "content": "[系统占位：用户未发送新消息，请继续你要做的事]"})
 
     # Split system prompt for prompt caching
     if _CACHE_BREAK in system_prompt:
