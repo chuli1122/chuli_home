@@ -125,7 +125,7 @@ def execute_local_tool(name: str, arguments: dict) -> str:
 def _run_bash(command: str) -> str:
     if not command:
         return json.dumps({"error": "empty command"})
-    sys.stdout.write(f"\n  {DIM}$ {command}{RESET}\n")
+    sys.stdout.write(f"\n{DIM}$ {command}{RESET}\n")
     sys.stdout.flush()
     try:
         result = subprocess.run(
@@ -138,7 +138,7 @@ def _run_bash(command: str) -> str:
         # Truncate very long output
         if len(output) > 8000:
             output = output[:4000] + f"\n... (truncated {len(output) - 8000} chars) ...\n" + output[-4000:]
-        sys.stdout.write(f"  {DIM}{output.rstrip()}{RESET}\n")
+        sys.stdout.write(f"{DIM}{output.rstrip()}{RESET}\n")
         sys.stdout.flush()
         return json.dumps({"exit_code": result.returncode, "output": output})
     except subprocess.TimeoutExpired:
@@ -151,7 +151,7 @@ def _read_file(path: str) -> str:
     if not path:
         return json.dumps({"error": "empty path"})
     path = os.path.expanduser(path)
-    sys.stdout.write(f"\n  {DIM}[读取] {path}{RESET}\n")
+    sys.stdout.write(f"\n{DIM}[读取] {path}{RESET}\n")
     sys.stdout.flush()
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -169,7 +169,7 @@ def _write_file(path: str, content: str) -> str:
     if not path:
         return json.dumps({"error": "empty path"})
     path = os.path.expanduser(path)
-    sys.stdout.write(f"\n  {DIM}[写入] {path} ({len(content)} chars){RESET}\n")
+    sys.stdout.write(f"\n{DIM}[写入] {path} ({len(content)} chars){RESET}\n")
     sys.stdout.flush()
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -197,7 +197,7 @@ def stream_chat(token: str, session_id: int, message: str | list | None,
     try:
         resp = api("POST", "/chat/completions", body, token=token, stream=True)
     except urllib.error.HTTPError as e:
-        print(f"\n  [错误] {e.code}: {e.read().decode()[:200]}")
+        print(f"\n[错误] {e.code}: {e.read().decode()[:200]}")
         return
 
     pending_tool_calls: list[dict] = []
@@ -218,7 +218,7 @@ def stream_chat(token: str, session_id: int, message: str | list | None,
         if "content" in data:
             if not has_content:
                 # Clear typing indicator line, write name prefix
-                sys.stdout.write(f"\r\033[2K  {BOLD}阿澄{RESET}  ")
+                sys.stdout.write(f"\r\033[2K{BOLD}阿澄{RESET}  ")
                 has_content = True
             sys.stdout.write(data["content"])
             sys.stdout.flush()
@@ -227,7 +227,7 @@ def stream_chat(token: str, session_id: int, message: str | list | None,
             pending_tool_calls.append(data["tool_call"])
 
         if "error" in data:
-            sys.stdout.write(f"\r\033[2K  [错误] {data['error']}")
+            sys.stdout.write(f"\r\033[2K[错误] {data['error']}")
 
     if has_content:
         sys.stdout.write("\n\n")
@@ -238,7 +238,7 @@ def stream_chat(token: str, session_id: int, message: str | list | None,
         # Clear typing indicator if no content was shown
         if not has_content:
             sys.stdout.write(f"\r\033[2K")
-        sys.stdout.write(f"  {CYAN}[工具调用] {len(pending_tool_calls)} 个{RESET}\n")
+        sys.stdout.write(f"{CYAN}[工具调用] {len(pending_tool_calls)} 个{RESET}\n")
         sys.stdout.flush()
 
         results = []
@@ -247,7 +247,7 @@ def stream_chat(token: str, session_id: int, message: str | list | None,
             tc_name = tc.get("name", "")
             tc_args = tc.get("arguments", {})
 
-            sys.stdout.write(f"  {YELLOW}> {tc_name}({json.dumps(tc_args, ensure_ascii=False)[:80]}){RESET}\n")
+            sys.stdout.write(f"{YELLOW}> {tc_name}({json.dumps(tc_args, ensure_ascii=False)[:80]}){RESET}\n")
             sys.stdout.flush()
 
             result_content = execute_local_tool(tc_name, tc_args)
@@ -288,14 +288,14 @@ def main():
     # Clear screen and print header at top
     sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()
-    print(f"  {DIM}阿澄的终端 | 会话 #{session_id} | /quit 退出 | /img <路径> 发图片{RESET}")
-    print(f"  {DIM}本地工具: run_bash, read_file, write_file{RESET}")
+    print(f"{DIM}阿澄的终端 | 会话 #{session_id} | /quit 退出 | /img <路径> 发图片{RESET}")
+    print(f"{DIM}本地工具: run_bash, read_file, write_file{RESET}")
     print()
 
     while True:
         try:
             print(_separator())
-            user_input = input(f"  {BOLD}❯{RESET} ").strip()
+            user_input = input(f"{BOLD}❯{RESET} ").strip()
         except (EOFError, KeyboardInterrupt):
             print(f"\n再见 ✨")
             break
@@ -312,10 +312,11 @@ def main():
         # Erase input area (sep + input line), show as sent message with name
         sys.stdout.write("\033[A\033[2K\033[A\033[2K")
         sys.stdout.flush()
-        print(f"  {BOLD}初礼{RESET}  {user_input}")
+        print(f"{BOLD}初礼{RESET}  {user_input}")
+        print()
 
         # Show typing indicator
-        sys.stdout.write(f"  {BOLD}阿澄{RESET}  {DIM}...{RESET}")
+        sys.stdout.write(f"{BOLD}阿澄{RESET}  {DIM}...{RESET}")
         sys.stdout.flush()
 
         # /img 命令
