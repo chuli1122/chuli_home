@@ -520,15 +520,13 @@ def get_summary_layers(db: Session = Depends(get_db)) -> SummaryLayersResponse:
         pending_daily: list[PendingDailyGroup] = []
         raw_pending_ids: list[int] = list(all_pending_ids)
         if layer_type == "longterm" and all_pending_ids:
-            daily_histories = (
-                db.query(SummaryLayerHistory)
-                .filter(
-                    SummaryLayerHistory.layer_type == "daily",
-                    SummaryLayerHistory.merged_summary_ids.isnot(None),
-                )
-                .order_by(SummaryLayerHistory.version.desc())
-                .all()
+            dh_q = db.query(SummaryLayerHistory).filter(
+                SummaryLayerHistory.layer_type == "daily",
+                SummaryLayerHistory.merged_summary_ids.isnot(None),
             )
+            if assistant_id:
+                dh_q = dh_q.filter(SummaryLayerHistory.assistant_id == assistant_id)
+            daily_histories = dh_q.order_by(SummaryLayerHistory.version.desc()).all()
             claimed_by_daily = set()
             for dh in daily_histories:
                 try:
@@ -845,6 +843,8 @@ def flush_summaries_to_layers(force: bool = False, db: Session = Depends(get_db)
             elif s.merged_into is None:
                 overflow.append(s)
 
+        a_to_daily = 0
+        a_to_longterm = 0
         for s in overflow:
             s_date = s.time_end or s.created_at
             if s_date:
@@ -855,16 +855,18 @@ def flush_summaries_to_layers(force: bool = False, db: Session = Depends(get_db)
                 s_date = _today
             if s_date == _today:
                 s.merged_into = "daily"
-                to_daily += 1
+                a_to_daily += 1
             else:
                 s.merged_into = "longterm"
-                to_longterm += 1
+                a_to_longterm += 1
             flushed += 1
+        to_daily += a_to_daily
+        to_longterm += a_to_longterm
 
         # Ensure layer rows exist and are marked for merge
-        if to_daily > 0:
+        if a_to_daily > 0:
             svc.ensure_layer_needs_merge(db, assistant.id, "daily")
-        if to_longterm > 0:
+        if a_to_longterm > 0:
             svc.ensure_layer_needs_merge(db, assistant.id, "longterm")
     if flushed:
         db.commit()

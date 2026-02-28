@@ -524,6 +524,7 @@ class SummaryService:
                     db.query(SummaryLayerHistory)
                     .filter(
                         SummaryLayerHistory.layer_type == "daily",
+                        SummaryLayerHistory.assistant_id == assistant_id,
                         SummaryLayerHistory.merged_summary_ids.isnot(None),
                     )
                     .order_by(SummaryLayerHistory.version.desc())

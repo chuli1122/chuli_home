@@ -962,8 +962,8 @@ export default function Memories() {
       confirmLabel: "保存",
       confirmColor: S.accentDark,
       action: async () => {
-        const res = await apiFetch(`/api/settings/summary-layers/${layerType}`, { method: "PUT", body: { content: text } });
-        setLayers((prev) => ({ ...prev, [layerType]: { ...(prev[layerType] || {}), ...res } }));
+        await apiFetch(`/api/settings/summary-layers/${layerType}`, { method: "PUT", body: { content: text } });
+        loadLayers();
       },
     });
   };
