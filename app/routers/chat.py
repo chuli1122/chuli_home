@@ -30,6 +30,7 @@ class ChatCompletionRequest(BaseModel):
     tool_calls: list[ToolCallPayload] = []
     stream: bool = False
     short_mode: bool = False
+    source: str | None = None  # 消息来源标识，如 "terminal", "telegram"
 
 
 class ChatCompletionResponse(BaseModel):
@@ -230,7 +231,7 @@ async def chat_completions(
         def generate():
             yield from chat_service.stream_chat_completion(
                 payload.session_id, messages, background_tasks=background_tasks,
-                short_mode=payload.short_mode,
+                short_mode=payload.short_mode, source=payload.source,
             )
         return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -248,7 +249,7 @@ async def chat_completions(
         for _ in chat_service.stream_chat_completion(
             payload.session_id, messages,
             background_tasks=background_tasks,
-            short_mode=payload.short_mode,
+            short_mode=payload.short_mode, source=payload.source,
         ):
             pass
 

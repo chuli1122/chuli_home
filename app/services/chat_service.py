@@ -1390,6 +1390,7 @@ class ChatService:
 
     def _build_api_call_params(
         self, messages: list[dict[str, Any]], session_id: int, *, short_mode: bool = False,
+        source: str | None = None,
     ) -> tuple | None:
         """Build all params needed for an API call.
         Returns (client, model_name, api_messages, tools) or None.
@@ -1536,9 +1537,10 @@ class ChatService:
         # Current date in Beijing time
         _weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
         _now_bj = datetime.now(TZ_EAST8)
+        _source_tag = f" | 当前环境：{source}" if source else ""
         prompt_parts.append(
             f"当前日期：{_now_bj.year}年{_now_bj.month}月{_now_bj.day}日 "
-            f"{_weekdays[_now_bj.weekday()]} | 当前模型：{model_preset.model_name}"
+            f"{_weekdays[_now_bj.weekday()]} | 当前模型：{model_preset.model_name}{_source_tag}"
         )
         world_books_service = WorldBooksService(self.db)
         active_books = world_books_service.get_active_books(
@@ -1852,6 +1854,7 @@ class ChatService:
         messages: list[dict[str, Any]],
         background_tasks: BackgroundTasks | None = None,
         short_mode: bool = False,
+        source: str | None = None,
     ) -> Iterable[str]:
         """Streaming chat completion. Yields SSE events."""
         request_id = str(uuid.uuid4())
@@ -1870,7 +1873,7 @@ class ChatService:
         round_index = 0
         while True:
             try:
-                params = self._build_api_call_params(messages, session_id, short_mode=short_mode)
+                params = self._build_api_call_params(messages, session_id, short_mode=short_mode, source=source)
             except Exception as e:
                 logger.error("[stream] Failed to build API call params (session=%s): %s", session_id, e)
                 yield f'data: {json.dumps({"error": str(e)})}\n\n'
