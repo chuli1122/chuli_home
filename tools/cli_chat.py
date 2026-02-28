@@ -293,16 +293,29 @@ def main():
         try:
             print(_separator())
             user_input = input(f"  {BOLD}❯{RESET} ").strip()
+            # Print bottom separator so user sees the box close
             print(_separator())
         except (EOFError, KeyboardInterrupt):
             print(f"\n再见 ✨")
             break
 
         if not user_input:
+            # Empty input: erase the box (top sep + input line + bottom sep)
+            sys.stdout.write("\033[A\033[2K\033[A\033[2K\033[A\033[2K")
+            sys.stdout.flush()
             continue
         if user_input.lower() == "/quit":
             print("再见 ✨")
             break
+
+        # Erase the input box (3 lines: top sep + input + bottom sep)
+        # and replace with styled sent message
+        sys.stdout.write("\033[A\033[2K\033[A\033[2K\033[A\033[2K")
+        w = _term_width()
+        visible = f"  {user_input}"
+        pad = max(0, w - len(visible))
+        sys.stdout.write(f"\033[48;5;237m{WHITE}{BOLD}  {user_input}{RESET}\033[48;5;237m{' ' * pad}{RESET}\n")
+        sys.stdout.flush()
 
         # /img 命令
         if user_input.lower().startswith("/img "):
