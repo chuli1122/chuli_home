@@ -244,7 +244,7 @@ function LayerHistoryOverlay({ items, onApply, onClose, onDelete }) {
         {items.map((item) => (
           <div key={item.id} className="mb-2 flex items-center gap-3 rounded-[14px] p-3" style={{ boxShadow: selected === item.id ? "var(--inset-shadow)" : "var(--card-shadow-sm)", background: S.bg }}>
             {item.is_current ? (
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[8px] font-bold" style={{ background: S.accentDark, color: "white" }}>今</span>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: S.accentDark }}><Check size={12} color="white" /></span>
             ) : (
               <button onClick={() => setSelected(item.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: selected === item.id ? S.accentDark : S.bg, boxShadow: selected === item.id ? "none" : "var(--icon-inset)" }}>
                 {selected === item.id && <Check size={12} color="white" />}
