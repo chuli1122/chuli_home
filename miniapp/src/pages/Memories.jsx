@@ -670,8 +670,9 @@ export default function Memories() {
   const [hasMoreSum, setHasMoreSum] = useState(false);
   const [hasMoreMsg, setHasMoreMsg] = useState(false);
 
-  // Exit select mode on tab/layers change
-  useEffect(() => { setSelectMode(false); setSelectedIds(new Set()); }, [tab, layersMode]);
+  const scrollRef = useRef(null);
+  // Exit select mode + reset scroll on tab/layers change
+  useEffect(() => { setSelectMode(false); setSelectedIds(new Set()); scrollRef.current?.scrollTo(0, 0); }, [tab, layersMode, trashMode]);
 
   const loadLayers = () => {
     setLayersLoading(true);
@@ -1263,7 +1264,7 @@ export default function Memories() {
       )}
 
       {/* Content */}
-      <div className={`flex-1 overflow-y-auto px-5 pb-8${tab === "messages" && layersMode ? " pt-5" : ""}`}>{content}</div>
+      <div ref={scrollRef} className={`flex-1 overflow-y-auto px-5 pb-8${tab === "messages" && layersMode ? " pt-5" : ""}`}>{content}</div>
 
       {/* Modals */}
       {confirm && (
