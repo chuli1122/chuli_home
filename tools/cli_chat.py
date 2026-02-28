@@ -31,6 +31,20 @@ DIM = "\033[2m"
 RESET = "\033[0m"
 CYAN = "\033[36m"
 YELLOW = "\033[33m"
+BG_USER = "\033[48;5;236m"  # 深灰底色 — 用户消息
+BOLD = "\033[1m"
+
+
+def print_user_bubble(text: str) -> None:
+    """Print user message in a bordered bubble with background."""
+    lines = text.split("\n")
+    width = max(len(line) for line in lines)
+    width = max(width, 10)
+    pad = width + 2
+    print(f"  {DIM}┌{'─' * pad}┐{RESET}")
+    for line in lines:
+        print(f"  {DIM}│{RESET}{BG_USER} {line.ljust(width)} {RESET}{DIM}│{RESET}")
+    print(f"  {DIM}└{'─' * pad}┘{RESET}")
 
 
 def api(method: str, path: str, body: dict | None = None, token: str | None = None,
@@ -204,7 +218,7 @@ def stream_chat(token: str, session_id: int, message: str | list | None,
 
         if "content" in data:
             if not has_content:
-                sys.stdout.write("\n阿澄: ")
+                sys.stdout.write(f"\n  {BOLD}阿澄{RESET}  ")
                 has_content = True
             sys.stdout.write(data["content"])
             sys.stdout.flush()
@@ -278,7 +292,7 @@ def main():
 
     while True:
         try:
-            user_input = input("> ").strip()
+            user_input = input(f"{DIM}>{RESET} ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\n再见 ✨")
             break
@@ -292,15 +306,21 @@ def main():
         # /img 命令
         if user_input.lower().startswith("/img "):
             rest = user_input[5:].strip()
-            # 可选附带文字: /img 路径 说明文字
             parts_split = rest.split(" ", 1)
             image_path = parts_split[0]
             caption = parts_split[1] if len(parts_split) > 1 else ""
+            # Move cursor up to overwrite the raw input line, show bubble
+            sys.stdout.write(f"\033[A\033[2K")
+            print_user_bubble(f"[图片] {image_path}" + (f" {caption}" if caption else ""))
             message = build_image_message(caption, image_path)
             if not message:
                 continue
             stream_chat(token, session_id, message)
             continue
+
+        # Move cursor up to overwrite the raw input line, show bubble
+        sys.stdout.write(f"\033[A\033[2K")
+        print_user_bubble(user_input)
 
         # 普通文字消息
         stream_chat(token, session_id, user_input)
