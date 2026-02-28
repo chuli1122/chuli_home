@@ -146,17 +146,17 @@ function PendingBadge({ label, rawIds, dailyGroups }) {
   }, [open]);
 
   return (
-    <span className="relative" ref={ref}>
+    <span className="relative inline-flex items-center" ref={ref}>
       <span
-        className="text-[10px] font-medium cursor-pointer"
-        style={{ color: S.accent }}
+        className="inline-block rounded-full px-1.5 py-0.5 text-[9px] font-medium cursor-pointer"
+        style={{ background: "rgba(232,160,100,0.15)", color: "#c47a30" }}
         onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
       >
         {label}
       </span>
       {open && (
         <div
-          className="absolute left-0 bottom-full mb-1 z-30 rounded-[10px] p-2.5 min-w-[140px] max-w-[220px]"
+          className="absolute left-0 top-full mt-1 z-30 rounded-[10px] p-2.5 min-w-[140px] max-w-[220px]"
           style={{ background: S.bg, boxShadow: "0 4px 16px rgba(0,0,0,0.15)" }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1069,7 +1069,24 @@ export default function Memories() {
             <div key={type} className="rounded-[18px] p-4" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }}>
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <div className="text-[15px] font-semibold" style={{ color: S.text }}>{label}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[15px] font-semibold" style={{ color: S.text }}>{label}</span>
+                    {(() => {
+                      const rawN = layer?.pending_ids?.length || 0;
+                      const dailyN = (layer?.pending_daily || []).reduce((sum, g) => sum + g.ids.length, 0);
+                      if (!rawN && !dailyN) return null;
+                      const parts = [];
+                      if (rawN) parts.push(`${rawN}条原始待合并`);
+                      if (dailyN) parts.push(`${dailyN}条来自daily`);
+                      return (
+                        <PendingBadge
+                          label={parts.join(" · ")}
+                          rawIds={layer?.pending_ids || []}
+                          dailyGroups={layer?.pending_daily || []}
+                        />
+                      );
+                    })()}
+                  </div>
                   <div className="text-[11px]" style={{ color: S.textMuted }}>{hint}</div>
                 </div>
                 <div className="flex items-center gap-2 mt-0.5">
@@ -1096,26 +1113,9 @@ export default function Memories() {
                 {hasContent ? layer.content : "暂无内容"}
               </div>
               <div className="mt-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px]" style={{ color: S.textMuted }}>
-                    {layer?.updated_at ? `更新于 ${fmtTime(layer.updated_at)}` : ""}
-                  </span>
-                  {(() => {
-                    const rawN = layer?.pending_ids?.length || 0;
-                    const dailyN = (layer?.pending_daily || []).reduce((sum, g) => sum + g.ids.length, 0);
-                    if (!rawN && !dailyN) return null;
-                    const parts = [];
-                    if (rawN) parts.push(`${rawN}条原始待合并`);
-                    if (dailyN) parts.push(`${dailyN}条来自daily`);
-                    return (
-                      <PendingBadge
-                        label={parts.join(" · ")}
-                        rawIds={layer?.pending_ids || []}
-                        dailyGroups={layer?.pending_daily || []}
-                      />
-                    );
-                  })()}
-                </div>
+                <span className="text-[10px]" style={{ color: S.textMuted }}>
+                  {layer?.updated_at ? `更新于 ${fmtTime(layer.updated_at)}` : ""}
+                </span>
                 <span className="text-[10px]" style={{ color: S.textMuted }}>
                   v{layer?.version || 1} · {layer?.content?.length || 0} 字
                 </span>
