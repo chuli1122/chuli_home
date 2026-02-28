@@ -1951,6 +1951,12 @@ class ChatService:
                         "tool_call_id": sr_tc_id or "",
                     })
                 # Append client-side tool results from request
+                # Find the round_index of the tool_use so we can write tool_result on the same round
+                prev_round = (
+                    self.db.query(func.max(CotRecord.round_index))
+                    .filter(CotRecord.request_id == request_id, CotRecord.round_index < 9999)
+                    .scalar()
+                ) or 0
                 for tr in tool_results:
                     # Persist to DB
                     try:
@@ -1961,6 +1967,12 @@ class ChatService:
                         self._persist_tool_result(session_id, tr["name"], tr_data)
                     except Exception:
                         pass
+                    # Write COT record for client-side tool result
+                    self._write_cot_block(
+                        request_id, prev_round, "tool_result",
+                        json.dumps(tr_data, ensure_ascii=False),
+                        tool_name=tr["name"],
+                    )
                     messages.append({
                         "role": "tool",
                         "name": tr["name"],
