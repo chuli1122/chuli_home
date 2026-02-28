@@ -465,9 +465,17 @@ def update_proactive_settings(
 # ── Summary layers (longterm / daily) ────────────────────────────────────────
 
 
+class PendingDailyGroup(BaseModel):
+    version: int
+    ids: list[int]
+
+
 class SummaryLayerItem(BaseModel):
     content: str
     updated_at: str | None
+    version: int = 1
+    pending_ids: list[int] = []
+    pending_daily: list[PendingDailyGroup] = []
 
 
 class SummaryLayersResponse(BaseModel):
@@ -494,13 +502,61 @@ def get_summary_layers(db: Session = Depends(get_db)) -> SummaryLayersResponse:
             by_type[row.layer_type] = row
 
     def _item(layer_type: str) -> SummaryLayerItem:
+        import json as _json
         row = by_type.get(layer_type)
+        assistant_id = row.assistant_id if row else None
+        # Query pending (unconsumed) summaries for this layer
+        pending_q = db.query(SessionSummary.id).filter(
+            SessionSummary.merged_into == layer_type,
+            SessionSummary.merged_at_version.is_(None),
+            SessionSummary.deleted_at.is_(None),
+        )
+        if assistant_id:
+            pending_q = pending_q.filter(SessionSummary.assistant_id == assistant_id)
+        pending_all = pending_q.all()
+        all_pending_ids = {p.id for p in pending_all}
+
+        # For longterm: find which pending summaries came from daily (have daily history)
+        pending_daily: list[PendingDailyGroup] = []
+        raw_pending_ids: list[int] = list(all_pending_ids)
+        if layer_type == "longterm" and all_pending_ids:
+            daily_histories = (
+                db.query(SummaryLayerHistory)
+                .filter(
+                    SummaryLayerHistory.layer_type == "daily",
+                    SummaryLayerHistory.merged_summary_ids.isnot(None),
+                )
+                .order_by(SummaryLayerHistory.version.desc())
+                .all()
+            )
+            claimed_by_daily = set()
+            for dh in daily_histories:
+                try:
+                    merged_ids = set(_json.loads(dh.merged_summary_ids))
+                except Exception:
+                    continue
+                overlap = all_pending_ids & merged_ids
+                if overlap:
+                    pending_daily.append(PendingDailyGroup(
+                        version=dh.version,
+                        ids=sorted(overlap),
+                    ))
+                    claimed_by_daily |= overlap
+            raw_pending_ids = sorted(all_pending_ids - claimed_by_daily)
+
         if row:
             return SummaryLayerItem(
                 content=row.content or "",
                 updated_at=row.updated_at.isoformat() if row.updated_at else None,
+                version=row.version,
+                pending_ids=raw_pending_ids,
+                pending_daily=pending_daily,
             )
-        return SummaryLayerItem(content="", updated_at=None)
+        return SummaryLayerItem(
+            content="", updated_at=None,
+            pending_ids=raw_pending_ids,
+            pending_daily=pending_daily,
+        )
 
     return SummaryLayersResponse(longterm=_item("longterm"), daily=_item("daily"))
 
@@ -553,6 +609,7 @@ def update_summary_layer(
     return SummaryLayerItem(
         content=row.content,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        version=row.version,
     )
 
 
@@ -622,44 +679,56 @@ def rollback_summary_layer(
     if not row:
         raise HTTPException(status_code=404, detail="Layer not found")
 
-    # Save current content to history before rollback
-    if row.content != history.content:
+    # Cache target version before any mutation
+    target_version = history.version
+    target_content = history.content
+
+    # 1. Save current content to history (for future forward-rollback)
+    if row.content != target_content:
         db.add(SummaryLayerHistory(
             summary_layer_id=row.id,
             layer_type=row.layer_type,
             assistant_id=row.assistant_id,
             content=row.content,
             version=row.version,
+            merged_summary_ids=None,
         ))
-        row.version += 1
 
-    # Restore old content
-    row.content = history.content
+    # 2. Delete the target history entry (it becomes the current version)
+    db.delete(history)
+
+    # 3. Restore to target version
+    row.content = target_content
+    row.version = target_version
     row.needs_merge = False
     row.updated_at = datetime.now(timezone.utc)
 
-    # Release summaries merged after the target history version
+    # 4. Release summaries: keep merged_into (option C), only clear merged_at_version
     released = (
         db.query(SessionSummary)
         .filter(
             SessionSummary.merged_into == layer_type,
-            SessionSummary.created_at > history.created_at,
+            SessionSummary.assistant_id == row.assistant_id,
+            SessionSummary.merged_at_version > target_version,
         )
         .all()
     )
     released_ids = []
     for s in released:
-        s.merged_into = None
+        s.merged_at_version = None
         released_ids.append(s.id)
+
+    if released_ids:
+        row.needs_merge = True
 
     db.commit()
     logger.info(
         "[rollback] %s rolled back to v%d, released %d summaries: %s",
-        layer_type, history.version, len(released_ids), released_ids,
+        layer_type, target_version, len(released_ids), released_ids,
     )
     return {
         "content": row.content,
-        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "version": row.version,
         "released_summary_ids": released_ids,
     }
 
@@ -715,11 +784,12 @@ def flush_status(db: Session = Depends(get_db)):
         lt = row.layer_type
         if lt in seen_types:
             continue
-        if row.content and row.content.strip():
+        has_content = bool(row.content and row.content.strip())
+        if has_content or row.needs_merge:
             seen_types.add(lt)
             if row.needs_merge:
                 pending_merge.append(lt)
-            else:
+            elif has_content:
                 already_merged.append(lt)
 
     return {"pending_flush": pending_flush, "pending_merge": pending_merge, "already_merged": already_merged}
@@ -784,14 +854,18 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
             else:
                 s_date = _today
             if s_date == _today:
-                svc.append_to_layer(db, assistant.id, "daily", [s])
                 s.merged_into = "daily"
                 to_daily += 1
             else:
-                svc.append_to_layer(db, assistant.id, "longterm", [s])
                 s.merged_into = "longterm"
                 to_longterm += 1
             flushed += 1
+
+        # Ensure layer rows exist and are marked for merge
+        if to_daily > 0:
+            svc.ensure_layer_needs_merge(db, assistant.id, "daily")
+        if to_longterm > 0:
+            svc.ensure_layer_needs_merge(db, assistant.id, "longterm")
     if flushed:
         db.commit()
 
@@ -804,7 +878,7 @@ def flush_summaries_to_layers(db: Session = Depends(get_db)):
         .all()
     )
     for row in layer_rows:
-        if row.content and row.content.strip():
+        if (row.content and row.content.strip()) or row.needs_merge:
             row.needs_merge = True
             if row.layer_type not in merged_layers:
                 merged_layers.append(row.layer_type)

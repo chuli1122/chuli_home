@@ -131,10 +131,63 @@ function ConfirmDialog({ title = "确认删除", message, confirmLabel = "删除
   );
 }
 
+/* ── Pending badge with expandable detail ── */
+
+function PendingBadge({ label, rawIds, dailyGroups }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => { document.removeEventListener("mousedown", handler); document.removeEventListener("touchstart", handler); };
+  }, [open]);
+
+  return (
+    <span className="relative" ref={ref}>
+      <span
+        className="text-[10px] font-medium cursor-pointer"
+        style={{ color: S.accent }}
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+      >
+        {label}
+      </span>
+      {open && (
+        <div
+          className="absolute left-0 bottom-full mb-1 z-30 rounded-[10px] p-2.5 min-w-[140px] max-w-[220px]"
+          style={{ background: S.bg, boxShadow: "0 4px 16px rgba(0,0,0,0.15)" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {rawIds.length > 0 && (
+            <div className="mb-1.5">
+              <p className="text-[10px] font-semibold mb-0.5" style={{ color: S.text }}>原始摘要</p>
+              <p className="text-[9px] leading-relaxed" style={{ color: S.textMuted }}>
+                {rawIds.map((id) => `#${id}`).join(", ")}
+              </p>
+            </div>
+          )}
+          {dailyGroups.map((g, i) => (
+            <div key={i} className={i > 0 || rawIds.length > 0 ? "mt-1.5" : ""}>
+              <p className="text-[10px] font-semibold mb-0.5" style={{ color: S.text }}>
+                来自 daily v{g.version}
+              </p>
+              <p className="text-[9px] leading-relaxed" style={{ color: S.textMuted }}>
+                {g.ids.map((id) => `#${id}`).join(", ")}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 /* ── Layer history overlay ── */
 
-function LayerHistoryOverlay({ items, currentContent, onApply, onClose, onDelete }) {
-  const [selected, setSelected] = useState("current");
+function LayerHistoryOverlay({ items, onApply, onClose, onDelete }) {
+  const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
 
@@ -145,7 +198,7 @@ function LayerHistoryOverlay({ items, currentContent, onApply, onClose, onDelete
   };
 
   const handleApply = async () => {
-    if (selected === "current") { onClose(); return; }
+    if (!selected) return;
     const item = items.find((h) => h.id === selected);
     if (item) await onApply(item);
     onClose();
@@ -155,7 +208,7 @@ function LayerHistoryOverlay({ items, currentContent, onApply, onClose, onDelete
     return (
       <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: S.bg }}>
         <div className="flex shrink-0 items-center justify-between px-5 py-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}>
-          <span className="text-[15px] font-bold" style={{ color: S.text }}>版本 {detail.version}</span>
+          <span className="text-[15px] font-bold" style={{ color: S.text }}>v{detail.version}</span>
           <button className="flex h-10 w-10 items-center justify-center rounded-full" style={{ background: S.bg, boxShadow: "var(--card-shadow-sm)" }} onClick={() => setDetail(null)}>
             <Minimize2 size={18} style={{ color: S.accentDark }} />
           </button>
@@ -184,20 +237,6 @@ function LayerHistoryOverlay({ items, currentContent, onApply, onClose, onDelete
       </div>
 
       <div className="flex-1 overflow-y-auto px-5">
-        {/* Current version */}
-        <div className="mb-2 flex items-center gap-3 rounded-[14px] p-3" style={{ boxShadow: selected === "current" ? "var(--inset-shadow)" : "var(--card-shadow-sm)", background: S.bg }}>
-          <button onClick={() => setSelected("current")} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: selected === "current" ? S.accentDark : S.bg, boxShadow: selected === "current" ? "none" : "var(--icon-inset)" }}>
-            {selected === "current" && <Check size={12} color="white" />}
-          </button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <span className="text-[13px] font-semibold" style={{ color: S.text }}>当前版本</span>
-              <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ color: "#2a9d5c", background: "rgba(42,157,92,0.12)" }}>当前</span>
-            </div>
-            <p className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{currentContent}</p>
-          </div>
-        </div>
-
         {items.length === 0 && (
           <p className="py-8 text-center text-[13px]" style={{ color: S.textMuted }}>暂无历史版本</p>
         )}
@@ -209,7 +248,7 @@ function LayerHistoryOverlay({ items, currentContent, onApply, onClose, onDelete
             </button>
             <div className="flex-1 min-w-0" onClick={() => setDetail(item)}>
               <div className="flex items-center justify-between">
-                <span className="text-[13px] font-semibold" style={{ color: S.text }}>版本 {item.version}</span>
+                <span className="text-[13px] font-semibold" style={{ color: S.text }}>v{item.version}</span>
                 <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtDate(item.created_at)}</span>
               </div>
               <p className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{item.content}</p>
@@ -227,7 +266,15 @@ function LayerHistoryOverlay({ items, currentContent, onApply, onClose, onDelete
       </div>
 
       <div className="shrink-0 p-5">
-        <button className="w-full rounded-[14px] py-3.5 text-[15px] font-bold text-white" style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-dark))", boxShadow: "4px 4px 10px rgba(201,98,138,0.35)" }} onClick={handleApply}>
+        <button
+          className="w-full rounded-[14px] py-3.5 text-[15px] font-bold text-white"
+          style={{
+            background: selected ? "linear-gradient(135deg, var(--accent), var(--accent-dark))" : "#ccc",
+            boxShadow: selected ? "4px 4px 10px rgba(201,98,138,0.35)" : "none",
+          }}
+          onClick={handleApply}
+          disabled={!selected}
+        >
           确定
         </button>
       </div>
@@ -1049,11 +1096,28 @@ export default function Memories() {
                 {hasContent ? layer.content : "暂无内容"}
               </div>
               <div className="mt-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px]" style={{ color: S.textMuted }}>
+                    {layer?.updated_at ? `更新于 ${fmtTime(layer.updated_at)}` : ""}
+                  </span>
+                  {(() => {
+                    const rawN = layer?.pending_ids?.length || 0;
+                    const dailyN = (layer?.pending_daily || []).reduce((sum, g) => sum + g.ids.length, 0);
+                    if (!rawN && !dailyN) return null;
+                    const parts = [];
+                    if (rawN) parts.push(`${rawN}条原始待合并`);
+                    if (dailyN) parts.push(`${dailyN}条来自daily`);
+                    return (
+                      <PendingBadge
+                        label={parts.join(" · ")}
+                        rawIds={layer?.pending_ids || []}
+                        dailyGroups={layer?.pending_daily || []}
+                      />
+                    );
+                  })()}
+                </div>
                 <span className="text-[10px]" style={{ color: S.textMuted }}>
-                  {layer?.updated_at ? `更新于 ${fmtTime(layer.updated_at)}` : ""}
-                </span>
-                <span className="text-[10px]" style={{ color: S.textMuted }}>
-                  {layer?.content?.length || 0} 字
+                  v{layer?.version || 1} · {layer?.content?.length || 0} 字
                 </span>
               </div>
             </div>
@@ -1194,11 +1258,11 @@ export default function Memories() {
       {layerHistory && (
         <LayerHistoryOverlay
           items={layerHistory.items}
-          currentContent={layers[layerHistory.type]?.content || ""}
           onApply={async (item) => {
             try {
               const res = await apiFetch(`/api/settings/summary-layers/${layerHistory.type}/rollback`, { method: "POST", body: { history_id: item.id } });
-              setLayers((p) => ({ ...p, [layerHistory.type]: { ...p[layerHistory.type], content: res.content, updated_at: res.updated_at } }));
+              setLayers((p) => ({ ...p, [layerHistory.type]: { ...p[layerHistory.type], content: res.content, version: res.version } }));
+              loadLayers();
             } catch (_e) { /* ignore */ }
           }}
           onDelete={async (historyId) => {

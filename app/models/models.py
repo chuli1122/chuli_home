@@ -53,6 +53,7 @@ class SessionSummary(Base):
     time_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     mood_tag: Mapped[str | None] = mapped_column(String(32), nullable=True)
     merged_into: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    merged_at_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

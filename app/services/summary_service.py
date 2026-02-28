@@ -446,16 +446,13 @@ class SummaryService:
 
     # ── Layer merge helpers ──────────────────────────────────────────────
 
-    def append_to_layer(
+    def ensure_layer_needs_merge(
         self,
         db: Session,
         assistant_id: int,
         layer_type: str,
-        summaries: list[SessionSummary],
     ) -> None:
-        """Append raw summary text to a layer row (sync, no model call)."""
-        if not summaries:
-            return
+        """Ensure the layer row exists and is marked for merge (no content append)."""
         row = (
             db.query(SummaryLayer)
             .filter(
@@ -464,22 +461,15 @@ class SummaryService:
             )
             .first()
         )
-        new_text = "\n\n".join(s.summary_content for s in summaries if s.summary_content)
-        if not new_text.strip():
-            return
         now = datetime.now(timezone.utc)
         if row:
-            if row.content and row.content.strip():
-                row.content = row.content.strip() + "\n\n" + new_text
-            else:
-                row.content = new_text
             row.needs_merge = True
             row.updated_at = now
         else:
             db.add(SummaryLayer(
                 assistant_id=assistant_id,
                 layer_type=layer_type,
-                content=new_text,
+                content="",
                 needs_merge=True,
                 created_at=now,
                 updated_at=now,
@@ -494,11 +484,75 @@ class SummaryService:
                 .filter(
                     SummaryLayer.assistant_id == assistant_id,
                     SummaryLayer.layer_type == layer_type,
-                    SummaryLayer.needs_merge.is_(True),
                 )
                 .first()
             )
-            if not row or not row.content.strip():
+            if not row:
+                return
+
+            # Query pending (unconsumed) summaries for this layer
+            pending = (
+                db.query(SessionSummary)
+                .filter(
+                    SessionSummary.assistant_id == assistant_id,
+                    SessionSummary.merged_into == layer_type,
+                    SessionSummary.merged_at_version.is_(None),
+                    SessionSummary.deleted_at.is_(None),
+                )
+                .order_by(SessionSummary.created_at.asc())
+                .all()
+            )
+
+            if not pending and not row.needs_merge:
+                return
+            # If no pending summaries and no existing content, just clear the flag
+            if not pending and not (row.content and row.content.strip()):
+                row.needs_merge = False
+                db.commit()
+                return
+
+            # Build merge input: existing clean content + pending summaries
+            # For longterm: try to use daily's compressed version instead of raw summaries
+            parts: list[str] = []
+            if row.content and row.content.strip():
+                parts.append(row.content.strip())
+
+            if layer_type == "longterm" and pending:
+                # Look up daily history to find compressed versions
+                pending_id_set = {s.id for s in pending}
+                daily_histories = (
+                    db.query(SummaryLayerHistory)
+                    .filter(
+                        SummaryLayerHistory.layer_type == "daily",
+                        SummaryLayerHistory.merged_summary_ids.isnot(None),
+                    )
+                    .order_by(SummaryLayerHistory.version.desc())
+                    .all()
+                )
+                claimed: set[int] = set()
+                for dh in daily_histories:
+                    try:
+                        merged_ids = set(json.loads(dh.merged_summary_ids))
+                    except Exception:
+                        continue
+                    overlap = pending_id_set & merged_ids
+                    if overlap and dh.content and dh.content.strip():
+                        parts.append(dh.content.strip())
+                        claimed |= overlap
+                # Add remaining raw summaries not covered by daily history
+                for s in pending:
+                    if s.id not in claimed and s.summary_content and s.summary_content.strip():
+                        parts.append(s.summary_content.strip())
+            else:
+                for s in pending:
+                    if s.summary_content and s.summary_content.strip():
+                        parts.append(s.summary_content.strip())
+
+            merge_input = "\n\n".join(parts)
+
+            if not merge_input.strip():
+                row.needs_merge = False
+                db.commit()
                 return
 
             assistant = db.get(Assistant, assistant_id)
@@ -546,7 +600,7 @@ class SummaryService:
 
             merged = None
             try:
-                merged = _call_model_raw(db, preset, prompt, row.content, timeout=60.0)
+                merged = _call_model_raw(db, preset, prompt, merge_input, timeout=60.0)
                 merged = (merged or "").strip()
             except Exception:
                 logger.warning(
@@ -557,7 +611,7 @@ class SummaryService:
                 fallback = self._resolve_fallback_preset(db, assistant)
                 if fallback and fallback.id != preset.id:
                     try:
-                        merged = _call_model_raw(db, fallback, prompt, row.content, timeout=60.0)
+                        merged = _call_model_raw(db, fallback, prompt, merge_input, timeout=60.0)
                         merged = (merged or "").strip()
                         if merged:
                             logger.info(
@@ -570,19 +624,13 @@ class SummaryService:
                             layer_type, assistant_id,
                         )
             if merged:
-                # Save old content to history before overwriting
-                new_ids = [
-                    s.id for s in db.query(SessionSummary.id).filter(
-                        SessionSummary.assistant_id == assistant_id,
-                        SessionSummary.merged_into == layer_type,
-                        SessionSummary.created_at >= row.updated_at,
-                    ).all()
-                ] if row.updated_at else []
+                new_ids = [s.id for s in pending]
+                # Save current clean content to history before overwriting
                 db.add(SummaryLayerHistory(
                     summary_layer_id=row.id,
                     layer_type=row.layer_type,
                     assistant_id=row.assistant_id,
-                    content=row.content,
+                    content=row.content or "",
                     version=row.version,
                     merged_summary_ids=json.dumps(new_ids) if new_ids else None,
                 ))
@@ -591,6 +639,9 @@ class SummaryService:
                 row.needs_merge = False
                 row.token_count = len(merged)
                 row.updated_at = datetime.now(timezone.utc)
+                # Mark pending summaries as consumed
+                for s in pending:
+                    s.merged_at_version = row.version
                 db.commit()
                 # Cleanup history older than 7 days
                 cutoff = datetime.now(timezone.utc) - timedelta(days=7)
@@ -619,7 +670,12 @@ class SummaryService:
         threading.Thread(target=_worker, daemon=True).start()
 
     def daily_merge_to_longterm(self, assistant_id: int) -> None:
-        """Move daily content into longterm (called by midnight cron)."""
+        """Move daily compressed content into longterm (called by midnight cron).
+
+        Strategy: daily's clean merged content feeds into longterm.
+        Summaries transfer from daily → longterm with merged_at_version set
+        (already consumed by daily, will be consumed again by longterm merge).
+        """
         db: Session = self.session_factory()
         try:
             daily = (
@@ -630,7 +686,7 @@ class SummaryService:
                 )
                 .first()
             )
-            if not daily or not daily.content.strip():
+            if not daily:
                 return
 
             # If daily still needs merge, merge it first
@@ -638,7 +694,22 @@ class SummaryService:
                 self.merge_layer(assistant_id, "daily")
                 db.refresh(daily)
 
-            # Append daily content to longterm
+            has_daily_content = daily.content and daily.content.strip()
+
+            # Find all summaries currently assigned to daily
+            daily_summaries = (
+                db.query(SessionSummary)
+                .filter(
+                    SessionSummary.assistant_id == assistant_id,
+                    SessionSummary.merged_into == "daily",
+                )
+                .all()
+            )
+
+            if not has_daily_content and not daily_summaries:
+                return
+
+            # Ensure longterm row exists
             longterm = (
                 db.query(SummaryLayer)
                 .filter(
@@ -648,30 +719,57 @@ class SummaryService:
                 .first()
             )
             now = datetime.now(timezone.utc)
-            if longterm:
-                if longterm.content and longterm.content.strip():
-                    longterm.content = longterm.content.strip() + "\n\n" + daily.content.strip()
-                else:
-                    longterm.content = daily.content.strip()
-                longterm.needs_merge = True
-                longterm.updated_at = now
-            else:
-                db.add(SummaryLayer(
+            if not longterm:
+                longterm = SummaryLayer(
                     assistant_id=assistant_id,
                     layer_type="longterm",
-                    content=daily.content.strip(),
+                    content="",
                     needs_merge=True,
                     created_at=now,
                     updated_at=now,
+                )
+                db.add(longterm)
+                db.flush()
+
+            # Append daily's clean content to longterm content (for next merge)
+            if has_daily_content:
+                existing = (longterm.content or "").strip()
+                if existing:
+                    longterm.content = existing + "\n\n" + daily.content.strip()
+                else:
+                    longterm.content = daily.content.strip()
+
+            longterm.needs_merge = True
+            longterm.updated_at = now
+
+            # Transfer summaries: merged_into → "longterm"
+            # Set merged_at_version = longterm.version + 1 (will be the new version after merge)
+            # so merge_layer won't re-fetch them as pending raw summaries
+            next_lt_version = longterm.version + 1
+            for s in daily_summaries:
+                s.merged_into = "longterm"
+                s.merged_at_version = next_lt_version
+
+            # Save daily content to daily history before clearing
+            if has_daily_content:
+                summary_ids = [s.id for s in daily_summaries]
+                db.add(SummaryLayerHistory(
+                    summary_layer_id=daily.id,
+                    layer_type="daily",
+                    assistant_id=daily.assistant_id,
+                    content=daily.content or "",
+                    version=daily.version,
+                    merged_summary_ids=json.dumps(summary_ids) if summary_ids else None,
                 ))
 
             # Clear daily
             daily.content = ""
             daily.needs_merge = False
+            daily.version = 1
             daily.updated_at = now
             db.commit()
 
-            # Now merge longterm
+            # Now merge longterm (existing longterm content + daily content appended above)
             self.merge_layer(assistant_id, "longterm")
             logger.info("[daily_merge_to_longterm] Completed for assistant_id=%s", assistant_id)
         except Exception:

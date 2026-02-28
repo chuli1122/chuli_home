@@ -1488,13 +1488,13 @@ class ChatService:
 
             summary_svc = SummaryService(SessionLocal)
             if today_overflow:
-                summary_svc.append_to_layer(self.db, assistant.id, "daily", list(reversed(today_overflow)))
                 for s in today_overflow:
                     s.merged_into = "daily"
+                summary_svc.ensure_layer_needs_merge(self.db, assistant.id, "daily")
             if old_overflow:
-                summary_svc.append_to_layer(self.db, assistant.id, "longterm", list(reversed(old_overflow)))
                 for s in old_overflow:
                     s.merged_into = "longterm"
+                summary_svc.ensure_layer_needs_merge(self.db, assistant.id, "longterm")
             self.db.commit()
             # Trigger async merge in background
             summary_svc.merge_layers_async(assistant.id)
