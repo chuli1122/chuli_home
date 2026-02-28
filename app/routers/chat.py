@@ -23,11 +23,18 @@ class ToolCallPayload(BaseModel):
     arguments: dict[str, Any]
 
 
+class ToolResultPayload(BaseModel):
+    tool_call_id: str
+    name: str
+    content: str
+
+
 class ChatCompletionRequest(BaseModel):
     session_id: int
     message: str | list[dict[str, Any]] | None = None
     messages: list[dict[str, Any]] = []
     tool_calls: list[ToolCallPayload] = []
+    tool_results: list[ToolResultPayload] = []
     stream: bool = False
     short_mode: bool = False
     source: str | None = None  # 消息来源标识，如 "terminal", "telegram"
@@ -122,6 +129,21 @@ def _compress_tool_result(tool_name: str, content: str) -> str:
         title = data.get("title", "")
         url = data.get("url", "")
         return f"[已读取网页] url: {url} | title: {title}"
+
+    if tool_name == "run_bash":
+        output = data.get("output", "")
+        exit_code = data.get("exit_code", "?")
+        return f"[已执行命令] exit={exit_code}, {output[:60]}"
+
+    if tool_name == "read_file":
+        path = data.get("path", "")
+        content = data.get("content", "")
+        return f"[已读取文件] {path}, {len(content)}字"
+
+    if tool_name == "write_file":
+        path = data.get("path", "")
+        written = data.get("bytes_written", "?")
+        return f"[已写入文件] {path}, {written}字节"
 
     # Fallback: tool_name + truncated content
     return f"[{tool_name}] {str(data)[:60]}"
@@ -227,11 +249,15 @@ async def chat_completions(
             if isinstance(content, list) or (content and content.strip()):
                 messages.append({"role": "user", "content": content})
 
+    # Convert tool_results to dicts for service layer
+    tool_results_dicts = [tr.model_dump() for tr in payload.tool_results] if payload.tool_results else None
+
     if payload.stream:
         def generate():
             yield from chat_service.stream_chat_completion(
                 payload.session_id, messages, background_tasks=background_tasks,
                 short_mode=payload.short_mode, source=payload.source,
+                tool_results=tool_results_dicts,
             )
         return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -250,6 +276,7 @@ async def chat_completions(
             payload.session_id, messages,
             background_tasks=background_tasks,
             short_mode=payload.short_mode, source=payload.source,
+            tool_results=tool_results_dicts,
         ):
             pass
 

@@ -2,6 +2,8 @@
 """
 阿澄的终端 — chuli_home CLI 聊天入口
 用法: python tools/cli_chat.py
+
+支持本地工具：阿澄可以在你的电脑上执行命令、读写文件。
 """
 
 import base64
@@ -9,6 +11,7 @@ import io
 import json
 import mimetypes
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -20,7 +23,14 @@ if os.name == "nt":
     sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
 
 API_URL = os.environ.get("CHULI_API_URL", "https://chat.chuli.win")
+DEFAULT_PASSWORD = "chuli2026bendanachengbendanahuai"
 ASSISTANT_ID = 2  # 阿澄
+
+# ANSI colors
+DIM = "\033[2m"
+RESET = "\033[0m"
+CYAN = "\033[36m"
+YELLOW = "\033[33m"
 
 
 def api(method: str, path: str, body: dict | None = None, token: str | None = None,
@@ -38,12 +48,7 @@ def api(method: str, path: str, body: dict | None = None, token: str | None = No
 
 
 def login() -> str:
-    password = os.environ.get("WHISPER_PASSWORD")
-    if not password:
-        password = input("密码: ").strip()
-        if not password:
-            print("需要密码才能登录")
-            sys.exit(1)
+    password = os.environ.get("WHISPER_PASSWORD") or DEFAULT_PASSWORD
     try:
         result = api("POST", "/auth/verify", {"password": password})
     except urllib.error.HTTPError as e:
@@ -90,17 +95,101 @@ def pick_session(token: str) -> int:
         return s["id"]
 
 
-def stream_chat(token: str, session_id: int, message: str | list) -> None:
-    body = {"session_id": session_id, "message": message, "stream": True, "source": "terminal"}
+# ─── Local tool execution ───
+
+
+def execute_local_tool(name: str, arguments: dict) -> str:
+    """Execute a local tool and return the result as a JSON string."""
+    if name == "run_bash":
+        return _run_bash(arguments.get("command", ""))
+    if name == "read_file":
+        return _read_file(arguments.get("path", ""))
+    if name == "write_file":
+        return _write_file(arguments.get("path", ""), arguments.get("content", ""))
+    return json.dumps({"error": f"Unknown tool: {name}"})
+
+
+def _run_bash(command: str) -> str:
+    if not command:
+        return json.dumps({"error": "empty command"})
+    sys.stdout.write(f"\n  {DIM}$ {command}{RESET}\n")
+    sys.stdout.flush()
+    try:
+        result = subprocess.run(
+            command, shell=True, capture_output=True, text=True, timeout=60,
+            cwd=os.getcwd(),
+        )
+        output = result.stdout
+        if result.stderr:
+            output += ("\n" if output else "") + result.stderr
+        # Truncate very long output
+        if len(output) > 8000:
+            output = output[:4000] + f"\n... (truncated {len(output) - 8000} chars) ...\n" + output[-4000:]
+        sys.stdout.write(f"  {DIM}{output.rstrip()}{RESET}\n")
+        sys.stdout.flush()
+        return json.dumps({"exit_code": result.returncode, "output": output})
+    except subprocess.TimeoutExpired:
+        return json.dumps({"error": "command timed out (60s)"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+def _read_file(path: str) -> str:
+    if not path:
+        return json.dumps({"error": "empty path"})
+    path = os.path.expanduser(path)
+    sys.stdout.write(f"\n  {DIM}[读取] {path}{RESET}\n")
+    sys.stdout.flush()
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        if len(content) > 16000:
+            content = content[:8000] + f"\n... (truncated, total {len(content)} chars) ...\n" + content[-8000:]
+        return json.dumps({"path": path, "content": content})
+    except FileNotFoundError:
+        return json.dumps({"error": f"file not found: {path}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+def _write_file(path: str, content: str) -> str:
+    if not path:
+        return json.dumps({"error": "empty path"})
+    path = os.path.expanduser(path)
+    sys.stdout.write(f"\n  {DIM}[写入] {path} ({len(content)} chars){RESET}\n")
+    sys.stdout.flush()
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return json.dumps({"path": path, "status": "ok", "bytes_written": len(content.encode("utf-8"))})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# ─── Chat with tool loop ───
+
+
+def stream_chat(token: str, session_id: int, message: str | list | None,
+                tool_results: list[dict] | None = None) -> None:
+    """Send a message (or tool results) and stream the response.
+    Handles tool_call events by executing locally and sending results back."""
+    body: dict = {"session_id": session_id, "stream": True, "source": "terminal"}
+    if tool_results:
+        body["tool_results"] = tool_results
+        body["message"] = None
+    elif message is not None:
+        body["message"] = message
+
     try:
         resp = api("POST", "/chat/completions", body, token=token, stream=True)
     except urllib.error.HTTPError as e:
         print(f"\n  [错误] {e.code}: {e.read().decode()[:200]}")
         return
 
-    sys.stdout.write("\n阿澄: ")
-    sys.stdout.flush()
-    buffer = ""
+    pending_tool_calls: list[dict] = []
+    has_content = False
+
     for raw_line in resp:
         line = raw_line.decode("utf-8", errors="replace").strip()
         if not line.startswith("data: "):
@@ -112,14 +201,47 @@ def stream_chat(token: str, session_id: int, message: str | list) -> None:
             data = json.loads(payload)
         except json.JSONDecodeError:
             continue
+
         if "content" in data:
+            if not has_content:
+                sys.stdout.write("\n阿澄: ")
+                has_content = True
             sys.stdout.write(data["content"])
             sys.stdout.flush()
-            buffer += data["content"]
+
+        if "tool_call" in data:
+            pending_tool_calls.append(data["tool_call"])
+
         if "error" in data:
             sys.stdout.write(f"\n  [错误] {data['error']}")
-    sys.stdout.write("\n\n")
-    sys.stdout.flush()
+
+    if has_content:
+        sys.stdout.write("\n\n")
+        sys.stdout.flush()
+
+    # If there are pending tool calls, execute them locally and send results back
+    if pending_tool_calls:
+        sys.stdout.write(f"\n  {CYAN}[工具调用] {len(pending_tool_calls)} 个{RESET}\n")
+        sys.stdout.flush()
+
+        results = []
+        for tc in pending_tool_calls:
+            tc_id = tc.get("id", "")
+            tc_name = tc.get("name", "")
+            tc_args = tc.get("arguments", {})
+
+            sys.stdout.write(f"  {YELLOW}> {tc_name}({json.dumps(tc_args, ensure_ascii=False)[:80]}){RESET}\n")
+            sys.stdout.flush()
+
+            result_content = execute_local_tool(tc_name, tc_args)
+            results.append({
+                "tool_call_id": tc_id,
+                "name": tc_name,
+                "content": result_content,
+            })
+
+        # Send results back — this may trigger another tool round
+        stream_chat(token, session_id, None, tool_results=results)
 
 
 def build_image_message(text: str, image_path: str) -> list[dict]:
@@ -151,7 +273,8 @@ def main():
 
     session_id = pick_session(token)
     print(f"\n已连接 {API_URL} | 助手: 阿澄 | 会话: #{session_id}")
-    print("输入消息回车发送 | /img <路径> 发图片 | /quit 退出\n")
+    print("输入消息回车发送 | /img <路径> 发图片 | /quit 退出")
+    print(f"  {DIM}本地工具已启用: run_bash, read_file, write_file{RESET}\n")
 
     while True:
         try:

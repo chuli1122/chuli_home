@@ -1129,6 +1129,8 @@ class ChatService:
         "web_search",
     }
     silent_tools = {"list_memories", "search_memory", "search_summary", "get_summary_by_id", "search_chat_history", "search_theater", "read_diary", "web_fetch"}
+    # Tools that must be executed on the client side (terminal CLI)
+    client_side_tools = {"run_bash", "read_file", "write_file"}
     tool_display_names = {
         "save_memory": "创建记忆",
         "update_memory": "更新记忆",
@@ -1142,6 +1144,9 @@ class ChatService:
         "search_theater": "搜索小剧场",
         "web_search": "搜索互联网",
         "web_fetch": "读取网页",
+        "run_bash": "执行命令",
+        "read_file": "读取文件",
+        "write_file": "写入文件",
     }
 
     def __init__(
@@ -1690,6 +1695,32 @@ class ChatService:
             {"type": "function", "function": {"name": "web_search", "description": "搜索互联网获取信息。返回搜索结果列表，每条包含标题、链接和摘要。搜索后如需查看某个结果的完整内容，再调用 web_fetch。每次搜索后最多读取2个网页。", "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "搜索关键词"}}, "required": ["query"]}}},
             {"type": "function", "function": {"name": "web_fetch", "description": "读取指定URL的网页内容，返回markdown格式的正文。内容较长时会截断，可通过offset参数翻页继续阅读。也可以直接用于读取用户发送的链接。", "parameters": {"type": "object", "properties": {"url": {"type": "string", "description": "网页地址"}, "offset": {"type": "integer", "description": "起始偏移量，用于翻页，默认0"}}, "required": ["url"]}}},
         ]
+        # Add client-side tools when source is terminal
+        if source == "terminal":
+            tools.extend([
+                {"type": "function", "function": {
+                    "name": "run_bash",
+                    "description": "在用户本地电脑上执行 bash/shell 命令。可以运行任意命令如 ls, cat, git, python 等。用于帮用户操作本地文件系统、运行脚本、查看目录等。命令在用户的工作目录下执行。",
+                    "parameters": {"type": "object", "properties": {
+                        "command": {"type": "string", "description": "要执行的命令"},
+                    }, "required": ["command"]},
+                }},
+                {"type": "function", "function": {
+                    "name": "read_file",
+                    "description": "读取用户本地电脑上的文件内容。支持文本文件。返回文件的完整内容。",
+                    "parameters": {"type": "object", "properties": {
+                        "path": {"type": "string", "description": "文件的绝对路径或相对路径"},
+                    }, "required": ["path"]},
+                }},
+                {"type": "function", "function": {
+                    "name": "write_file",
+                    "description": "在用户本地电脑上创建或覆盖文件。写入指定内容到指定路径。",
+                    "parameters": {"type": "object", "properties": {
+                        "path": {"type": "string", "description": "文件路径"},
+                        "content": {"type": "string", "description": "要写入的内容"},
+                    }, "required": ["path", "content"]},
+                }},
+            ])
         # Client setup
         base_url = api_provider.base_url
         if base_url.endswith("/chat/completions"):
@@ -1855,11 +1886,87 @@ class ChatService:
         background_tasks: BackgroundTasks | None = None,
         short_mode: bool = False,
         source: str | None = None,
+        tool_results: list[dict[str, Any]] | None = None,
     ) -> Iterable[str]:
         """Streaming chat completion. Yields SSE events."""
         request_id = str(uuid.uuid4())
         start_time = time.monotonic()
-        if messages:
+        # If tool_results provided, reconstruct the tool round in messages
+        if tool_results:
+            # Find the last assistant message with tool_calls in meta_info
+            last_tc_msg = (
+                self.db.query(Message)
+                .filter(
+                    Message.session_id == session_id,
+                    Message.role == "assistant",
+                )
+                .order_by(Message.id.desc())
+                .first()
+            )
+            raw_tool_calls = None
+            tc_msg_id = None
+            if last_tc_msg and last_tc_msg.meta_info and "tool_calls" in last_tc_msg.meta_info:
+                raw_tool_calls = last_tc_msg.meta_info["tool_calls"]
+                tc_msg_id = last_tc_msg.id
+            if raw_tool_calls and tc_msg_id:
+                # Remove any messages loaded from DB that are part of the pending tool round
+                messages = [m for m in messages if not m.get("id") or m["id"] < tc_msg_id]
+                # Append raw assistant message with tool_calls
+                messages.append({
+                    "role": "assistant",
+                    "content": last_tc_msg.content or None,
+                    "tool_calls": raw_tool_calls,
+                })
+                # Append server-side tool results already in DB (persisted during previous stream)
+                server_results = (
+                    self.db.query(Message)
+                    .filter(
+                        Message.session_id == session_id,
+                        Message.role == "tool",
+                        Message.id > tc_msg_id,
+                    )
+                    .order_by(Message.id.asc())
+                    .all()
+                )
+                for sr in server_results:
+                    sr_meta = sr.meta_info or {}
+                    # Find matching tool_call_id from tool_calls_payload
+                    sr_tool_name = sr_meta.get("tool_name", "unknown")
+                    sr_tc_id = sr_meta.get("tool_call_id")
+                    if not sr_tc_id:
+                        # Try to match by tool name from the tool_calls payload
+                        for tc_p in raw_tool_calls:
+                            fn = tc_p.get("function", {})
+                            if fn.get("name") == sr_tool_name:
+                                sr_tc_id = tc_p.get("id")
+                                break
+                    messages.append({
+                        "role": "tool",
+                        "name": sr_tool_name,
+                        "content": sr.content,
+                        "tool_call_id": sr_tc_id or "",
+                    })
+                # Append client-side tool results from request
+                for tr in tool_results:
+                    # Persist to DB
+                    try:
+                        tr_data = json.loads(tr["content"])
+                    except (json.JSONDecodeError, TypeError):
+                        tr_data = {"output": tr["content"]}
+                    try:
+                        self._persist_tool_result(session_id, tr["name"], tr_data)
+                    except Exception:
+                        pass
+                    messages.append({
+                        "role": "tool",
+                        "name": tr["name"],
+                        "content": tr["content"],
+                        "tool_call_id": tr["tool_call_id"],
+                    })
+                logger.info("[stream] Resuming with %d client tool results (session=%s)", len(tool_results), session_id)
+            else:
+                logger.warning("[stream] tool_results provided but no pending tool_calls found (session=%s)", session_id)
+        if messages and not tool_results:
             last_message = messages[-1]
             user_content = last_message.get("content", "")
             has_content = bool(user_content) if isinstance(user_content, list) else bool(user_content and user_content.strip())
@@ -2113,8 +2220,11 @@ class ChatService:
                         self.db.rollback()
                     except Exception:
                         pass
-                # Execute tools: write tool_use then tool_result COT blocks in pairs
-                for tc in parsed_tool_calls:
+                # Separate server-side and client-side tool calls
+                server_calls = [tc for tc in parsed_tool_calls if tc.name not in self.client_side_tools]
+                client_calls = [tc for tc in parsed_tool_calls if tc.name in self.client_side_tools]
+                # Execute server-side tools: write tool_use then tool_result COT blocks in pairs
+                for tc in server_calls:
                     self._write_cot_block(
                         request_id, current_round, "tool_use",
                         tc.arguments if isinstance(tc.arguments, str) else json.dumps(tc.arguments, ensure_ascii=False),
@@ -2151,6 +2261,32 @@ class ChatService:
                             self.db.rollback()
                         except Exception:
                             pass
+                # Client-side tools: yield SSE events for CLI to execute
+                if client_calls:
+                    for tc in client_calls:
+                        self._write_cot_block(
+                            request_id, current_round, "tool_use",
+                            tc.arguments if isinstance(tc.arguments, str) else json.dumps(tc.arguments, ensure_ascii=False),
+                            tool_name=tc.name,
+                        )
+                        try:
+                            self._persist_tool_call(session_id, tc)
+                        except Exception as e:
+                            logger.error("Failed to persist client tool call %s: %s", tc.name, e)
+                            try:
+                                self.db.rollback()
+                            except Exception:
+                                pass
+                        yield f'data: {json.dumps({"tool_call": {"id": tc.id, "name": tc.name, "arguments": tc.arguments}})}\n\n'
+                    # End the stream — CLI will execute tools and send results back
+                    cot_broadcaster.publish({
+                        "type": "done", "request_id": request_id,
+                        "prompt_tokens": total_prompt_tokens, "completion_tokens": total_completion_tokens,
+                        "elapsed_ms": int((time.monotonic() - start_time) * 1000),
+                        "cache_hit": anth_cache_hit, "total_input": total_input_raw,
+                    })
+                    yield 'data: [DONE]\n\n'
+                    return
                 # Broadcast running token totals so COT page shows tokens during tool rounds
                 cot_broadcaster.publish({
                     "type": "tokens_update", "request_id": request_id,
