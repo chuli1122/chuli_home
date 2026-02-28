@@ -626,15 +626,18 @@ class SummaryService:
             if merged:
                 new_ids = [s.id for s in pending]
                 # Save current clean content to history before overwriting
-                db.add(SummaryLayerHistory(
-                    summary_layer_id=row.id,
-                    layer_type=row.layer_type,
-                    assistant_id=row.assistant_id,
-                    content=row.content or "",
-                    version=row.version,
-                    merged_summary_ids=json.dumps(new_ids) if new_ids else None,
-                ))
-                row.version += 1
+                # (skip if pre-merge content is empty — no point saving an empty snapshot)
+                old_content = (row.content or "").strip()
+                if old_content:
+                    db.add(SummaryLayerHistory(
+                        summary_layer_id=row.id,
+                        layer_type=row.layer_type,
+                        assistant_id=row.assistant_id,
+                        content=row.content or "",
+                        version=row.version,
+                        merged_summary_ids=json.dumps(new_ids) if new_ids else None,
+                    ))
+                    row.version += 1
                 row.content = merged
                 row.needs_merge = False
                 row.token_count = len(merged)
