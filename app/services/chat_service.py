@@ -1518,6 +1518,20 @@ class ChatService:
         )
         _longterm_text = longterm_row.content.strip() if longterm_row and longterm_row.content else ""
         _daily_text = daily_row.content.strip() if daily_row and daily_row.content else ""
+
+        # Query msg_id ranges for daily/longterm layers
+        _layer_msg_ranges: dict[str, tuple[int | None, int | None]] = {}
+        for _lt in ("daily", "longterm"):
+            _range = self.db.query(
+                func.min(SessionSummary.msg_id_start),
+                func.max(SessionSummary.msg_id_end),
+            ).filter(
+                SessionSummary.assistant_id == assistant.id,
+                SessionSummary.merged_into == _lt,
+                SessionSummary.deleted_at.is_(None),
+            ).first()
+            if _range:
+                _layer_msg_ranges[_lt] = (_range[0], _range[1])
         prompt_parts: list[str] = []
         # Current date in Beijing time
         _weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
@@ -1594,13 +1608,17 @@ class ChatService:
         full_system_prompt += _CACHE_BREAK
         # Three-layer summary injection
         if _longterm_text:
-            full_system_prompt += f"[长期记忆]\n{_longterm_text}"
+            _lt_r = _layer_msg_ranges.get("longterm")
+            _lt_tag = f" (覆盖消息 msg {_lt_r[0]}-{_lt_r[1]})" if _lt_r and _lt_r[0] is not None else ""
+            full_system_prompt += f"[长期记忆]{_lt_tag}\n{_longterm_text}"
         if _daily_text:
-            full_system_prompt += f"\n\n[近期日常]\n{_daily_text}"
+            _dl_r = _layer_msg_ranges.get("daily")
+            _dl_tag = f" (覆盖消息 msg {_dl_r[0]}-{_dl_r[1]})" if _dl_r and _dl_r[0] is not None else ""
+            full_system_prompt += f"\n\n[近期日常]{_dl_tag}\n{_daily_text}"
         if selected_summaries_desc:
             summary_text = "\n\n[最近对话摘要]\n" if (_longterm_text or _daily_text) else "[最近对话摘要]\n"
             for s in reversed(selected_summaries_desc):
-                summary_text += f"- {s.summary_content}\n"
+                summary_text += f"- [msg {s.msg_id_start}-{s.msg_id_end}] {s.summary_content}\n"
             full_system_prompt += summary_text.rstrip()
         if latest_mood_tag:
             try:
