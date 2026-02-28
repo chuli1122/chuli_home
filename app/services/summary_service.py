@@ -664,10 +664,13 @@ class SummaryService:
         finally:
             db.close()
 
-    def merge_layers_async(self, assistant_id: int) -> None:
-        """Merge both daily and longterm layers in background thread."""
+    def merge_layers_async(self, assistant_id: int, layer_types: tuple[str, ...] | None = None) -> None:
+        """Merge specified layers in background thread."""
+        if layer_types is None:
+            layer_types = ("daily", "longterm")
+
         def _worker() -> None:
-            for lt in ("daily", "longterm"):
+            for lt in layer_types:
                 self.merge_layer(assistant_id, lt)
 
         threading.Thread(target=_worker, daemon=True).start()

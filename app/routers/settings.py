@@ -887,8 +887,12 @@ def flush_summaries_to_layers(force: bool = False, db: Session = Depends(get_db)
     if force:
         db.commit()
 
-    for aid in merge_assistant_ids:
-        threading.Thread(target=svc.merge_layers_async, args=(aid,), daemon=True).start()
+    if merged_layers:
+        merge_types = tuple(merged_layers)
+        for aid in merge_assistant_ids:
+            threading.Thread(
+                target=svc.merge_layers_async, args=(aid, merge_types), daemon=True,
+            ).start()
 
     return {
         "flushed": flushed, "to_daily": to_daily, "to_longterm": to_longterm,

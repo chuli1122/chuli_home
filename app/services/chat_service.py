@@ -1496,8 +1496,14 @@ class ChatService:
                     s.merged_into = "longterm"
                 summary_svc.ensure_layer_needs_merge(self.db, assistant.id, "longterm")
             self.db.commit()
-            # Trigger async merge in background
-            summary_svc.merge_layers_async(assistant.id)
+            # Trigger async merge only for layers that received overflow
+            merge_types = []
+            if today_overflow:
+                merge_types.append("daily")
+            if old_overflow:
+                merge_types.append("longterm")
+            if merge_types:
+                summary_svc.merge_layers_async(assistant.id, tuple(merge_types))
 
         # Read layer content
         longterm_row = (
