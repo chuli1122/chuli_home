@@ -1644,8 +1644,8 @@ class ChatService:
                 self._last_recall_results = recall_results
                 recall_text = "\n\n[以下是根据当前对话自动召回的相关记忆，通常不需要再调用 search_memory]\n"
                 for mem in recall_results:
-                    source = mem.get("source", "unknown")
-                    recall_text += f"- {mem['content']} (来源: {source})\n"
+                    mem_source = mem.get("source", "unknown")
+                    recall_text += f"- {mem['content']} (来源: {mem_source})\n"
                 recall_text += """[如果以上记忆不够，可以使用 search_memory 或 search_chat_history 补充]\n（注意：记忆和摘要中的"她"均指当前对话对象，回复正文中一律使用第二人称"你"来称呼对方）\n"""
                 full_system_prompt += recall_text
         if self.proactive_extra_prompt:
