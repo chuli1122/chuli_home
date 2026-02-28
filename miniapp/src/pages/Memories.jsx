@@ -243,12 +243,19 @@ function LayerHistoryOverlay({ items, onApply, onClose, onDelete }) {
 
         {items.map((item) => (
           <div key={item.id} className="mb-2 flex items-center gap-3 rounded-[14px] p-3" style={{ boxShadow: selected === item.id ? "var(--inset-shadow)" : "var(--card-shadow-sm)", background: S.bg }}>
-            <button onClick={() => setSelected(item.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: selected === item.id ? S.accentDark : S.bg, boxShadow: selected === item.id ? "none" : "var(--icon-inset)" }}>
-              {selected === item.id && <Check size={12} color="white" />}
-            </button>
+            {item.is_current ? (
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[8px] font-bold" style={{ background: S.accentDark, color: "white" }}>今</span>
+            ) : (
+              <button onClick={() => setSelected(item.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: selected === item.id ? S.accentDark : S.bg, boxShadow: selected === item.id ? "none" : "var(--icon-inset)" }}>
+                {selected === item.id && <Check size={12} color="white" />}
+              </button>
+            )}
             <div className="flex-1 min-w-0" onClick={() => setDetail(item)}>
               <div className="flex items-center justify-between">
-                <span className="text-[13px] font-semibold" style={{ color: S.text }}>v{item.version}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[13px] font-semibold" style={{ color: S.text }}>v{item.version}</span>
+                  {item.is_current && <span className="rounded-full px-1.5 py-0.5 text-[9px] font-medium" style={{ background: "rgba(155,120,200,0.12)", color: "#8b6abf" }}>当前</span>}
+                </div>
                 <span className="text-[10px]" style={{ color: S.textMuted }}>{fmtDate(item.created_at)}</span>
               </div>
               <p className="mt-0.5 truncate text-[11px]" style={{ color: S.textMuted }}>{item.content}</p>
@@ -258,9 +265,11 @@ function LayerHistoryOverlay({ items, onApply, onClose, onDelete }) {
                 </p>
               )}
             </div>
-            <button onClick={() => setConfirmId(item.id)} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ color: "#ccc" }}>
-              <Trash2 size={11} />
-            </button>
+            {!item.is_current && (
+              <button onClick={() => setConfirmId(item.id)} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ color: "#ccc" }}>
+                <Trash2 size={11} />
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -681,7 +690,20 @@ export default function Memories() {
   const openLayerHistory = async (type) => {
     try {
       const data = await apiFetch(`/api/settings/summary-layers/${type}/history`);
-      setLayerHistory({ type, items: data.history || [] });
+      const layer = layers[type];
+      const histItems = data.history || [];
+      // Prepend current version so it's always visible
+      if (layer) {
+        histItems.unshift({
+          id: "__current__",
+          version: layer.version || 1,
+          content: layer.content || "",
+          merged_summary_ids: null,
+          created_at: layer.updated_at || null,
+          is_current: true,
+        });
+      }
+      setLayerHistory({ type, items: histItems });
     } catch (_e) { /* ignore */ }
   };
 
