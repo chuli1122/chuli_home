@@ -422,7 +422,7 @@ def _generate_sync() -> tuple[str | None, int | None]:
                 .first()
             )
             if user_after is None:
-                retry_hint = "你上一条消息她没回。别再说差不多的话了，换个角度，或者不发也行。\n"
+                retry_hint = "你上一条消息她没回。想再说点什么都行——换个话题也好，表达你现在的心情也好，着急了直接说着急也行。\n"
 
         trigger_msg = {
             "role": "user",
