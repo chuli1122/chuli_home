@@ -215,7 +215,7 @@ class SummaryService:
 时间用具体描述如"2.5晚上20点左右"，不要用"刚才""昨天"这类相对时间。
 亲密场景：只记场景设定、她表达的偏好、情绪变化，不记具体行为描写。
 如果对话中有工具调用（如存储记忆、搜索记忆等），在摘要正文中自然地概括，例如'我存储了一条关于xxx的记忆'。
-单条摘要不超过500字，尽量精简，只记关键信息。
+单条摘要严格控制在500字以内。只记结论、决定和关键转折，省略过程性对话。
 
 任务二：记忆提取
 从待压缩部分提取值得长期记住的信息。
@@ -227,7 +227,7 @@ class SummaryService:
 - tags：给每条记忆加1-3个短关键词标签，方便检索
 
 任务三：情绪标签
-判断当前最新对话中{user_name}的情绪状态，从以下选一个：
+判断当前"保留在上下文中"的最新消息里{user_name}的情绪状态，从以下选一个：
 sad/angry/anxious/tired/emo/happy/flirty/proud/calm
 
 输出格式：
@@ -240,7 +240,7 @@ memories 为空时写 "memories": []
             else:
                 # Group session: no mood_tag
                 group_task = task_instructions.replace(
-                    f'判断当前最新对话中{user_name}的情绪状态，从以下选一个：\nsad/angry/anxious/tired/emo/happy/flirty/proud/calm',
+                    f'判断当前"保留在上下文中"的最新消息里{user_name}的情绪状态，从以下选一个：\nsad/angry/anxious/tired/emo/happy/flirty/proud/calm',
                     '',
                 ).replace(', "mood_tag": "..."', '')
                 system_prompt = base_persona + "\n\n" + group_task if base_persona else group_task
