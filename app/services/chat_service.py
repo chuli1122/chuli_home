@@ -92,11 +92,15 @@ class MemoryService:
                         "existing_id": dup_result.id,
                     }
                 # If source is main model (assistant name), return duplicate info
-                return {
+                # Check if content differs despite high similarity (possible update)
+                result: dict[str, Any] = {
                     "duplicate": True,
                     "existing_id": dup_result.id,
                     "existing_content": dup_result.content,
                 }
+                if dup_result.content.strip() != content.strip():
+                    result["hint"] = "内容相似但有变化，如需更新请调用 update_memory(id={}, content=新内容)".format(dup_result.id)
+                return result
 
         memory = Memory(
             content=content,
@@ -1637,8 +1641,20 @@ class ChatService:
             full_system_prompt += f"\n\n[User recent mood: {latest_mood_tag}{flag}]"
         self._last_recall_results = []
         if not self.proactive_extra_prompt and latest_user_message:
+            recall_query = latest_user_message
+            # Short input fallback: use last assistant reply for better embedding
+            if len(latest_user_message.strip()) < 10:
+                last_assistant_content = next(
+                    (m.get("content") for m in reversed(messages)
+                     if m.get("role") == "assistant" and m.get("content")),
+                    None,
+                )
+                if last_assistant_content:
+                    raw_text = self._content_to_storage(last_assistant_content) if isinstance(last_assistant_content, list) else last_assistant_content
+                    if raw_text and len(raw_text.strip()) > 10:
+                        recall_query = raw_text.strip()[:200]
             recall_results = self.memory_service.fast_recall(
-                latest_user_message, limit=5, current_mood_tag=latest_mood_tag
+                recall_query, limit=5, current_mood_tag=latest_mood_tag
             )
             if recall_results:
                 self._last_recall_results = recall_results
@@ -1655,7 +1671,8 @@ class ChatService:
             "时间戳由后端自动添加，不需要在 content 里写时间。\n"
             "单条记忆不超过100字，只记关键信息。用'我'指自己，用名字/昵称指代她，避免人称混乱。\n"
             "存储时注意：涉及的人写清楚名字或昵称，避免纯代词；带 tags；选对 klass。\n"
-            "检测到偏好、重要事实、情感节点时主动存储。"
+            "检测到偏好、重要事实、情感节点时主动存储。\n"
+            "如果返回 duplicate + hint，说明已有相似记忆但内容有变化，应调用 update_memory 更新旧记忆。"
         )
         tools = [
             {
