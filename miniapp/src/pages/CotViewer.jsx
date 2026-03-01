@@ -109,7 +109,7 @@ function ThinkingBlock({ block, cacheKey, translateCache, collapsed }) {
       <div className={collapsed ? "flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
         <BlockChip block_type="thinking" />
         {collapsed && block.content && (
-          <span className="flex-1 min-w-0 truncate text-[10px] font-mono opacity-70" style={{ color: "#8860c8" }}>
+          <span className="flex-1 min-w-0 truncate text-[10px] font-mono opacity-85" style={{ color: "#8860c8" }}>
             {block.content.replace(/\n/g, " ").slice(0, 50)}
           </span>
         )}
@@ -398,7 +398,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
                         </span>
                       )}
                       {!isBlockExpanded && block.block_type === "text" && displayContent && (
-                        <span className="flex-1 min-w-0 truncate text-[10px] font-mono opacity-70" style={{ color: meta.color }}>
+                        <span className="flex-1 min-w-0 truncate text-[10px] font-mono opacity-85" style={{ color: meta.color }}>
                           {displayContent.replace(/\n/g, " ").slice(0, 50)}
                         </span>
                       )}
