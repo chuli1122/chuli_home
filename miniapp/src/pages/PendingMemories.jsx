@@ -440,11 +440,10 @@ export default function PendingMemories() {
       </div>
 
       {/* Bottom bar */}
-      {items.length > 0 && (
-        <div
-          className="shrink-0 flex gap-2 px-5 pb-5 pt-3"
-          style={{ background: S.bg, boxShadow: "0 -4px 12px rgba(0,0,0,0.05)", paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
-        >
+      <div
+        className="shrink-0 flex gap-2 px-5 pb-5 pt-3"
+        style={{ background: S.bg, boxShadow: "0 -4px 12px rgba(0,0,0,0.05)", paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
+      >
           {/* Select All 1/5 */}
           <button
             className="rounded-[14px] py-3 text-[13px] font-semibold"
@@ -492,8 +491,7 @@ export default function PendingMemories() {
           >
             保存{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
           </button>
-        </div>
-      )}
+      </div>
 
       {/* Edit modal */}
       {editing && (

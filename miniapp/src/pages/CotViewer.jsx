@@ -746,11 +746,8 @@ export default function CotViewer() {
         >
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
-        <h1 className="text-[17px] font-bold" style={{ color: S.text }}>COT 日志</h1>
-        <div className="flex items-center gap-2">
-          {wsConnected && (
-            <div className="h-2 w-2 rounded-full" style={{ background: "#2a9d5c" }} title="实时连接" />
-          )}
+        <h1 className="flex-1 text-center text-[17px] font-bold" style={{ color: S.text }}>COT 日志</h1>
+        <div className="relative flex h-10 w-10 items-center justify-center">
           <button
             className="flex h-10 w-10 items-center justify-center rounded-full"
             style={{ background: S.bg, boxShadow: loading ? "var(--inset-shadow)" : "var(--card-shadow-sm)" }}
@@ -759,6 +756,9 @@ export default function CotViewer() {
           >
             <RefreshCw size={16} style={{ color: S.accentDark }} className={loading ? "animate-spin" : ""} />
           </button>
+          {wsConnected && (
+            <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2" style={{ background: "#2a9d5c", borderColor: S.bg }} />
+          )}
         </div>
       </div>
 
@@ -864,8 +864,8 @@ export default function CotViewer() {
               <img
                 src="/miniapp/assets/decorations/翻盖机.png"
                 alt="待审记忆"
-                className="h-6 w-6"
-                style={{ imageRendering: "pixelated" }}
+                className="h-6"
+                style={{ imageRendering: "pixelated", objectFit: "contain" }}
               />
             </button>
             {pendingCount > 0 && (
