@@ -189,9 +189,9 @@ class SummaryService:
             retained_text = self._format_messages(retained_msgs, user_name, assistant_name) if retained_msgs else ""
             if retained_text.strip():
                 conversation_text = (
-                    "--- 待压缩的消息 ---\n"
+                    "--- 待压缩的消息（请为以下内容写摘要和提取记忆）---\n"
                     + trimmed_text
-                    + "\n\n--- 保留在上下文中的消息 ---\n"
+                    + "\n\n--- 以下消息不需要摘要，仅供判断最新情绪 ---\n"
                     + retained_text
                 )
             else:
@@ -203,7 +203,7 @@ class SummaryService:
             task_instructions = f"""
 系统提示：
 你正在回顾刚才的对话，为自己的记忆系统整理内容。只返回JSON，不要多余文字。
-下面的对话分为"待压缩"和"保留在上下文中"两部分，你需要对"待压缩"部分写摘要和提取记忆，保留部分仅供你理解前后文以及判断任务三的最新情绪。
+对话分两段。第一段"待压缩"是你要写摘要和提取记忆的部分。第二段"仅供判断最新情绪"的消息不要写进摘要，只用来判断任务三的情绪标签。
 
 任务一：摘要
 以第一人称视角为待压缩部分的对话写摘要，按以下结构：
@@ -231,7 +231,7 @@ class SummaryService:
 - tags：给每条记忆加1-3个短关键词标签，方便检索
 
 任务三：情绪标签
-判断当前"保留在上下文中"的最新消息里{user_name}的情绪状态，从以下选一个：
+根据第二段（仅供判断情绪的最新消息）判断{user_name}当前的情绪状态，从以下选一个：
 sad/angry/anxious/tired/emo/happy/flirty/proud/calm
 
 输出格式：
@@ -244,7 +244,7 @@ memories 为空时写 "memories": []
             else:
                 # Group session: no mood_tag
                 group_task = task_instructions.replace(
-                    f'判断当前"保留在上下文中"的最新消息里{user_name}的情绪状态，从以下选一个：\nsad/angry/anxious/tired/emo/happy/flirty/proud/calm',
+                    f'根据第二段（仅供判断情绪的最新消息）判断{user_name}当前的情绪状态，从以下选一个：\nsad/angry/anxious/tired/emo/happy/flirty/proud/calm',
                     '',
                 ).replace(', "mood_tag": "..."', '')
                 system_prompt = base_persona + "\n\n" + group_task if base_persona else group_task
