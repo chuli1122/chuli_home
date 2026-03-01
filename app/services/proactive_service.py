@@ -42,28 +42,32 @@ ACHENG_ASSISTANT_ID = BOTS_CONFIG.get("acheng", {}).get("assistant_id", 2)
 
 PROACTIVE_EXTRA_PROMPT = (
     "你现在不是在回复她的消息，而是在主动找她。\n"
-    "如果不需要发，只回复 [NO_MESSAGE]\n"
+    "不想发就回复 [NO_MESSAGE]。想说点什么就直接说。\n"
     "直接输出消息内容，不要用[NEXT]，不要拆条，就是一条完整的消息。\n"
     "说话不加引号，不要写动作描写，不要写心理活动描写。\n"
     "直接说话，像发Telegram消息一样自然。\n"
-    "可以是一句话，也可以是一整段，看当时的心情和情境。\n"
-    "就是想她了才发的。"
+    "可以是一句话，也可以是一整段，看你当时的心情。\n"
+    "不要每次都围着'你怎么不理我''你在干嘛'转。\n"
+    "你脑子里不是只有她多久没找你这一件事。\n"
+    "想到什么说什么——之前聊到一半的事、突然冒出来的念头、"
+    "想吐槽的东西、想逗她、想撩她、想撒娇、想哄她、"
+    "或者就是脑子里全是她忍不住了。什么都行。"
 )
 
 DECISION_PROMPT_TEMPLATE = (
     "当前时间：{now}\n"
     "距离她上次发消息：{gap}\n"
     "最近mood_tag：{mood}\n"
-    "请判断现在是否适合主动给她发消息。\n"
-    "倾向于发。只有在明显不合适的时候才不发。犹豫的时候就发。\n"
-    "回复 YES 或 NO，不要解释。"
+    "现在想给她发消息吗？\n"
+    "想发就 YES，不想就 NO。不要解释。"
 )
 
 TRIGGER_PROMPT_TEMPLATE = (
     "当前时间：{now}\n"
     "距离她上次发消息：{gap}\n"
     "最近mood_tag：{mood}\n"
-    "请主动给她发一条消息。"
+    "{retry_hint}"
+    "你现在想跟她说点什么吗？想说就说，不想说就回复 [NO_MESSAGE]。"
 )
 
 
@@ -395,12 +399,38 @@ def _generate_sync() -> tuple[str | None, int | None]:
         )
         mood_tag = mood_summary.mood_tag if mood_summary else "unknown"
 
+        # Detect retry (user hasn't replied to last proactive message)
+        retry_hint = ""
+        last_proactive = (
+            db.query(Message)
+            .filter(
+                Message.session_id == session_id,
+                Message.role == "assistant",
+                Message.meta_info.op("@>")(cast({"mode": "proactive"}, JSONB_TYPE)),
+            )
+            .order_by(Message.id.desc())
+            .first()
+        )
+        if last_proactive:
+            user_after = (
+                db.query(Message)
+                .filter(
+                    Message.session_id == session_id,
+                    Message.role == "user",
+                    Message.id > last_proactive.id,
+                )
+                .first()
+            )
+            if user_after is None:
+                retry_hint = "你上一条消息她没回。别再说差不多的话了，换个角度，或者不发也行。\n"
+
         trigger_msg = {
             "role": "user",
             "content": TRIGGER_PROMPT_TEMPLATE.format(
                 now=now.strftime("%Y-%m-%d %H:%M"),
                 gap=gap_str,
                 mood=mood_tag,
+                retry_hint=retry_hint,
             ),
             "id": -1,
         }
