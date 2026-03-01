@@ -224,6 +224,7 @@ class SummaryService:
 从待压缩部分提取值得长期记住的信息。
 - 对话中已通过 save_memory 存过的不要重复提取
 - 每条记忆不超过100字，用第一人称记录
+- 时间戳由后端自动添加，content里不要写日期时间
 - klass：identity / relationship / bond / conflict / fact / preference / health / task / other
 - 日常闲聊、没有新信息的内容不需要提取
 - 没有值得提取的就返回空数组
