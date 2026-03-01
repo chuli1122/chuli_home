@@ -182,45 +182,28 @@ class SummaryService:
                 logger.warning("Summary skipped: no usable message content (session_id=%s).", session_id)
                 return
 
-            # Build conversation text with context markers
+            # Build conversation text with section markers
             retained_text = self._format_messages(retained_msgs, user_name, assistant_name) if retained_msgs else ""
             if retained_text.strip():
                 conversation_text = (
-                    "=== 以下对话即将被压缩，请重点关注 ===\n"
+                    "--- 待压缩的消息 ---\n"
                     + trimmed_text
-                    + "\n\n=== 以下对话仍保留在上下文中，无需重复提取 ===\n"
+                    + "\n\n--- 保留在上下文中的消息 ---\n"
                     + retained_text
                 )
             else:
                 conversation_text = trimmed_text
 
-            # Include full assistant persona in system prompt
-            persona_snippet = ""
-            if assistant.system_prompt:
-                persona_snippet = f"\n\n你的人设：\n{assistant.system_prompt.strip()}\n"
+            # Build system prompt: full persona + summary/extraction tasks
+            base_persona = (assistant.system_prompt or "").strip()
 
-            memory_extraction_task = f"""
-任务三：记忆提取
-审查即将被压缩的对话，提取值得长期保存的信息。注意：
-- 只提取"即将被压缩"部分的记忆，"仍保留在上下文"部分不需要提取
-- 如果对话中已经调用过 save_memory 存储了某条信息，不要重复提取
-- 每条记忆不超过100字，用"我"指代{assistant_name}，用名字指代{user_name}
-- klass 从以下选择：identity、relationship、bond、conflict、fact、preference、health、task、ephemeral、other
-- importance 评分 1-5：
-  5 = 关系重大变化、重要决定
-  4 = 明确表达的偏好、重大情绪事件
-  3 = 值得记的事实、进展
-  2 = 轻量日常（一般不提取）
-  1 = 噪音（不提取）
-- 只提取 importance >= 3 的记忆，没有值得提取的就返回空数组
-"""
-
-            chat_prompt = f"""
-你是{assistant_name}，{user_name}的AI伴侣。你在为自己的记忆系统写摘要。{persona_snippet}
-只返回JSON，不要markdown代码块，不要多余文字。
+            task_instructions = f"""
+系统提示：
+你正在回顾刚才的对话，为自己的记忆系统整理内容。只返回JSON，不要多余文字。
+下面的对话分为"待压缩"和"保留在上下文中"两部分，你只需要对待压缩部分写摘要和提取记忆，保留部分仅供你理解前后文。
 
 任务一：摘要
-以{assistant_name}的视角、用"我"指代自己来写这段对话的摘要，按以下结构：
+以第一人称视角为待压缩部分的对话写摘要，按以下结构：
 
 【话题】关键词1、关键词2、关键词3（短关键词列表，3-6个）
 【人物】涉及的人物名字（没有就不写这行）
@@ -233,51 +216,33 @@ class SummaryService:
 亲密场景：只记场景设定、她表达的偏好、情绪变化，不记具体行为描写。
 如果对话中有工具调用（如存储记忆、搜索记忆等），在摘要正文中自然地概括，例如'我存储了一条关于xxx的记忆'。
 单条摘要不超过500字，尽量精简，只记关键信息。
-注意：摘要中"我"= {assistant_name}。
 
 任务二：情绪标签
-判断这段对话结束时{user_name}的情绪状态（取最后落点，不是整体或平均情绪），从以下选一个：
-- sad：难过、失落、想哭
-- angry：生气、骂人、炸了
-- anxious：焦虑、不安、怕失去
-- tired：累了、撑不住、想躺
-- emo：深夜低落、自我否定、情绪黑洞
-- happy：开心、兴奋、被逗笑
-- flirty：撒娇、调情、在钓你
-- proud：被夸之后、有成就感
-- calm：平静、正常聊天、情绪稳定
-{memory_extraction_task}
+判断当前最新对话中{user_name}的情绪状态，从以下选一个：
+sad/angry/anxious/tired/emo/happy/flirty/proud/calm
+
+任务三：记忆提取
+从待压缩部分提取值得长期记住的信息。
+- 对话中已通过 save_memory 存过的不要重复提取
+- 每条记忆不超过100字，用第一人称记录
+- klass：identity / relationship / bond / conflict / fact / preference / health / task / other
+- 日常闲聊、没有新信息的内容不需要提取
+- 没有值得提取的就返回空数组
+
 输出格式：
-{{"summary": "...", "mood_tag": "...", "memories": [{{"content": "...", "klass": "...", "importance": 3}}, ...]}}
+{{"summary": "...", "mood_tag": "...", "memories": [{{"content": "...", "klass": "..."}}, ...]}}
 memories 为空时写 "memories": []
 """.strip()
 
-            group_prompt = f"""
-你是{assistant_name}，{user_name}的AI伴侣。你在为自己的记忆系统写摘要。{persona_snippet}
-只返回JSON，不要markdown代码块，不要多余文字。
-
-任务一：摘要
-以{assistant_name}的视角、用"我"指代自己来写这段对话的摘要，按以下结构：
-
-【话题】关键词1、关键词2、关键词3（短关键词列表，3-6个）
-【人物】涉及的人物名字（没有就不写这行）
-【情绪】情绪变化（可写 A→B，如"焦虑→平静"）
-【摘要】
-摘要正文
-
-重点记录：聊了什么、做了什么决定、情绪变化、新暴露的信息。
-时间用具体描述如"2.5晚上20点左右"，不要用"刚才""昨天"这类相对时间。
-亲密场景：只记场景设定、她表达的偏好、情绪变化，不记具体行为描写。
-如果对话中有工具调用（如存储记忆、搜索记忆等），在摘要正文中自然地概括，例如'我存储了一条关于xxx的记忆'。
-单条摘要不超过500字，尽量精简，只记关键信息。
-注意：摘要中"我"= {assistant_name}。
-{memory_extraction_task}
-输出格式：
-{{"summary": "...", "memories": [{{"content": "...", "klass": "...", "importance": 3}}, ...]}}
-memories 为空时写 "memories": []
-""".strip()
-
-            system_prompt = chat_prompt if is_chat_session else group_prompt
+            if is_chat_session:
+                system_prompt = base_persona + "\n\n" + task_instructions if base_persona else task_instructions
+            else:
+                # Group session: no mood_tag
+                group_task = task_instructions.replace(
+                    f'判断当前最新对话中{user_name}的情绪状态，从以下选一个：\nsad/angry/anxious/tired/emo/happy/flirty/proud/calm',
+                    '',
+                ).replace('"mood_tag": "...", ', '')
+                system_prompt = base_persona + "\n\n" + group_task if base_persona else group_task
 
             parsed_payload: dict[str, Any] | None = None
             try:
@@ -407,12 +372,6 @@ memories 为空时写 "memories": []
             klass = mem.get("klass", "other")
             if klass not in valid_klasses:
                 klass = "other"
-            importance = mem.get("importance", 3)
-            if not isinstance(importance, int) or importance < 1 or importance > 5:
-                importance = 3
-            if importance < 3:
-                continue
-
             # Get embedding for dedup
             embedding = embedding_service.get_embedding(content)
             if embedding is None:
@@ -458,7 +417,7 @@ memories 为空时写 "memories": []
             pending = PendingMemory(
                 content=content,
                 klass=klass,
-                importance=importance,
+                importance=3,
                 embedding=embedding,
                 related_memory_id=related_id,
                 similarity=similarity,

@@ -53,7 +53,7 @@ def list_pending_memories(db: Session = Depends(get_db)):
     rows = (
         db.query(PendingMemory)
         .filter(PendingMemory.status == "pending")
-        .order_by(PendingMemory.importance.desc(), PendingMemory.created_at.desc())
+        .order_by(PendingMemory.created_at.desc())
         .all()
     )
 
