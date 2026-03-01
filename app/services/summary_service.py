@@ -228,9 +228,10 @@ sad/angry/anxious/tired/emo/happy/flirty/proud/calm
 - klass：identity / relationship / bond / conflict / fact / preference / health / task / other
 - 日常闲聊、没有新信息的内容不需要提取
 - 没有值得提取的就返回空数组
+- tags：给每条记忆加1-3个短关键词标签，方便检索
 
 输出格式：
-{{"summary": "...", "mood_tag": "...", "memories": [{{"content": "...", "klass": "..."}}, ...]}}
+{{"summary": "...", "mood_tag": "...", "memories": [{{"content": "...", "klass": "...", "tags": ["标签1", "标签2"]}}, ...]}}
 memories 为空时写 "memories": []
 """.strip()
 
@@ -372,6 +373,8 @@ memories 为空时写 "memories": []
             klass = mem.get("klass", "other")
             if klass not in valid_klasses:
                 klass = "other"
+            raw_tags = mem.get("tags", [])
+            tags = {"topic": [str(t) for t in raw_tags[:6]] if isinstance(raw_tags, list) else []}
             # Get embedding for dedup
             embedding = embedding_service.get_embedding(content)
             if embedding is None:
@@ -418,6 +421,7 @@ memories 为空时写 "memories": []
                 content=content,
                 klass=klass,
                 importance=3,
+                tags=tags,
                 embedding=embedding,
                 related_memory_id=related_id,
                 similarity=similarity,

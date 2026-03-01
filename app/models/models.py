@@ -167,6 +167,7 @@ class PendingMemory(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     klass: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
     importance: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    tags: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
     # Related existing memory (similar/conflicting)
     related_memory_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("memories.id"), nullable=True)

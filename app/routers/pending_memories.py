@@ -22,10 +22,12 @@ class PendingMemoryItem(BaseModel):
     content: str
     klass: str
     importance: int
+    tags: dict | None
     related_memory_id: int | None
     related_memory_content: str | None
     similarity: float | None
     status: str
+    summary_id: int | None
     created_at: str | None
 
 
@@ -99,10 +101,12 @@ def list_pending_memories(db: Session = Depends(get_db)):
             content=row.content,
             klass=row.klass,
             importance=row.importance,
+            tags=row.tags,
             related_memory_id=row.related_memory_id,
             related_memory_content=related_content,
             similarity=row.similarity,
             status=row.status,
+            summary_id=row.summary_id,
             created_at=row.created_at.isoformat() if row.created_at else None,
         ))
 
@@ -149,7 +153,7 @@ def confirm_pending_memories(req: ConfirmRequest, db: Session = Depends(get_db))
         now_east8 = datetime.now(timezone.utc)
         memory = Memory(
             content=pm.content,
-            tags={},
+            tags=pm.tags or {},
             source="auto_extract",
             embedding=pm.embedding,
             klass=pm.klass,
@@ -194,6 +198,7 @@ def update_existing_memory(req: UpdateExistingRequest, db: Session = Depends(get
     target.content = pm.content
     target.embedding = pm.embedding
     target.klass = pm.klass
+    target.tags = pm.tags or target.tags
     target.updated_at = datetime.now(timezone.utc)
 
     pm.status = "confirmed"

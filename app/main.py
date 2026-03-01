@@ -143,6 +143,14 @@ def _run_migrations(eng) -> None:
                 ))
             logger.info("Added merged_into column to session_summaries")
 
+    # pending_memories.tags
+    if "pending_memories" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("pending_memories")]
+        if "tags" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE pending_memories ADD COLUMN tags JSONB NOT NULL DEFAULT '{}'"))
+            logger.info("Added tags column to pending_memories")
+
     # memories.updated_at
     if "memories" in insp.get_table_names():
         cols = [c["name"] for c in insp.get_columns("memories")]
