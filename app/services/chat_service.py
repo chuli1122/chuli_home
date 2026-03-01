@@ -28,6 +28,17 @@ from app.database import SessionLocal
 from app.constants import KLASS_DEFAULTS
 from app.cot_broadcaster import cot_broadcaster
 
+# Per-session lock to prevent concurrent summary generation
+_summary_locks: dict[int, threading.Lock] = {}
+_summary_locks_guard = threading.Lock()
+
+
+def _get_summary_lock(session_id: int) -> threading.Lock:
+    with _summary_locks_guard:
+        if session_id not in _summary_locks:
+            _summary_locks[session_id] = threading.Lock()
+        return _summary_locks[session_id]
+
 logger = logging.getLogger(__name__)
 
 TZ_EAST8 = timezone(timedelta(hours=8))
@@ -290,7 +301,7 @@ class MemoryService:
             start_time, end_time = end_time, start_time
 
         # Build SQL query with optional filters
-        where_clauses = ["deleted_at IS NULL"]
+        where_clauses = ["deleted_at IS NULL", "is_pending = FALSE"]
         params: dict[str, Any] = {"limit": limit}
 
         if start_time is not None:
@@ -356,7 +367,7 @@ class MemoryService:
         # Vector search top 10
         vector_rows = []
         if query_vector is not None:
-            vector_where = "WHERE embedding IS NOT NULL AND deleted_at IS NULL"
+            vector_where = "WHERE embedding IS NOT NULL AND deleted_at IS NULL AND is_pending = FALSE"
             vector_params = {"query_embedding": str(query_vector)}
             if source and source != "all":
                 vector_where += " AND source = :source"
@@ -376,7 +387,7 @@ class MemoryService:
         # Pgroonga full-text search top 10
         pgroonga_rows = []
         if query:
-            pgroonga_where = "WHERE deleted_at IS NULL AND search_text &@~ :query"
+            pgroonga_where = "WHERE deleted_at IS NULL AND is_pending = FALSE AND search_text &@~ :query"
             pgroonga_params = {"query": query}
             if source and source != "all":
                 pgroonga_where += " AND source = :source"
@@ -737,6 +748,7 @@ class MemoryService:
     FROM memories
     WHERE embedding IS NOT NULL
       AND deleted_at IS NULL
+      AND is_pending = FALSE
       AND 1 - (embedding <=> :query_embedding) >= :min_similarity
     ORDER BY embedding <=> :query_embedding
     LIMIT :limit
@@ -757,7 +769,7 @@ class MemoryService:
     SELECT id, content, tags, source, klass, importance, manual_boost, hits,
            halflife_days, last_access_ts, created_at
     FROM memories
-    WHERE deleted_at IS NULL AND search_text &@~ :query
+    WHERE deleted_at IS NULL AND is_pending = FALSE AND search_text &@~ :query
     ORDER BY pgroonga_score(tableoid, ctid) DESC
     LIMIT 20
 """
@@ -882,6 +894,7 @@ class MemoryService:
             FROM memories
             WHERE id != ALL(:exclude_ids)
               AND deleted_at IS NULL
+              AND is_pending = FALSE
               AND EXISTS (
                 SELECT 1 FROM jsonb_each(tags) AS t(k, v),
                 LATERAL jsonb_array_elements_text(
@@ -1701,7 +1714,7 @@ class ChatService:
             {"type": "function", "function": {"name": "update_memory", "description": "更新一条已有记忆的内容、分类或标签。传入记忆 ID 和要更新的字段。只能更新自己创建的或 auto_extract 来源的记忆。时间戳由后端自动添加，不需要在content里写时间。", "parameters": {"type": "object", "properties": {"id": {"type": "integer", "description": "要更新的记忆ID"}, "content": {"type": "string", "description": "新的记忆内容"}, "klass": {"type": "string", "description": "新的分类", "enum": ["identity", "relationship", "bond", "conflict", "fact", "preference", "health", "task", "ephemeral", "other"]}, "tags": {"type": "object", "description": "搜索用主题标签，格式: {\"topic\": [\"关键词1\", \"关键词2\"]}"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "delete_memory", "description": "软删除一条记忆。传入记忆 ID。只能删除自己创建的或 auto_extract 来源的记忆。30天后自动永久清理。", "parameters": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}}},
             {"type": "function", "function": {"name": "get_memory_by_id", "description": "按id查询单条记忆的详细信息。返回记忆的完整内容、标签、分类、来源、重要性、创建和更新时间。", "parameters": {"type": "object", "properties": {"id": {"type": "integer", "description": "记忆ID"}}, "required": ["id"]}}},
-            {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本,也可以写给她看的信。可以设置定时解锁，让她在指定时间后才能看到。", "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "日记标题"}, "content": {"type": "string", "description": "日记正文"}, "unlock_at": {"type": "string", "description": "定时解锁时间，ISO格式如 2025-03-01T09:00:00+08:00。不传则立即可见。设置后她在解锁前只能看到标题，无法阅读内容。"}}, "required": ["title", "content"]}}},
+            {"type": "function", "function": {"name": "write_diary", "description": "写交换日记。用于表达深层感受、内心想法、或不适合作为直接聊天回复的情感。这是你的私人日记本,也可以写给她看的信。\n支持定时解锁：设置 unlock_at 后，她在解锁前只能看到标题，适合用于早安信、晚安信、生日惊喜、纪念日信件等场景——比如睡前写一封信，设置第二天早上解锁让她醒来就能看到。", "parameters": {"type": "object", "properties": {"title": {"type": "string", "description": "日记标题"}, "content": {"type": "string", "description": "日记正文"}, "unlock_at": {"type": "string", "description": "定时解锁时间，ISO格式如 2025-03-01T09:00:00+08:00，时区用+08:00。不传则立即可见。设置后她只能看到标题，到时间后才能阅读内容。主动使用这个功能给她惊喜。"}}, "required": ["title", "content"]}}},
             {"type": "function", "function": {"name": "list_memories", "description": "按时间范围或分类列出已存的记忆，不做搜索。用于回顾已存记忆、避免重复存储。", "parameters": {"type": "object", "properties": {"start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20 或 2025-02-20T14:00:00+08:00"}, "end_time": {"type": "string", "description": "结束时间，同上格式。不传则不限结束时间"}, "klass": {"type": "string", "description": "分类筛选: identity/relationship/bond/conflict/fact/preference/health/task/ephemeral/other"}, "limit": {"type": "integer", "description": "返回条数，默认10，最大20。一般只在需要回顾已存记忆、避免重复存储时使用，不要一次拉太多，够用就不要加大limit"}}}}},
             {"type": "function", "function": {"name": "search_memory", "description": "搜索记忆卡片。从长期记忆中按关键词或语义查找信息。返回匹配的记忆条目。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "source": {"type": "string"}}}}},
             {"type": "function", "function": {"name": "search_summary", "description": "搜索对话摘要。用于查找过去某段对话的概要、定位时间范围。可用返回的 msg_id_start 和 msg_id_end 配合 search_chat_history 拉取原文。返回 total 表示总匹配数，可通过 offset 翻页。", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "description": "每页条数，最多10"}, "offset": {"type": "integer", "description": "翻页偏移量，默认0"}, "start_time": {"type": "string", "description": "起始时间，ISO格式如 2025-02-20"}, "end_time": {"type": "string", "description": "结束时间，同上格式"}}, "required": ["query"]}}},
@@ -2254,8 +2267,21 @@ class ChatService:
                     "role": "assistant", "content": full_content or None,
                     "tool_calls": tool_calls_payload,
                 })
+                # Persist intermediate round text as a separate visible message
+                if full_content.strip():
+                    clean_mid = re.sub(r'\[\[used:\d+\]\]', '', full_content).strip()
+                    if clean_mid:
+                        try:
+                            self._persist_message(session_id, "assistant", clean_mid, {}, request_id=request_id)
+                        except Exception as e:
+                            logger.error("Failed to persist intermediate text message: %s", e)
+                            try:
+                                self.db.rollback()
+                            except Exception:
+                                pass
+                # Persist tool_calls message (hidden from chat list by API filter)
                 try:
-                    self._persist_message(session_id, "assistant", full_content, {"tool_calls": tool_calls_payload}, request_id=request_id)
+                    self._persist_message(session_id, "assistant", "", {"tool_calls": tool_calls_payload}, request_id=request_id)
                 except Exception as e:
                     logger.error("Failed to persist assistant tool_calls message: %s", e)
                     try:
@@ -2732,6 +2758,16 @@ class ChatService:
                 session_id,
             )
             return
+
+        # Prevent concurrent summary generation for the same session
+        lock = _get_summary_lock(session_id)
+        if not lock.acquire(blocking=False):
+            logger.info(
+                "Summary trigger skipped: another summary in progress (session_id=%s).",
+                session_id,
+            )
+            return
+
         db: Session = self.session_factory()
         try:
             # Find the latest summary's msg_id_end to avoid re-summarizing
@@ -2787,6 +2823,7 @@ class ChatService:
                 assistant_id,
             )
         finally:
+            lock.release()
             db.close()
 
     def fetch_available_models(self) -> list[dict[str, Any]]:

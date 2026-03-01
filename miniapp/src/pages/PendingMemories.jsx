@@ -401,18 +401,18 @@ export default function PendingMemories() {
         >
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
-        <h1 className="text-[17px] font-bold" style={{ color: S.text }}>待审记忆</h1>
+        <h1 className="text-[17px] font-bold" style={{ color: S.text }}>摘要提取记忆</h1>
         <div className="w-10" /> {/* spacer */}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-5 pb-28">
+      <div className="flex-1 overflow-y-auto px-5 pb-6 pt-3">
         {loading ? (
           <div className="flex justify-center py-16">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-t-transparent" style={{ borderColor: `${S.accentDark} transparent ${S.accentDark} ${S.accentDark}` }} />
           </div>
         ) : items.length === 0 ? (
-          <p className="py-16 text-center text-[13px]" style={{ color: S.textMuted }}>没有待审记忆</p>
+          <p className="py-16 text-center text-[13px]" style={{ color: S.textMuted }}>没有待审的提取记忆</p>
         ) : (
           groups.map((group, gi) => (
             <div key={gi}>
@@ -428,7 +428,7 @@ export default function PendingMemories() {
                     setDialog({
                       type: "overwrite",
                       title: "覆盖确认",
-                      message: `确定用这条待审记忆覆盖已有记忆 #${item.related_memory_id} 吗？`,
+                      message: `确定用这条提取记忆覆盖已有记忆 #${item.related_memory_id} 吗？`,
                       onConfirm: () => handleOverwrite(item.id, item.related_memory_id),
                     });
                   }}
@@ -439,10 +439,10 @@ export default function PendingMemories() {
         )}
       </div>
 
-      {/* Bottom bar — fixed to avoid Telegram viewport issues */}
+      {/* Bottom bar */}
       <div
-        className="fixed bottom-0 left-0 right-0 flex gap-2 px-5 pb-5 pt-3 z-10"
-        style={{ background: S.bg, boxShadow: "0 -4px 12px rgba(0,0,0,0.05)", paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
+        className="flex shrink-0 gap-2 px-5 pb-5 pt-3"
+        style={{ background: S.bg, paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
       >
           {/* Select All 1/5 */}
           <button
@@ -461,7 +461,7 @@ export default function PendingMemories() {
               setDialog({
                 type: "dismiss",
                 title: "删除确认",
-                message: `确定删除选中的 ${selectedIds.size} 条记忆？\n删除后可在待审记忆回收站恢复`,
+                message: `确定删除选中的 ${selectedIds.size} 条记忆？\n删除后可在记忆回收站恢复`,
                 confirmLabel: "删除",
                 confirmColor: "#ef4444",
                 onConfirm: handleDismiss,

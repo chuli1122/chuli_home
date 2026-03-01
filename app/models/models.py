@@ -156,6 +156,7 @@ class Memory(Base):
     last_access_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    is_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
@@ -164,6 +165,9 @@ class PendingMemory(Base):
     __tablename__ = "pending_memories"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Link to the real Memory entry (new architecture)
+    memory_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("memories.id"), nullable=True)
+    # Legacy fields (kept for old data, new entries use Memory directly)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     klass: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
     importance: Mapped[int] = mapped_column(Integer, nullable=False, default=3)

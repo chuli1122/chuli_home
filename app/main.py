@@ -159,6 +159,22 @@ def _run_migrations(eng) -> None:
                 conn.execute(text("ALTER TABLE memories ADD COLUMN updated_at TIMESTAMPTZ"))
             logger.info("Added updated_at column to memories")
 
+    # memories.is_pending
+    if "memories" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("memories")]
+        if "is_pending" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE memories ADD COLUMN is_pending BOOLEAN NOT NULL DEFAULT FALSE"))
+            logger.info("Added is_pending column to memories")
+
+    # pending_memories.memory_id
+    if "pending_memories" in insp.get_table_names():
+        cols = [c["name"] for c in insp.get_columns("pending_memories")]
+        if "memory_id" not in cols:
+            with eng.begin() as conn:
+                conn.execute(text("ALTER TABLE pending_memories ADD COLUMN memory_id INTEGER REFERENCES memories(id)"))
+            logger.info("Added memory_id column to pending_memories")
+
 
 @app.on_event("startup")
 async def on_startup() -> None:

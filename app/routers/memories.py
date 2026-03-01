@@ -95,7 +95,7 @@ def list_memories(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ) -> MemoriesResponse:
-    query = db.query(Memory).filter(Memory.deleted_at.is_(None))
+    query = db.query(Memory).filter(Memory.deleted_at.is_(None), Memory.is_pending.is_(False))
     if klass:
         query = query.filter(Memory.klass == klass)
     if source:
@@ -138,7 +138,7 @@ def update_memory(
 ) -> MemoryItem:
     memory = (
         db.query(Memory)
-        .filter(Memory.id == memory_id, Memory.deleted_at.is_(None))
+        .filter(Memory.id == memory_id, Memory.deleted_at.is_(None), Memory.is_pending.is_(False))
         .first()
     )
     if not memory:
@@ -234,6 +234,7 @@ def batch_delete_memories(
     deleted = db.query(Memory).filter(
         Memory.id.in_(payload.ids),
         Memory.deleted_at.is_(None),
+        Memory.is_pending.is_(False),
     ).update({Memory.deleted_at: now}, synchronize_session=False)
     db.commit()
     return BatchDeleteResponse(deleted=deleted)
@@ -255,7 +256,7 @@ def delete_memory_permanent(
 def delete_memory(memory_id: int, db: Session = Depends(get_db)) -> MemoryDeleteResponse:
     memory = (
         db.query(Memory)
-        .filter(Memory.id == memory_id, Memory.deleted_at.is_(None))
+        .filter(Memory.id == memory_id, Memory.deleted_at.is_(None), Memory.is_pending.is_(False))
         .first()
     )
     if not memory:

@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.constants import KLASS_DEFAULTS
 from app.database import get_db
 from app.models.models import Memory, PendingMemory
 
@@ -18,10 +17,11 @@ router = APIRouter()
 
 
 class PendingMemoryItem(BaseModel):
-    id: int
+    id: int  # real Memory id
+    pending_id: int  # PendingMemory id
     content: str
     klass: str
-    importance: int
+    importance: float
     tags: dict | None
     related_memory_id: int | None
     related_memory_content: str | None
@@ -37,11 +37,11 @@ class PendingMemoriesResponse(BaseModel):
 
 
 class ConfirmRequest(BaseModel):
-    ids: list[int]
+    ids: list[int]  # Memory ids
 
 
 class DismissRequest(BaseModel):
-    ids: list[int]
+    ids: list[int]  # Memory ids
 
 
 class EditPendingRequest(BaseModel):
@@ -51,8 +51,34 @@ class EditPendingRequest(BaseModel):
 
 
 class UpdateExistingRequest(BaseModel):
-    pending_id: int
-    target_memory_id: int
+    pending_id: int  # Memory id of pending entry
+    target_memory_id: int  # Memory id to overwrite
+
+
+def _get_memory_for_pending(pm: PendingMemory, db: Session) -> Memory | None:
+    """Get the real Memory entry linked to a PendingMemory.
+    For legacy entries (no memory_id), migrate by creating a real Memory."""
+    if pm.memory_id:
+        return db.get(Memory, pm.memory_id)
+
+    # Legacy migration: create a real Memory from old PendingMemory data
+    from app.constants import KLASS_DEFAULTS
+    klass_config = KLASS_DEFAULTS.get(pm.klass, KLASS_DEFAULTS["other"])
+    memory = Memory(
+        content=pm.content,
+        klass=pm.klass,
+        tags=pm.tags or {},
+        embedding=pm.embedding,
+        source="auto_extract",
+        importance=klass_config["importance"],
+        halflife_days=klass_config["halflife_days"],
+        is_pending=True,
+        created_at=pm.created_at,
+    )
+    db.add(memory)
+    db.flush()  # get memory.id
+    pm.memory_id = memory.id
+    return memory
 
 
 @router.get("/pending-memories", response_model=PendingMemoriesResponse)
@@ -67,22 +93,34 @@ def list_pending_memories(db: Session = Depends(get_db)):
 
     items: list[PendingMemoryItem] = []
     for row in rows:
-        # Re-check: has a very similar memory been saved since extraction?
-        if row.embedding is not None:
+        memory = _get_memory_for_pending(row, db)
+        if not memory or memory.deleted_at:
+            # Memory was deleted externally — auto-resolve
+            row.status = "auto_resolved"
+            row.resolved_at = datetime.now(timezone.utc)
+            continue
+
+        # Re-check: has a very similar confirmed memory been saved since extraction?
+        if memory.embedding is not None:
+            emb_str = str([float(x) for x in memory.embedding])
             dup_sql = text("""
                 SELECT id, content, 1 - (embedding <=> :query_embedding) AS similarity
                 FROM memories
                 WHERE embedding IS NOT NULL AND deleted_at IS NULL
+                  AND is_pending = FALSE
                 ORDER BY embedding <=> :query_embedding
                 LIMIT 1
             """)
-            dup = db.execute(dup_sql, {"query_embedding": str([float(x) for x in row.embedding])}).first()
+            dup = db.execute(dup_sql, {"query_embedding": emb_str}).first()
             if dup and dup.similarity > 0.88:
-                # Auto-resolve: an equivalent memory now exists
+                # Auto-resolve: an equivalent confirmed memory now exists
                 row.status = "auto_resolved"
                 row.related_memory_id = dup.id
                 row.similarity = round(dup.similarity, 3)
                 row.resolved_at = datetime.now(timezone.utc)
+                # Also clean up the pending Memory entry
+                memory.deleted_at = datetime.now(timezone.utc)
+                memory.is_pending = False
                 db.commit()
                 continue
             # Update related memory info (may have changed)
@@ -90,7 +128,6 @@ def list_pending_memories(db: Session = Depends(get_db)):
                 row.related_memory_id = dup.id
                 row.similarity = round(dup.similarity, 3)
             elif row.related_memory_id:
-                # Check if related memory still exists
                 existing = db.get(Memory, row.related_memory_id)
                 if not existing or existing.deleted_at:
                     row.related_memory_id = None
@@ -103,17 +140,18 @@ def list_pending_memories(db: Session = Depends(get_db)):
                 related_content = related.content
 
         items.append(PendingMemoryItem(
-            id=row.id,
-            content=row.content,
-            klass=row.klass,
-            importance=row.importance,
-            tags=row.tags,
+            id=memory.id,
+            pending_id=row.id,
+            content=memory.content,
+            klass=memory.klass,
+            importance=memory.importance,
+            tags=memory.tags,
             related_memory_id=row.related_memory_id,
             related_memory_content=related_content,
             similarity=row.similarity,
             status=row.status,
             summary_id=row.summary_id,
-            created_at=row.created_at.isoformat() if row.created_at else None,
+            created_at=memory.created_at.isoformat() if memory.created_at else None,
         ))
 
     db.commit()  # persist any updated related_memory_id/similarity
@@ -129,44 +167,46 @@ def pending_memory_count(db: Session = Depends(get_db)):
 
 @router.post("/pending-memories/confirm")
 def confirm_pending_memories(req: ConfirmRequest, db: Session = Depends(get_db)):
-    """Confirm pending memories — save them as real memories."""
-    from app.services.embedding_service import EmbeddingService
-
+    """Confirm pending memories — just flip is_pending to False."""
     saved = 0
     skipped = 0
-    for pid in req.ids:
-        pm = db.get(PendingMemory, pid)
-        if not pm or pm.status != "pending":
+    for memory_id in req.ids:
+        # Find the PendingMemory by memory_id
+        pm = (
+            db.query(PendingMemory)
+            .filter(PendingMemory.memory_id == memory_id, PendingMemory.status == "pending")
+            .first()
+        )
+        if not pm:
             skipped += 1
             continue
 
-        # Final dedup check before saving
-        if pm.embedding is not None:
+        memory = db.get(Memory, memory_id)
+        if not memory or memory.deleted_at:
+            skipped += 1
+            continue
+
+        # Final dedup check against confirmed memories
+        if memory.embedding is not None:
+            emb_str = str([float(x) for x in memory.embedding])
             dup_sql = text("""
                 SELECT id FROM memories
                 WHERE embedding IS NOT NULL AND deleted_at IS NULL
+                  AND is_pending = FALSE
                   AND 1 - (embedding <=> :query_embedding) > 0.88
                 LIMIT 1
             """)
-            dup = db.execute(dup_sql, {"query_embedding": str([float(x) for x in pm.embedding])}).first()
+            dup = db.execute(dup_sql, {"query_embedding": emb_str}).first()
             if dup:
                 pm.status = "auto_resolved"
                 pm.resolved_at = datetime.now(timezone.utc)
+                memory.deleted_at = datetime.now(timezone.utc)
+                memory.is_pending = False
                 skipped += 1
                 continue
 
-        klass_config = KLASS_DEFAULTS.get(pm.klass, KLASS_DEFAULTS["other"])
-        now_east8 = datetime.now(timezone.utc)
-        memory = Memory(
-            content=pm.content,
-            tags=pm.tags or {},
-            source="auto_extract",
-            embedding=pm.embedding,
-            klass=pm.klass,
-            importance=klass_config["importance"],
-            halflife_days=klass_config["halflife_days"],
-        )
-        db.add(memory)
+        # Confirm: just flip the flag
+        memory.is_pending = False
         pm.status = "confirmed"
         pm.resolved_at = datetime.now(timezone.utc)
         saved += 1
@@ -177,61 +217,87 @@ def confirm_pending_memories(req: ConfirmRequest, db: Session = Depends(get_db))
 
 @router.post("/pending-memories/dismiss")
 def dismiss_pending_memories(req: DismissRequest, db: Session = Depends(get_db)):
-    """Dismiss pending memories."""
+    """Dismiss pending memories — soft-delete the Memory entry."""
     dismissed = 0
-    for pid in req.ids:
-        pm = db.get(PendingMemory, pid)
-        if not pm or pm.status != "pending":
+    for memory_id in req.ids:
+        pm = (
+            db.query(PendingMemory)
+            .filter(PendingMemory.memory_id == memory_id, PendingMemory.status == "pending")
+            .first()
+        )
+        if not pm:
             continue
+
+        memory = db.get(Memory, memory_id)
+        if memory:
+            memory.deleted_at = datetime.now(timezone.utc)
+            memory.is_pending = False
+
         pm.status = "dismissed"
         pm.resolved_at = datetime.now(timezone.utc)
         dismissed += 1
+
     db.commit()
     return {"dismissed": dismissed}
 
 
-@router.patch("/pending-memories/{pid}")
-def edit_pending_memory(pid: int, req: EditPendingRequest, db: Session = Depends(get_db)):
-    """Edit a pending memory's content, klass, or tags."""
+@router.patch("/pending-memories/{memory_id}")
+def edit_pending_memory(memory_id: int, req: EditPendingRequest, db: Session = Depends(get_db)):
+    """Edit a pending memory's content, klass, or tags (edits the real Memory)."""
     from app.services.embedding_service import EmbeddingService
 
-    pm = db.get(PendingMemory, pid)
-    if not pm or pm.status != "pending":
+    memory = db.get(Memory, memory_id)
+    if not memory or not memory.is_pending or memory.deleted_at:
         raise HTTPException(status_code=404, detail="Pending memory not found")
 
     if req.content is not None and req.content.strip():
-        pm.content = req.content.strip()
+        memory.content = req.content.strip()
         embedding_service = EmbeddingService()
-        new_emb = embedding_service.get_embedding(pm.content)
+        new_emb = embedding_service.get_embedding(memory.content)
         if new_emb is not None:
-            pm.embedding = new_emb
+            memory.embedding = new_emb
     if req.klass is not None:
-        pm.klass = req.klass
+        memory.klass = req.klass
     if req.tags is not None:
-        pm.tags = req.tags
+        memory.tags = req.tags
 
+    memory.updated_at = datetime.now(timezone.utc)
     db.commit()
-    return {"id": pm.id, "content": pm.content, "klass": pm.klass, "tags": pm.tags}
+    return {"id": memory.id, "content": memory.content, "klass": memory.klass, "tags": memory.tags}
 
 
 @router.post("/pending-memories/update-existing")
 def update_existing_memory(req: UpdateExistingRequest, db: Session = Depends(get_db)):
-    """Replace an existing memory's content with a pending memory's content."""
-    pm = db.get(PendingMemory, req.pending_id)
-    if not pm or pm.status != "pending":
+    """Overwrite an existing memory with a pending memory's content."""
+    # pending_id here is the Memory id of the pending entry
+    pending_memory = db.get(Memory, req.pending_id)
+    if not pending_memory or not pending_memory.is_pending or pending_memory.deleted_at:
         raise HTTPException(status_code=404, detail="Pending memory not found")
+
+    pm = (
+        db.query(PendingMemory)
+        .filter(PendingMemory.memory_id == req.pending_id, PendingMemory.status == "pending")
+        .first()
+    )
 
     target = db.get(Memory, req.target_memory_id)
     if not target or target.deleted_at:
         raise HTTPException(status_code=404, detail="Target memory not found")
 
-    target.content = pm.content
-    target.embedding = pm.embedding
-    target.klass = pm.klass
-    target.tags = pm.tags or target.tags
+    # Overwrite target with pending memory's content
+    target.content = pending_memory.content
+    target.embedding = pending_memory.embedding
+    target.klass = pending_memory.klass
+    target.tags = pending_memory.tags or target.tags
     target.updated_at = datetime.now(timezone.utc)
 
-    pm.status = "confirmed"
-    pm.resolved_at = datetime.now(timezone.utc)
+    # Soft-delete the pending Memory entry (content now lives in target)
+    pending_memory.deleted_at = datetime.now(timezone.utc)
+    pending_memory.is_pending = False
+
+    if pm:
+        pm.status = "confirmed"
+        pm.resolved_at = datetime.now(timezone.utc)
+
     db.commit()
     return {"updated_memory_id": target.id, "content": target.content}

@@ -23,6 +23,7 @@ class MaintenanceService:
             .filter(
                 Memory.klass.in_(["ephemeral", "task"]),
                 Memory.deleted_at.is_(None),
+                Memory.is_pending.is_(False),
             )
             .all()
         )
@@ -77,6 +78,8 @@ WHERE a.embedding IS NOT NULL
   AND b.embedding IS NOT NULL
   AND a.deleted_at IS NULL
   AND b.deleted_at IS NULL
+  AND a.is_pending = FALSE
+  AND b.is_pending = FALSE
   AND 1 - (a.embedding <=> b.embedding) > :threshold
 ORDER BY similarity DESC
 LIMIT 50

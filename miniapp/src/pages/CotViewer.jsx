@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronUp, ChevronLeft, RefreshCw, Cpu } from "lucide-react";
 import { apiFetch } from "../utils/api";
@@ -17,6 +17,7 @@ const BLOCK_COLORS = {
   tool_use: { bg: "rgba(232,160,60,0.12)", color: "#b8820a", label: "工具调用" },
   tool_result: { bg: "rgba(80,160,200,0.12)", color: "#1a7ab0", label: "工具结果" },
   injected_memories: { bg: "rgba(80,180,120,0.12)", color: "#3a8a5f", label: "注入记忆" },
+  text: { bg: "rgba(232,160,191,0.08)", color: "#c9628a", label: "回复" },
 };
 
 const MODES = [
@@ -80,7 +81,7 @@ function BlockContent({ content }) {
 
 /* ── Thinking block with translate ── */
 
-function ThinkingBlock({ block, cacheKey, translateCache }) {
+function ThinkingBlock({ block, cacheKey, translateCache, collapsed }) {
   const cached = translateCache.current.get(cacheKey);
   const [translated, setTranslated] = useState(cached || null);
   const [showTranslated, setShowTranslated] = useState(!!cached);
@@ -105,19 +106,23 @@ function ThinkingBlock({ block, cacheKey, translateCache }) {
 
   return (
     <div className="mb-2 rounded-[12px] p-3" style={{ background: meta.bg }}>
-      <div className="mb-1 flex items-center gap-2">
+      <div className={collapsed ? "flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
         <BlockChip block_type="thinking" />
-        <span className="flex-1" />
-        <button
-          className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-          style={{ color: "#1a7ab0", background: "rgba(80,160,200,0.15)" }}
-          onClick={handleTranslate}
-          disabled={translating}
-        >
-          {translating ? "翻译中..." : showTranslated ? "原文" : "翻译"}
-        </button>
+        {!collapsed && (
+          <>
+            <span className="flex-1" />
+            <button
+              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{ color: "#1a7ab0", background: "rgba(80,160,200,0.15)" }}
+              onClick={handleTranslate}
+              disabled={translating}
+            >
+              {translating ? "翻译中..." : showTranslated ? "原文" : "翻译"}
+            </button>
+          </>
+        )}
       </div>
-      <BlockContent content={showTranslated && translated ? translated : block.content} />
+      {!collapsed && <BlockContent content={showTranslated && translated ? translated : block.content} />}
     </div>
   );
 }
@@ -153,8 +158,6 @@ function fmtElapsed(ms) {
 }
 
 function TokenBadges({ prompt, completion, elapsedMs, hasToolCalls, cacheHit, totalInput }) {
-  // Show badges if we have any non-zero values OR if there were tool calls
-  // (tool calls consume tokens even if final response is empty)
   const hasAnyValue = prompt || completion || elapsedMs;
   if (!hasAnyValue && !hasToolCalls) return null;
 
@@ -188,27 +191,24 @@ function TokenBadges({ prompt, completion, elapsedMs, hasToolCalls, cacheHit, to
 }
 
 function pairToolBlocks(blocks) {
-  // Reorder blocks: thinking first, then paired tool_use→tool_result
-  const thinking = [];
+  // Keep thinking/text in natural order, only interleave tool_use→tool_result pairs
+  const nonTool = [];
   const toolUses = [];
   const toolResults = [];
-  const other = [];
   for (const b of blocks) {
-    if (b.block_type === "thinking") thinking.push(b);
-    else if (b.block_type === "tool_use") toolUses.push(b);
+    if (b.block_type === "tool_use") toolUses.push(b);
     else if (b.block_type === "tool_result") toolResults.push(b);
-    else other.push(b);
+    else nonTool.push(b);
   }
   const paired = [];
   for (let i = 0; i < toolUses.length; i++) {
     paired.push(toolUses[i]);
     if (i < toolResults.length) paired.push(toolResults[i]);
   }
-  // Remaining tool_results without matching tool_use
   for (let i = toolUses.length; i < toolResults.length; i++) {
     paired.push(toolResults[i]);
   }
-  return [...thinking, ...paired, ...other];
+  return [...nonTool, ...paired];
 }
 
 function InjectedMemoriesBlock({ memories }) {
@@ -238,12 +238,54 @@ function InjectedMemoriesBlock({ memories }) {
 }
 
 function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) {
-  // Filter out "text" and "usage" blocks, reorder for paired tool display
-  const filteredRounds = item.rounds.map((round) => ({
+  const [expandedBlocks, setExpandedBlocks] = useState(new Set());
+  const pointerStart = useRef(null);
+
+  // Filter out "usage" blocks only; keep text blocks in natural position
+  const displayRounds = item.rounds.map((round) => ({
     ...round,
-    blocks: pairToolBlocks(round.blocks.filter((b) => b.block_type !== "text" && b.block_type !== "usage")),
+    blocks: pairToolBlocks(round.blocks.filter((b) => b.block_type !== "usage")),
   })).filter((round) => round.blocks.length > 0);
-  const hasContent = filteredRounds.length > 0 || (item.injectedMemories && item.injectedMemories.length > 0) || (live && item.textPreview);
+
+  // Determine which block is currently streaming (auto-expand)
+  const streamingBlockKey = useMemo(() => {
+    if (!live || displayRounds.length === 0) return null;
+    const lastRound = displayRounds[displayRounds.length - 1];
+    for (let i = lastRound.blocks.length - 1; i >= 0; i--) {
+      if (lastRound.blocks[i].block_type === "thinking" || lastRound.blocks[i].block_type === "text") {
+        return `${lastRound.round_index}:${i}`;
+      }
+    }
+    return null;
+  }, [live, displayRounds]);
+
+  // Collapse all blocks when streaming ends
+  useEffect(() => {
+    if (!live) setExpandedBlocks(new Set());
+  }, [live]);
+
+  const hasContent = displayRounds.length > 0 || (item.injectedMemories && item.injectedMemories.length > 0);
+
+  // Pointer tracking for tap vs scroll detection
+  const handlePointerDown = (e) => {
+    pointerStart.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handlePointerUp = (e, blockKey) => {
+    if (!pointerStart.current) return;
+    if (e.target.closest("button")) { pointerStart.current = null; return; }
+    const dx = Math.abs(e.clientX - pointerStart.current.x);
+    const dy = Math.abs(e.clientY - pointerStart.current.y);
+    pointerStart.current = null;
+    if (dx < 10 && dy < 10) {
+      setExpandedBlocks((prev) => {
+        const next = new Set(prev);
+        if (next.has(blockKey)) next.delete(blockKey);
+        else next.add(blockKey);
+        return next;
+      });
+    }
+  };
 
   return (
     <div className="rounded-[18px] overflow-hidden" style={{ background: S.bg }}>
@@ -293,9 +335,9 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
           {/* Injected memories */}
           <InjectedMemoriesBlock memories={item.injectedMemories} />
 
-          {filteredRounds.map((round) => (
+          {displayRounds.map((round) => (
             <div key={round.round_index} className="mb-3">
-              {filteredRounds.length > 1 && (
+              {displayRounds.length > 1 && (
                 <div className="mb-2 flex items-center gap-2">
                   <div className="h-px flex-1" style={{ background: "rgba(136,136,160,0.15)" }} />
                   <span className="text-[10px] font-semibold" style={{ color: S.textMuted }}>
@@ -305,13 +347,45 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
                 </div>
               )}
               {round.blocks.map((block, i) => {
+                const blockKey = `${round.round_index}:${i}`;
+                const isBlockExpanded = expandedBlocks.has(blockKey) || blockKey === streamingBlockKey;
+
                 if (block.block_type === "thinking") {
-                  return <ThinkingBlock key={i} block={block} cacheKey={`${item.request_id}:${round.round_index}:${i}`} translateCache={translateCache} />;
+                  return (
+                    <div
+                      key={i}
+                      onPointerDown={handlePointerDown}
+                      onPointerUp={(e) => handlePointerUp(e, blockKey)}
+                    >
+                      <ThinkingBlock
+                        block={block}
+                        cacheKey={`${item.request_id}:${round.round_index}:${i}`}
+                        translateCache={translateCache}
+                        collapsed={!isBlockExpanded}
+                      />
+                    </div>
+                  );
                 }
+
+                // Sanitize write_diary: only show title, hide content
+                let displayContent = block.content;
+                if (block.block_type === "tool_use" && block.tool_name === "write_diary") {
+                  try {
+                    const args = JSON.parse(block.content);
+                    displayContent = `📝 ${args.title || ""}${args.unlock_at ? `\n🔒 ${args.unlock_at}` : ""}`;
+                  } catch { /* keep original */ }
+                }
+
                 const meta = BLOCK_COLORS[block.block_type] || { bg: "rgba(136,136,160,0.08)", color: S.textMuted, label: block.block_type };
                 return (
-                  <div key={i} className="mb-2 rounded-[12px] p-3" style={{ background: meta.bg }}>
-                    <div className="mb-1 flex items-center gap-2">
+                  <div
+                    key={i}
+                    className="mb-2 rounded-[12px] p-3"
+                    style={{ background: meta.bg }}
+                    onPointerDown={handlePointerDown}
+                    onPointerUp={(e) => handlePointerUp(e, blockKey)}
+                  >
+                    <div className={isBlockExpanded ? "mb-1 flex items-center gap-2" : "flex items-center gap-2"}>
                       <BlockChip block_type={block.block_type} />
                       {block.tool_name && (
                         <span className="text-[10px] font-mono" style={{ color: meta.color }}>
@@ -319,26 +393,12 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
                         </span>
                       )}
                     </div>
-                    <BlockContent content={block.content} />
+                    {isBlockExpanded && <BlockContent content={displayContent} />}
                   </div>
                 );
               })}
             </div>
           ))}
-
-          {/* Text preview (live streaming reply) */}
-          {live && item.textPreview && (
-            <div className="rounded-[12px] p-3" style={{ background: "rgba(232,160,191,0.08)" }}>
-              <div className="mb-1">
-                <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: "rgba(232,160,191,0.15)", color: S.accentDark }}>
-                  回复
-                </span>
-              </div>
-              <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed" style={{ color: S.text }}>
-                {item.textPreview}
-              </p>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -381,7 +441,6 @@ export default function CotViewer() {
     apiFetch("/api/cot?limit=100")
       .then((data) => {
         setItems(Array.isArray(data) ? data : []);
-        // Mark API loaded and flush any buffered WS messages
         apiLoadedRef.current = true;
         const pending = pendingWsMsgsRef.current;
         pendingWsMsgsRef.current = [];
@@ -477,7 +536,6 @@ export default function CotViewer() {
               has_tool_calls: false,
               rounds: [],
               injectedMemories: [],
-              textPreview: "",
             };
             const next = [newItem, ...prev];
             return [next, 0];
@@ -539,9 +597,23 @@ export default function CotViewer() {
                   item.rounds = rounds;
                 }
               }
-              // Set text preview (only if replay has more)
-              if (msg.text_preview && msg.text_preview.length > (item.textPreview || "").length) {
-                item.textPreview = msg.text_preview;
+              // Insert text_preview as a text block in the last round
+              if (msg.text_preview) {
+                const lastRoundIdx = item.rounds.length > 0
+                  ? item.rounds[item.rounds.length - 1].round_index
+                  : 0;
+                let [rounds2, ri2] = ensureRound([...item.rounds], lastRoundIdx);
+                const round2 = { ...rounds2[ri2], blocks: [...rounds2[ri2].blocks] };
+                const existingTextIdx = round2.blocks.findIndex((b) => b.block_type === "text");
+                if (existingTextIdx >= 0) {
+                  if (msg.text_preview.length > round2.blocks[existingTextIdx].content.length) {
+                    round2.blocks[existingTextIdx] = { ...round2.blocks[existingTextIdx], content: msg.text_preview };
+                  }
+                } else {
+                  round2.blocks.push({ block_type: "text", content: msg.text_preview, tool_name: null });
+                }
+                rounds2[ri2] = round2;
+                item.rounds = rounds2;
                 if (!item.preview || item.preview === "思考中...") {
                   item.preview = msg.text_preview.slice(0, 80);
                 }
@@ -569,7 +641,7 @@ export default function CotViewer() {
             setItems((prev) =>
               prev.map((it) =>
                 it.request_id === request_id
-                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, elapsed_ms: msg.elapsed_ms || 0, cache_hit: msg.cache_hit || false, total_input: msg.total_input || 0, textPreview: "" }
+                  ? { ...it, prompt_tokens: msg.prompt_tokens || 0, completion_tokens: msg.completion_tokens || 0, elapsed_ms: msg.elapsed_ms || 0, cache_hit: msg.cache_hit || false, total_input: msg.total_input || 0 }
                   : it
               )
             );
@@ -620,9 +692,24 @@ export default function CotViewer() {
               let [arr, idx] = ensureItem(prev);
               arr = [...arr];
               const item = { ...arr[idx] };
-              item.textPreview = (item.textPreview || "") + msg.content;
+              let [rounds, ri] = ensureRound([...item.rounds], msg.round_index);
+              const round = { ...rounds[ri], blocks: [...rounds[ri].blocks] };
+              // Find last text block to append to
+              let ti = -1;
+              for (let i = round.blocks.length - 1; i >= 0; i--) {
+                if (round.blocks[i].block_type === "text") { ti = i; break; }
+              }
+              if (ti >= 0) {
+                round.blocks[ti] = { ...round.blocks[ti], content: round.blocks[ti].content + msg.content };
+              } else {
+                round.blocks.push({ block_type: "text", content: msg.content, tool_name: null });
+              }
+              rounds[ri] = round;
+              item.rounds = rounds;
+              // Update card preview
+              const allText = rounds.flatMap((r) => r.blocks.filter((b) => b.block_type === "text")).map((b) => b.content).join("");
               if (!item.preview || item.preview === "思考中...") {
-                item.preview = item.textPreview.slice(0, 80);
+                item.preview = allText.slice(0, 80);
               }
               arr[idx] = item;
               return arr;
@@ -709,7 +796,6 @@ export default function CotViewer() {
 
   const modeInitRef = useRef(true);
   useEffect(() => {
-    // Skip the initial mount — only sync when user actually clicks a mode button
     if (modeInitRef.current) {
       modeInitRef.current = false;
       return;
@@ -736,7 +822,7 @@ export default function CotViewer() {
     <div className="flex h-full flex-col" style={{ background: S.bg }}>
       {/* Header */}
       <div
-        className="flex shrink-0 items-center justify-between px-5 pb-3"
+        className="relative flex shrink-0 items-center justify-between px-5 pb-3"
         style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top))" }}
       >
         <button
@@ -746,8 +832,11 @@ export default function CotViewer() {
         >
           <ChevronLeft size={22} style={{ color: S.text }} />
         </button>
-        <h1 className="flex-1 text-center text-[17px] font-bold" style={{ color: S.text }}>COT 日志</h1>
-        <div className="relative flex h-10 w-10 items-center justify-center">
+        <h1 className="absolute inset-x-0 text-center text-[17px] font-bold pointer-events-none" style={{ color: S.text }}>COT 日志</h1>
+        <div className="flex items-center gap-2">
+          {wsConnected && (
+            <div className="h-2 w-2 rounded-full" style={{ background: "#2a9d5c" }} title="实时连接" />
+          )}
           <button
             className="flex h-10 w-10 items-center justify-center rounded-full"
             style={{ background: S.bg, boxShadow: loading ? "var(--inset-shadow)" : "var(--card-shadow-sm)" }}
@@ -756,9 +845,6 @@ export default function CotViewer() {
           >
             <RefreshCw size={16} style={{ color: S.accentDark }} className={loading ? "animate-spin" : ""} />
           </button>
-          {wsConnected && (
-            <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2" style={{ background: "#2a9d5c", borderColor: S.bg }} />
-          )}
         </div>
       </div>
 
@@ -863,7 +949,7 @@ export default function CotViewer() {
             >
               <img
                 src="/miniapp/assets/decorations/翻盖机.png"
-                alt="待审记忆"
+                alt="摘要提取记忆"
                 className="h-6"
                 style={{ imageRendering: "pixelated", objectFit: "contain" }}
               />
