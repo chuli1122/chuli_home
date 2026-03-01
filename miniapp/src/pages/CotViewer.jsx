@@ -106,8 +106,13 @@ function ThinkingBlock({ block, cacheKey, translateCache, collapsed }) {
 
   return (
     <div className="mb-2 rounded-[12px] p-3" style={{ background: meta.bg }}>
-      <div className={collapsed ? "flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
+      <div className={collapsed ? "flex items-center gap-2 min-w-0" : "mb-1 flex items-center gap-2"}>
         <BlockChip block_type="thinking" />
+        {collapsed && block.content && (
+          <span className="truncate text-[10px] opacity-60" style={{ color: "#8860c8" }}>
+            {block.content.slice(0, 40)}
+          </span>
+        )}
         {!collapsed && (
           <>
             <span className="flex-1" />
@@ -385,11 +390,16 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
                     onPointerDown={handlePointerDown}
                     onPointerUp={(e) => handlePointerUp(e, blockKey)}
                   >
-                    <div className={isBlockExpanded ? "mb-1 flex items-center gap-2" : "flex items-center gap-2"}>
+                    <div className={isBlockExpanded ? "mb-1 flex items-center gap-2" : "flex items-center gap-2 min-w-0"}>
                       <BlockChip block_type={block.block_type} />
                       {block.tool_name && (
-                        <span className="text-[10px] font-mono" style={{ color: meta.color }}>
+                        <span className="text-[10px] font-mono shrink-0" style={{ color: meta.color }}>
                           {block.tool_name}
+                        </span>
+                      )}
+                      {!isBlockExpanded && displayContent && (
+                        <span className="truncate text-[10px] opacity-60" style={{ color: meta.color }}>
+                          {displayContent.slice(0, 40)}
                         </span>
                       )}
                     </div>
