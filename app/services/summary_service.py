@@ -176,6 +176,10 @@ class SummaryService:
             # Split into trimmed (being compressed) and retained (staying in context)
             trimmed_msgs = [m for m in all_session_msgs if m.id in trimmed_ids]
             retained_msgs = [m for m in all_session_msgs if m.id not in trimmed_ids]
+            logger.info(
+                "Summary context split: %d trimmed, %d retained, %d total (session_id=%s)",
+                len(trimmed_msgs), len(retained_msgs), len(all_session_msgs), session_id,
+            )
 
             trimmed_text = self._format_messages(trimmed_msgs or messages, user_name, assistant_name)
             if not trimmed_text.strip():
