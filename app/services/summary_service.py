@@ -347,7 +347,7 @@ memories 为空时写 "memories": []
             # Process extracted memories → pending_memories table
             raw_memories = parsed_payload.get("memories", [])
             if isinstance(raw_memories, list) and raw_memories:
-                self._process_extracted_memories(db, raw_memories, summary.id)
+                self._process_extracted_memories(db, raw_memories, summary.id, time_end)
 
             self._dispatch_core_block_signal(summary.id, assistant.id)
         except Exception:
@@ -357,6 +357,7 @@ memories 为空时写 "memories": []
 
     def _process_extracted_memories(
         self, db: Session, raw_memories: list[dict[str, Any]], summary_id: int,
+        time_end: datetime | None = None,
     ) -> None:
         """Dedup extracted memories against existing ones, create as pending Memory entries."""
         from app.services.embedding_service import EmbeddingService
@@ -373,6 +374,10 @@ memories 为空时写 "memories": []
             content = str(mem.get("content", "")).strip()
             if not content or len(content) < 4:
                 continue
+            # Add timestamp prefix (matching save_memory format)
+            if time_end:
+                ts_str = time_end.astimezone(TZ_EAST8).strftime("%Y.%m.%d %H:%M")
+                content = f"[{ts_str}] {content}"
             klass = mem.get("klass", "other")
             if klass not in valid_klasses:
                 klass = "other"
