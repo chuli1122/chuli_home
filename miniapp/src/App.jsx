@@ -13,6 +13,7 @@ import CotViewer from "./pages/CotViewer";
 import Messages from "./pages/Messages";
 import Memories from "./pages/Memories";
 import Diary from "./pages/Diary";
+import PendingMemories from "./pages/PendingMemories";
 import Profile from "./pages/Profile";
 
 /* ── Viewport height sync ── */
@@ -180,6 +181,7 @@ function AppRoutes() {
       <Route path="/settings/proactive" element={<ProactiveSettings />} />
       <Route path="/cot" element={<CotViewer />} />
       <Route path="/memories" element={<Memories />} />
+      <Route path="/pending-memories" element={<PendingMemories />} />
       <Route path="/diary" element={<Diary />} />
       <Route path="/messages" element={<Messages />} />
     </Routes>

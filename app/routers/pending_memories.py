@@ -44,6 +44,12 @@ class DismissRequest(BaseModel):
     ids: list[int]
 
 
+class EditPendingRequest(BaseModel):
+    content: str | None = None
+    klass: str | None = None
+    tags: dict | None = None
+
+
 class UpdateExistingRequest(BaseModel):
     pending_id: int
     target_memory_id: int
@@ -182,6 +188,30 @@ def dismiss_pending_memories(req: DismissRequest, db: Session = Depends(get_db))
         dismissed += 1
     db.commit()
     return {"dismissed": dismissed}
+
+
+@router.patch("/pending-memories/{pid}")
+def edit_pending_memory(pid: int, req: EditPendingRequest, db: Session = Depends(get_db)):
+    """Edit a pending memory's content, klass, or tags."""
+    from app.services.embedding_service import EmbeddingService
+
+    pm = db.get(PendingMemory, pid)
+    if not pm or pm.status != "pending":
+        raise HTTPException(status_code=404, detail="Pending memory not found")
+
+    if req.content is not None and req.content.strip():
+        pm.content = req.content.strip()
+        embedding_service = EmbeddingService()
+        new_emb = embedding_service.get_embedding(pm.content)
+        if new_emb is not None:
+            pm.embedding = new_emb
+    if req.klass is not None:
+        pm.klass = req.klass
+    if req.tags is not None:
+        pm.tags = req.tags
+
+    db.commit()
+    return {"id": pm.id, "content": pm.content, "klass": pm.klass, "tags": pm.tags}
 
 
 @router.post("/pending-memories/update-existing")

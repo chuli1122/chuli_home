@@ -365,6 +365,7 @@ export default function CotViewer() {
   const [mood, setMood] = useState(null);
   const [moodOpen, setMoodOpen] = useState(false);
   const moodRef = useRef(null);
+  const [pendingCount, setPendingCount] = useState(0);
   const manuallyCollapsedRef = useRef(new Set());
   const apiLoadedRef = useRef(false);
   const pendingWsMsgsRef = useRef([]);
@@ -414,11 +415,14 @@ export default function CotViewer() {
     }).catch(() => {});
   }, []);
 
-  // Load current mood
+  // Load current mood + pending memory count
   useEffect(() => {
     apiFetch("/api/settings/mood")
       .then((data) => setMood(data.mood || "calm"))
       .catch(() => setMood("calm"));
+    apiFetch("/api/pending-memories/count")
+      .then((data) => setPendingCount(data.count || 0))
+      .catch(() => {});
   }, []);
 
   // Close mood popup on outside click
@@ -849,6 +853,29 @@ export default function CotViewer() {
                 {m.label}
               </button>
             ))}
+          </div>
+          {/* Pending memories button */}
+          <div className="relative flex">
+            <button
+              className="flex w-[42px] shrink-0 items-center justify-center rounded-[14px]"
+              style={{ background: S.bg, boxShadow: "var(--inset-shadow)" }}
+              onClick={() => navigate("/pending-memories")}
+            >
+              <img
+                src="/miniapp/assets/decorations/翻盖机.png"
+                alt="待审记忆"
+                className="h-6 w-6"
+                style={{ imageRendering: "pixelated" }}
+              />
+            </button>
+            {pendingCount > 0 && (
+              <span
+                className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold text-white"
+                style={{ background: "#ef4444" }}
+              >
+                {pendingCount > 99 ? "99+" : pendingCount}
+              </span>
+            )}
           </div>
         </div>
       </div>
