@@ -439,9 +439,9 @@ export default function PendingMemories() {
         )}
       </div>
 
-      {/* Bottom bar */}
+      {/* Bottom bar — fixed to avoid Telegram viewport issues */}
       <div
-        className="shrink-0 flex gap-2 px-5 pb-5 pt-3"
+        className="fixed bottom-0 left-0 right-0 flex gap-2 px-5 pb-5 pt-3 z-10"
         style={{ background: S.bg, boxShadow: "0 -4px 12px rgba(0,0,0,0.05)", paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
       >
           {/* Select All 1/5 */}
