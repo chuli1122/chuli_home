@@ -200,7 +200,7 @@ class SummaryService:
             task_instructions = f"""
 系统提示：
 你正在回顾刚才的对话，为自己的记忆系统整理内容。只返回JSON，不要多余文字。
-下面的对话分为"待压缩"和"保留在上下文中"两部分，你只需要对待压缩部分写摘要和提取记忆，保留部分仅供你理解前后文。
+下面的对话分为"待压缩"和"保留在上下文中"两部分，你需要对"待压缩"部分写摘要和提取记忆，保留部分仅供你理解前后文以及判断任务三的最新情绪。
 
 任务一：摘要
 以第一人称视角为待压缩部分的对话写摘要，按以下结构：
@@ -217,11 +217,7 @@ class SummaryService:
 如果对话中有工具调用（如存储记忆、搜索记忆等），在摘要正文中自然地概括，例如'我存储了一条关于xxx的记忆'。
 单条摘要不超过500字，尽量精简，只记关键信息。
 
-任务二：情绪标签
-判断当前最新对话中{user_name}的情绪状态，从以下选一个：
-sad/angry/anxious/tired/emo/happy/flirty/proud/calm
-
-任务三：记忆提取
+任务二：记忆提取
 从待压缩部分提取值得长期记住的信息。
 - 对话中已通过 save_memory 存过的不要重复提取
 - 每条记忆不超过100字，用第一人称记录
@@ -230,8 +226,12 @@ sad/angry/anxious/tired/emo/happy/flirty/proud/calm
 - 没有值得提取的就返回空数组
 - tags：给每条记忆加1-3个短关键词标签，方便检索
 
+任务三：情绪标签
+判断当前最新对话中{user_name}的情绪状态，从以下选一个：
+sad/angry/anxious/tired/emo/happy/flirty/proud/calm
+
 输出格式：
-{{"summary": "...", "mood_tag": "...", "memories": [{{"content": "...", "klass": "...", "tags": ["标签1", "标签2"]}}, ...]}}
+{{"summary": "...", "memories": [{{"content": "...", "klass": "...", "tags": ["标签1", "标签2"]}}, ...], "mood_tag": "..."}}
 memories 为空时写 "memories": []
 """.strip()
 
@@ -242,7 +242,7 @@ memories 为空时写 "memories": []
                 group_task = task_instructions.replace(
                     f'判断当前最新对话中{user_name}的情绪状态，从以下选一个：\nsad/angry/anxious/tired/emo/happy/flirty/proud/calm',
                     '',
-                ).replace('"mood_tag": "...", ', '')
+                ).replace(', "mood_tag": "..."', '')
                 system_prompt = base_persona + "\n\n" + group_task if base_persona else group_task
 
             parsed_payload: dict[str, Any] | None = None
@@ -355,7 +355,7 @@ memories 为空时写 "memories": []
     def _process_extracted_memories(
         self, db: Session, raw_memories: list[dict[str, Any]], summary_id: int,
     ) -> None:
-        """Dedup extracted memories against existing ones, store as pending."""
+        """Dedup extracted memories against existing ones, create as pending Memory entries."""
         from app.services.embedding_service import EmbeddingService
         from app.constants import KLASS_DEFAULTS
         from sqlalchemy import text
@@ -375,23 +375,23 @@ memories 为空时写 "memories": []
                 klass = "other"
             raw_tags = mem.get("tags", [])
             tags = {"topic": [str(t) for t in raw_tags[:6]] if isinstance(raw_tags, list) else []}
+            klass_config = KLASS_DEFAULTS.get(klass, KLASS_DEFAULTS["other"])
             # Get embedding for dedup
             embedding = embedding_service.get_embedding(content)
             if embedding is None:
                 continue
 
-            # Check similarity against existing memories
+            # Check similarity against existing non-pending memories
             dup_sql = text("""
                 SELECT id, content, 1 - (embedding <=> :query_embedding) AS similarity
                 FROM memories
-                WHERE embedding IS NOT NULL AND deleted_at IS NULL
+                WHERE embedding IS NOT NULL AND deleted_at IS NULL AND is_pending = FALSE
                 ORDER BY embedding <=> :query_embedding
                 LIMIT 1
             """)
             dup_result = db.execute(dup_sql, {"query_embedding": str(embedding)}).first()
 
             if dup_result and dup_result.similarity > 0.88:
-                # Too similar — skip (exact duplicate)
                 logger.debug(
                     "[memory_extract] Skipped duplicate: '%s' ~ '%s' (%.2f)",
                     content[:30], dup_result.content[:30], dup_result.similarity,
@@ -399,25 +399,41 @@ memories 为空时写 "memories": []
                 continue
 
             # Also check against existing pending memories to avoid double-pending
-            pending_dup_sql = text("""
-                SELECT id FROM pending_memories
-                WHERE embedding IS NOT NULL AND status = 'pending'
+            dup_pending_sql = text("""
+                SELECT id FROM memories
+                WHERE embedding IS NOT NULL AND deleted_at IS NULL AND is_pending = TRUE
                   AND 1 - (embedding <=> :query_embedding) > 0.88
                 LIMIT 1
             """)
-            pending_dup = db.execute(pending_dup_sql, {"query_embedding": str(embedding)}).first()
-            if pending_dup:
-                logger.debug("[memory_extract] Skipped: already pending (id=%s)", pending_dup.id)
+            dup_pending = db.execute(dup_pending_sql, {"query_embedding": str(embedding)}).first()
+            if dup_pending:
+                logger.debug("[memory_extract] Skipped: already pending (memory_id=%s)", dup_pending.id)
                 continue
 
-            # Store as pending
+            # Determine related memory
             related_id = None
             similarity = None
             if dup_result and dup_result.similarity > 0.5:
                 related_id = dup_result.id
                 similarity = round(dup_result.similarity, 3)
 
+            # Create real Memory entry with is_pending=True
+            memory = Memory(
+                content=content,
+                klass=klass,
+                tags=tags,
+                embedding=embedding,
+                source="auto_extract",
+                importance=klass_config["importance"],
+                halflife_days=klass_config["halflife_days"],
+                is_pending=True,
+            )
+            db.add(memory)
+            db.flush()  # get memory.id
+
+            # Create PendingMemory as review metadata
             pending = PendingMemory(
+                memory_id=memory.id,
                 content=content,
                 klass=klass,
                 importance=3,
