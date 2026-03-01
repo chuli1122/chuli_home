@@ -76,7 +76,7 @@ def list_pending_memories(db: Session = Depends(get_db)):
                 ORDER BY embedding <=> :query_embedding
                 LIMIT 1
             """)
-            dup = db.execute(dup_sql, {"query_embedding": str(row.embedding)}).first()
+            dup = db.execute(dup_sql, {"query_embedding": str(list(row.embedding))}).first()
             if dup and dup.similarity > 0.88:
                 # Auto-resolve: an equivalent memory now exists
                 row.status = "auto_resolved"
@@ -148,7 +148,7 @@ def confirm_pending_memories(req: ConfirmRequest, db: Session = Depends(get_db))
                   AND 1 - (embedding <=> :query_embedding) > 0.88
                 LIMIT 1
             """)
-            dup = db.execute(dup_sql, {"query_embedding": str(pm.embedding)}).first()
+            dup = db.execute(dup_sql, {"query_embedding": str(list(pm.embedding))}).first()
             if dup:
                 pm.status = "auto_resolved"
                 pm.resolved_at = datetime.now(timezone.utc)

@@ -160,7 +160,7 @@ function AppRoutes() {
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-    if (tg && !location.pathname.startsWith("/cot")) {
+    if (tg && !location.pathname.startsWith("/cot") && !location.pathname.startsWith("/pending-memories")) {
       tg.expand();
     }
     syncHeight();
