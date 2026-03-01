@@ -388,7 +388,7 @@ export default function PendingMemories() {
   const allSelected = items.length > 0 && selectedIds.size === items.length;
 
   return (
-    <div className="flex h-[var(--tg-viewport-height)] flex-col" style={{ background: S.bg }}>
+    <div className="flex h-full flex-col" style={{ background: S.bg }}>
       {/* Header */}
       <div
         className="flex shrink-0 items-center justify-between px-5 pb-3"
