@@ -194,14 +194,10 @@ class SummaryService:
             else:
                 conversation_text = trimmed_text
 
-            # Include assistant persona in system prompt for better context
+            # Include full assistant persona in system prompt
             persona_snippet = ""
             if assistant.system_prompt:
-                # Take first 800 chars of persona to keep cost manageable
-                raw_persona = assistant.system_prompt.strip()
-                if len(raw_persona) > 800:
-                    raw_persona = raw_persona[:800] + "..."
-                persona_snippet = f"\n\n你的人设概要：\n{raw_persona}\n"
+                persona_snippet = f"\n\n你的人设：\n{assistant.system_prompt.strip()}\n"
 
             memory_extraction_task = f"""
 任务三：记忆提取
