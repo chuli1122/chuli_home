@@ -161,24 +161,23 @@ class SummaryService:
             user_name = user_profile.nickname if user_profile and user_profile.nickname else "User"
             assistant_name = assistant.name or "Assistant"
 
-            # Build full context: trimmed messages + retained messages
-            trimmed_ids = {m.id for m in messages if m.id is not None}
-            all_session_msgs = (
+            # Split: trimmed messages (being compressed) + retained (still in context)
+            trimmed_msgs = sorted(messages, key=lambda m: (m.created_at, m.id))
+            max_trimmed_id = max((m.id for m in messages if m.id is not None), default=0)
+            retained_msgs = (
                 db.query(Message)
                 .filter(
                     Message.session_id == session_id,
                     Message.role.in_(["user", "assistant", "tool"]),
+                    Message.id > max_trimmed_id,
                 )
                 .order_by(Message.created_at.asc(), Message.id.asc())
-                .limit(120)
+                .limit(60)
                 .all()
             )
-            # Split into trimmed (being compressed) and retained (staying in context)
-            trimmed_msgs = [m for m in all_session_msgs if m.id in trimmed_ids]
-            retained_msgs = [m for m in all_session_msgs if m.id not in trimmed_ids]
             logger.info(
-                "Summary context split: %d trimmed, %d retained, %d total (session_id=%s)",
-                len(trimmed_msgs), len(retained_msgs), len(all_session_msgs), session_id,
+                "Summary context split: %d trimmed, %d retained (session_id=%s, max_trimmed_id=%s)",
+                len(trimmed_msgs), len(retained_msgs), session_id, max_trimmed_id,
             )
 
             trimmed_text = self._format_messages(trimmed_msgs or messages, user_name, assistant_name)
