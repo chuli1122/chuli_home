@@ -160,6 +160,25 @@ class Memory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class PendingMemory(Base):
+    __tablename__ = "pending_memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    klass: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
+    importance: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
+    # Related existing memory (similar/conflicting)
+    related_memory_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("memories.id"), nullable=True)
+    similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Source
+    summary_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("session_summaries.id"), nullable=True)
+    # Status: pending / confirmed / dismissed / auto_resolved
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class Diary(Base):
     __tablename__ = "diary"
 

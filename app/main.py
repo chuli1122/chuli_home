@@ -30,6 +30,7 @@ from app.routers import (
     upload,
     user_profile,
     world_books,
+    pending_memories,
 )
 from app.routers.auth import require_auth_token
 from app.telegram.router import router as telegram_router
@@ -234,6 +235,7 @@ app.include_router(theater.router, prefix="/api", tags=["theater"], dependencies
 app.include_router(api_providers.router, prefix="/api", tags=["api_providers"], dependencies=auth_deps)
 app.include_router(model_presets.router, prefix="/api", tags=["model_presets"], dependencies=auth_deps)
 app.include_router(cot.router, prefix="/api", tags=["cot"], dependencies=auth_deps)
+app.include_router(pending_memories.router, prefix="/api", tags=["pending_memories"], dependencies=auth_deps)
 app.include_router(upload.router, prefix="/api", tags=["upload"], dependencies=auth_deps)
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(telegram_router, tags=["telegram"])

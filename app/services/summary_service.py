@@ -15,8 +15,10 @@ from app.models.models import (
     ApiProvider,
     Assistant,
     ChatSession,
+    Memory,
     Message,
     ModelPreset,
+    PendingMemory,
     SessionSummary,
     Settings,
     SummaryLayer,
@@ -158,14 +160,67 @@ class SummaryService:
             user_profile = db.query(UserProfile).first()
             user_name = user_profile.nickname if user_profile and user_profile.nickname else "User"
             assistant_name = assistant.name or "Assistant"
-            conversation_text = self._format_messages(messages, user_name, assistant_name)
-            if not conversation_text.strip():
+
+            # Build full context: trimmed messages + retained messages
+            trimmed_ids = {m.id for m in messages if m.id is not None}
+            all_session_msgs = (
+                db.query(Message)
+                .filter(
+                    Message.session_id == session_id,
+                    Message.role.in_(["user", "assistant", "tool"]),
+                )
+                .order_by(Message.created_at.asc(), Message.id.asc())
+                .limit(120)
+                .all()
+            )
+            # Split into trimmed (being compressed) and retained (staying in context)
+            trimmed_msgs = [m for m in all_session_msgs if m.id in trimmed_ids]
+            retained_msgs = [m for m in all_session_msgs if m.id not in trimmed_ids]
+
+            trimmed_text = self._format_messages(trimmed_msgs or messages, user_name, assistant_name)
+            if not trimmed_text.strip():
                 logger.warning("Summary skipped: no usable message content (session_id=%s).", session_id)
                 return
 
-            chat_prompt = f"""
-你是{assistant_name}，{user_name}的AI伴侣。你在为自己的记忆系统写摘要。
+            # Build conversation text with context markers
+            retained_text = self._format_messages(retained_msgs, user_name, assistant_name) if retained_msgs else ""
+            if retained_text.strip():
+                conversation_text = (
+                    "=== 以下对话即将被压缩，请重点关注 ===\n"
+                    + trimmed_text
+                    + "\n\n=== 以下对话仍保留在上下文中，无需重复提取 ===\n"
+                    + retained_text
+                )
+            else:
+                conversation_text = trimmed_text
 
+            # Include assistant persona in system prompt for better context
+            persona_snippet = ""
+            if assistant.system_prompt:
+                # Take first 800 chars of persona to keep cost manageable
+                raw_persona = assistant.system_prompt.strip()
+                if len(raw_persona) > 800:
+                    raw_persona = raw_persona[:800] + "..."
+                persona_snippet = f"\n\n你的人设概要：\n{raw_persona}\n"
+
+            memory_extraction_task = f"""
+任务三：记忆提取
+审查即将被压缩的对话，提取值得长期保存的信息。注意：
+- 只提取"即将被压缩"部分的记忆，"仍保留在上下文"部分不需要提取
+- 如果对话中已经调用过 save_memory 存储了某条信息，不要重复提取
+- 每条记忆不超过100字，用"我"指代{assistant_name}，用名字指代{user_name}
+- klass 从以下选择：identity、relationship、bond、conflict、fact、preference、health、task、ephemeral、other
+- importance 评分 1-5：
+  5 = 关系重大变化、重要决定
+  4 = 明确表达的偏好、重大情绪事件
+  3 = 值得记的事实、进展
+  2 = 轻量日常（一般不提取）
+  1 = 噪音（不提取）
+- 只提取 importance >= 3 的记忆，没有值得提取的就返回空数组
+"""
+
+            chat_prompt = f"""
+你是{assistant_name}，{user_name}的AI伴侣。你在为自己的记忆系统写摘要。{persona_snippet}
 只返回JSON，不要markdown代码块，不要多余文字。
 
 任务一：摘要
@@ -195,13 +250,14 @@ class SummaryService:
 - flirty：撒娇、调情、在钓你
 - proud：被夸之后、有成就感
 - calm：平静、正常聊天、情绪稳定
+{memory_extraction_task}
 输出格式：
-{{"summary": "...", "mood_tag": "..."}}
+{{"summary": "...", "mood_tag": "...", "memories": [{{"content": "...", "klass": "...", "importance": 3}}, ...]}}
+memories 为空时写 "memories": []
 """.strip()
 
             group_prompt = f"""
-你是{assistant_name}，{user_name}的AI伴侣。你在为自己的记忆系统写摘要。
-
+你是{assistant_name}，{user_name}的AI伴侣。你在为自己的记忆系统写摘要。{persona_snippet}
 只返回JSON，不要markdown代码块，不要多余文字。
 
 任务一：摘要
@@ -219,9 +275,10 @@ class SummaryService:
 如果对话中有工具调用（如存储记忆、搜索记忆等），在摘要正文中自然地概括，例如'我存储了一条关于xxx的记忆'。
 单条摘要不超过500字，尽量精简，只记关键信息。
 注意：摘要中"我"= {assistant_name}。
-
+{memory_extraction_task}
 输出格式：
-{{"summary": "..."}}
+{{"summary": "...", "memories": [{{"content": "...", "klass": "...", "importance": 3}}, ...]}}
+memories 为空时写 "memories": []
 """.strip()
 
             system_prompt = chat_prompt if is_chat_session else group_prompt
@@ -321,11 +378,103 @@ class SummaryService:
             db.commit()
             logger.info("Summary generated OK (session_id=%s, summary_id=%s, mood=%s).",
                         session_id, summary.id, mood_tag)
+
+            # Process extracted memories → pending_memories table
+            raw_memories = parsed_payload.get("memories", [])
+            if isinstance(raw_memories, list) and raw_memories:
+                self._process_extracted_memories(db, raw_memories, summary.id)
+
             self._dispatch_core_block_signal(summary.id, assistant.id)
         except Exception:
             logger.exception("Failed to generate summary (session_id=%s).", session_id)
         finally:
             db.close()
+
+    def _process_extracted_memories(
+        self, db: Session, raw_memories: list[dict[str, Any]], summary_id: int,
+    ) -> None:
+        """Dedup extracted memories against existing ones, store as pending."""
+        from app.services.embedding_service import EmbeddingService
+        from app.constants import KLASS_DEFAULTS
+        from sqlalchemy import text
+
+        embedding_service = EmbeddingService()
+        valid_klasses = set(KLASS_DEFAULTS.keys())
+        saved_count = 0
+
+        for mem in raw_memories:
+            if not isinstance(mem, dict):
+                continue
+            content = str(mem.get("content", "")).strip()
+            if not content or len(content) < 4:
+                continue
+            klass = mem.get("klass", "other")
+            if klass not in valid_klasses:
+                klass = "other"
+            importance = mem.get("importance", 3)
+            if not isinstance(importance, int) or importance < 1 or importance > 5:
+                importance = 3
+            if importance < 3:
+                continue
+
+            # Get embedding for dedup
+            embedding = embedding_service.get_embedding(content)
+            if embedding is None:
+                continue
+
+            # Check similarity against existing memories
+            dup_sql = text("""
+                SELECT id, content, 1 - (embedding <=> :query_embedding) AS similarity
+                FROM memories
+                WHERE embedding IS NOT NULL AND deleted_at IS NULL
+                ORDER BY embedding <=> :query_embedding
+                LIMIT 1
+            """)
+            dup_result = db.execute(dup_sql, {"query_embedding": str(embedding)}).first()
+
+            if dup_result and dup_result.similarity > 0.88:
+                # Too similar — skip (exact duplicate)
+                logger.debug(
+                    "[memory_extract] Skipped duplicate: '%s' ~ '%s' (%.2f)",
+                    content[:30], dup_result.content[:30], dup_result.similarity,
+                )
+                continue
+
+            # Also check against existing pending memories to avoid double-pending
+            pending_dup_sql = text("""
+                SELECT id FROM pending_memories
+                WHERE embedding IS NOT NULL AND status = 'pending'
+                  AND 1 - (embedding <=> :query_embedding) > 0.88
+                LIMIT 1
+            """)
+            pending_dup = db.execute(pending_dup_sql, {"query_embedding": str(embedding)}).first()
+            if pending_dup:
+                logger.debug("[memory_extract] Skipped: already pending (id=%s)", pending_dup.id)
+                continue
+
+            # Store as pending
+            related_id = None
+            similarity = None
+            if dup_result and dup_result.similarity > 0.5:
+                related_id = dup_result.id
+                similarity = round(dup_result.similarity, 3)
+
+            pending = PendingMemory(
+                content=content,
+                klass=klass,
+                importance=importance,
+                embedding=embedding,
+                related_memory_id=related_id,
+                similarity=similarity,
+                summary_id=summary_id,
+                status="pending",
+            )
+            db.add(pending)
+            saved_count += 1
+
+        if saved_count:
+            db.commit()
+            logger.info("[memory_extract] %d pending memories created (summary_id=%s)", saved_count, summary_id)
 
     def _dispatch_core_block_signal(self, summary_id: int, assistant_id: int) -> None:
         def _worker() -> None:
