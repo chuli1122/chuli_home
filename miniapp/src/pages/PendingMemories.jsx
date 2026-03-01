@@ -376,7 +376,7 @@ export default function PendingMemories() {
   /* ── Group by summary_id ── */
 
   const groups = [];
-  let currentSummaryId = null;
+  let currentSummaryId = Symbol(); // sentinel: never equals any real value
   for (const item of items) {
     if (item.summary_id !== currentSummaryId) {
       currentSummaryId = item.summary_id;
