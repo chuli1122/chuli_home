@@ -45,7 +45,7 @@ function BlockChip({ block_type }) {
   const meta = BLOCK_COLORS[block_type] || { bg: "rgba(136,136,160,0.1)", color: S.textMuted, label: block_type };
   return (
     <span
-      className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+      className="shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold"
       style={{ background: meta.bg, color: meta.color }}
     >
       {meta.label}
@@ -106,11 +106,11 @@ function ThinkingBlock({ block, cacheKey, translateCache, collapsed }) {
 
   return (
     <div className="mb-2 rounded-[12px] p-3" style={{ background: meta.bg }}>
-      <div className={collapsed ? "flex items-center gap-2 min-w-0" : "mb-1 flex items-center gap-2"}>
+      <div className={collapsed ? "flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
         <BlockChip block_type="thinking" />
         {collapsed && block.content && (
-          <span className="truncate text-[10px] font-semibold opacity-60" style={{ color: "#8860c8" }}>
-            {block.content.slice(0, 40)}
+          <span className="flex-1 min-w-0 truncate text-[10px] font-semibold opacity-60" style={{ color: "#8860c8" }}>
+            {block.content.replace(/\n/g, " ").slice(0, 50)}
           </span>
         )}
         {!collapsed && (
@@ -390,7 +390,7 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
                     onPointerDown={handlePointerDown}
                     onPointerUp={(e) => handlePointerUp(e, blockKey)}
                   >
-                    <div className={isBlockExpanded ? "mb-1 flex items-center gap-2" : "flex items-center gap-2 min-w-0"}>
+                    <div className={isBlockExpanded ? "mb-1 flex items-center gap-2" : "flex items-center gap-2"}>
                       <BlockChip block_type={block.block_type} />
                       {block.tool_name && (
                         <span className="text-[10px] font-mono" style={{ color: meta.color }}>
@@ -398,8 +398,8 @@ function CotCard({ item, expanded, onToggle, live, avatarUrl, translateCache }) 
                         </span>
                       )}
                       {!isBlockExpanded && block.block_type === "text" && displayContent && (
-                        <span className="truncate text-[10px] font-semibold opacity-60" style={{ color: meta.color }}>
-                          {displayContent.slice(0, 40)}
+                        <span className="flex-1 min-w-0 truncate text-[10px] font-semibold opacity-60" style={{ color: meta.color }}>
+                          {displayContent.replace(/\n/g, " ").slice(0, 50)}
                         </span>
                       )}
                     </div>
