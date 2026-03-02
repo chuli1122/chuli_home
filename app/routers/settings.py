@@ -347,18 +347,6 @@ def set_mood(
         db.add(latest_summary)
     db.flush()
 
-    # Write a system message (status change, not a user message)
-    user_profile = db.query(UserProfile).first()
-    nickname = user_profile.nickname if user_profile and user_profile.nickname else "她"
-    msg = Message(
-        session_id=latest_session.id,
-        role="system",
-        content=f"{nickname}手动切换心情为：{mood}",
-        meta_info={"mood_switch": True},
-        created_at=datetime.now(timezone.utc),
-    )
-    db.add(msg)
-
     # Mark as manual
     _upsert_setting(db, "mood_manual", "true")
 

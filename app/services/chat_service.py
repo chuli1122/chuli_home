@@ -1645,13 +1645,7 @@ class ChatService:
                 summary_text += f"- [msg {s.msg_id_start}-{s.msg_id_end}] {s.summary_content}\n"
             full_system_prompt += summary_text.rstrip()
         if latest_mood_tag:
-            try:
-                manual_row = self.db.query(Settings).filter(Settings.key == "mood_manual").first()
-                manual = manual_row and manual_row.value == "true"
-                flag = " (manual)" if manual else ""
-            except Exception:
-                flag = ""
-            full_system_prompt += f"\n\n[User recent mood: {latest_mood_tag}{flag}]"
+            full_system_prompt += f"\n\n[User recent mood: {latest_mood_tag}]"
         self._last_recall_results = []
         if not self.proactive_extra_prompt and latest_user_message:
             recall_query = latest_user_message
