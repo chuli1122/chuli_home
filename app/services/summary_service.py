@@ -185,14 +185,14 @@ class SummaryService:
                 logger.warning("Summary skipped: no usable message content (session_id=%s).", session_id)
                 return
 
-            # Build conversation text with section markers
-            retained_text = self._format_messages(retained_msgs, user_name, assistant_name) if retained_msgs else ""
-            if retained_text.strip():
+            # Build conversation text; only append last few user msgs for mood detection
+            recent_user_msgs = [m for m in retained_msgs if (m.role or "").lower() == "user"][-3:]
+            if recent_user_msgs:
+                mood_text = self._format_messages(recent_user_msgs, user_name, assistant_name)
                 conversation_text = (
-                    "--- 待压缩的消息（请为以下内容写摘要和提取记忆）---\n"
-                    + trimmed_text
-                    + "\n\n--- 以下消息不需要摘要，仅供判断最新情绪 ---\n"
-                    + retained_text
+                    trimmed_text
+                    + f"\n\n[{user_name}最近的消息，仅用于判断情绪标签]\n"
+                    + mood_text
                 )
             else:
                 conversation_text = trimmed_text
@@ -203,7 +203,7 @@ class SummaryService:
             task_instructions = f"""
 系统提示：
 你正在回顾刚才的对话，为自己的记忆系统整理内容。只返回JSON，不要多余文字。
-对话分两段。第一段"待压缩"是你要写摘要和提取记忆的部分。第二段"仅供判断最新情绪"的消息不要写进摘要，只用来判断任务三的情绪标签。
+对以下对话写摘要和提取记忆。末尾如果附有"最近的消息"，那几条不需要摘要，只用来判断情绪标签。
 
 任务一：摘要
 以第一人称视角为待压缩部分的对话写摘要，按以下结构：
@@ -231,7 +231,7 @@ class SummaryService:
 - tags：给每条记忆加1-3个短关键词标签，方便检索
 
 任务三：情绪标签
-根据第二段（仅供判断情绪的最新消息）判断{user_name}当前的情绪状态，从以下选一个：
+根据{user_name}最近的消息判断当前情绪状态，从以下选一个：
 sad/angry/anxious/tired/emo/happy/flirty/proud/calm
 
 输出格式：
@@ -244,7 +244,7 @@ memories 为空时写 "memories": []
             else:
                 # Group session: no mood_tag
                 group_task = task_instructions.replace(
-                    f'根据第二段（仅供判断情绪的最新消息）判断{user_name}当前的情绪状态，从以下选一个：\nsad/angry/anxious/tired/emo/happy/flirty/proud/calm',
+                    f'根据{user_name}最近的消息判断当前情绪状态，从以下选一个：\nsad/angry/anxious/tired/emo/happy/flirty/proud/calm',
                     '',
                 ).replace(', "mood_tag": "..."', '')
                 system_prompt = base_persona + "\n\n" + group_task if base_persona else group_task
